@@ -123,6 +123,7 @@ footer{margin:48px 0 28px;padding-top:18px;border-top:1px solid var(--line);colo
 .ck.ok i{background:rgba(52,211,153,.2);color:#34d399}.ck.warn i{background:rgba(251,191,36,.2);color:#fbbf24}.ck.bad i{background:rgba(248,113,113,.2);color:#f87171}.ck.na i{background:rgba(148,163,184,.2);color:#cbd5e1}.ck small{display:block;color:var(--mute)}
 .sc-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.sc-links a,.sc-links button{font:inherit;font-size:13px;color:#cfe0ff;border:1px solid var(--line);background:transparent;border-radius:8px;padding:6px 12px;text-decoration:none;cursor:pointer}
 .sc-note{color:var(--mute);font-size:12.5px}
+.fld select{max-width:56%}.fld input{min-width:70px}
 </style>
 </head>
 <body>
@@ -131,7 +132,7 @@ footer{margin:48px 0 28px;padding-top:18px;border-top:1px solid var(--line);colo
 <main class="dash">
 <section class="hero"><div><span class="pill">MULTI-CHAIN · VETTED PROJECTS · REAL COMMUNITY</span><h1>Discover smarter.<span>Trade with clarity.</span></h1><p>Explore vetted crypto projects, real-time news, a powerful token swap and an active community, all in one place. Covering Solana, BNB Chain, Base and Ethereum.</p><div class="cta"><a class="btn pri" href="#projects">Explore Projects →</a><a class="btn" href="#roadmap">Join Community</a></div></div><div class="gl"><img id="globe" alt=""><span class="cp c1"><img class="cl" data-chain="Solana" alt="">Solana</span><span class="cp c2"><img class="cl" data-chain="BNB Chain" alt="">BNB Chain</span><span class="cp c3"><img class="cl" data-chain="Ethereum" alt="">Ethereum</span><span class="cp c4"><img class="cl" data-chain="Base" alt="">Base</span></div></section>
 <section id="swap" class="swc" aria-label="CBL Swap"><h2 class="swt">CBL Swap</h2><p class="sws">Buy vetted tokens directly. Swap or bridge across chains.</p>
-<div class="swap sw"><div class="tabs"><button class="chip" id="tS" aria-pressed="true">Swap</button><button class="chip" id="tB" aria-pressed="false">Bridge</button></div><div style="display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="chip" id="wc" type="button">Connect wallet</button><small id="wst" style="color:var(--mute)"></small></div><div class="nb" id="nb" hidden role="status"></div><div id="swp" style="display:flex;flex-direction:column;gap:12px"><div class="fld"><label for="pay">You pay</label><div><input id="amt" type="number" min="0" placeholder="0.0" inputmode="decimal"><select id="pay"></select></div></div>
+<div class="swap sw"><div class="tabs"><button class="chip" id="tS" aria-pressed="true">Swap</button><button class="chip" id="tB" aria-pressed="false">Bridge</button></div><div style="display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="chip" id="wc" type="button">Connect wallet</button><small id="wst" style="color:var(--mute)"></small></div><div class="nb" id="nb" hidden role="status"></div><div id="swp" style="display:flex;flex-direction:column;gap:12px"><div class="tabs"><button class="chip" id="sB" type="button" aria-pressed="true">Buy</button><button class="chip" id="sS" type="button" aria-pressed="false">Sell</button></div><div class="fld"><label for="pay">You pay</label><div><input id="amt" type="number" min="0" placeholder="0.0" inputmode="decimal"><select id="pay"></select></div></div>
 <div class="fld"><label for="tok">You receive</label><div><input id="out" placeholder="0.0" disabled><select id="tok"></select></div></div>
 <div class="fld"><label for="slip">Slippage tolerance %</label><div><input id="slip" type="number" min="0.1" max="49" step="0.1" value="1" style="font-size:16px"></div></div><small id="route"></small><button class="go" id="go">Get quote</button><small id="msg" aria-live="polite">Some tokens charge a buy/sell tax. Check the project page first.</small></div>
 <div id="brg" style="display:none;flex-direction:column;gap:12px">
@@ -294,31 +295,34 @@ async function netCheck(){var b=$("nb"),need=needId();if(!EP||!A.evm||!need){b.h
  try{var cur=parseInt(await EP.request({method:"eth_chainId"}),16);if(cur===need){b.hidden=true;return}
  b.hidden=false;b.textContent="";var s=document.createElement("span");s.textContent="Your wallet is on "+nameOf(cur)+". Switch to "+nameOf(need)+" to continue.";var bt=document.createElement("button");bt.className="chip";bt.type="button";bt.textContent="Switch network";bt.onclick=function(){switchNet(need).then(netCheck).catch(function(e){say1(e.message||"Switch failed")})};b.appendChild(s);b.appendChild(bt)}catch(e){b.hidden=true}}
 var ROUTER="0x10ED43C718714eb63d5aA57B78B54704E256024E",WBNB="0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",BSCT={USDT:"0x55d398326f99059fF775485246999027B3197955",USDC:"0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"};
-var RABI=["function getAmountsOut(uint256,address[]) view returns (uint256[])","function swapExactETHForTokensSupportingFeeOnTransferTokens(uint256,address[],address,uint256) payable","function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint256,uint256,address[],address,uint256)"];
+var RABI=["function getAmountsOut(uint256,address[]) view returns (uint256[])","function swapExactETHForTokensSupportingFeeOnTransferTokens(uint256,address[],address,uint256) payable","function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint256,uint256,address[],address,uint256)","function swapExactTokensForETHSupportingFeeOnTransferTokens(uint256,uint256,address[],address,uint256)"];
 ROUTER=ROUTER.toLowerCase();WBNB=WBNB.toLowerCase();BSCT.USDT=BSCT.USDT.toLowerCase();BSCT.USDC=BSCT.USDC.toLowerCase();
 var TABI=["function decimals() view returns (uint8)","function allowance(address,address) view returns (uint256)","function approve(address,uint256) returns (bool)"];
-async function pQuote(p,amt,pay,slip){await loadEth();await switchNet(56);
- var bp=new ethers.BrowserProvider(EP),s=await bp.getSigner(),R=new ethers.Contract(ROUTER,RABI,s),T=new ethers.Contract(p.a.toLowerCase(),TABI,s);
- var tok=p.a.toLowerCase(),inA=pay==="BNB"?WBNB:BSCT[pay],mids=[WBNB,BSCT.USDT,BSCT.USDC].filter(function(a){return a!==inA}),paths=[[inA,tok]].concat(mids.map(function(m){return [inA,m,tok]})),amtIn=ethers.parseUnits(String(amt),18),out=null,path=null,lastErr="";
+var side="buy";
+async function pQuote(p,amt,pay,slip,sd){await loadEth();await switchNet(56);
+ var bp=new ethers.BrowserProvider(EP),s=await bp.getSigner(),R=new ethers.Contract(ROUTER,RABI,s),tok=p.a.toLowerCase(),T=new ethers.Contract(tok,TABI,s);
+ var dc=Number(await T.decimals()),sell=sd==="sell",other=pay==="BNB"?WBNB:BSCT[pay],a0=sell?tok:other,a1=sell?other:tok;
+ var mids=[WBNB,BSCT.USDT,BSCT.USDC].filter(function(a){return a!==a0&&a!==a1}),paths=[[a0,a1]].concat(mids.map(function(m){return [a0,m,a1]})),amtIn=ethers.parseUnits(String(amt),sell?dc:18),out=null,path=null,lastErr="";
  var rpc=new ethers.JsonRpcProvider("https://bsc-dataseed.binance.org",56,{staticNetwork:true}),R2=new ethers.Contract(ROUTER,RABI,rpc);
  for(var k=0;k<2&&out===null;k++){var RR=k?R:R2;for(var i=0;i<paths.length&&out===null;i++){try{var r=await RR.getAmountsOut(amtIn,paths[i]);out=r[r.length-1];path=paths[i]}catch(e){lastErr=(e&&(e.shortMessage||e.message))||""}}}
  if(out===null)throw new Error("No PancakeSwap V2 route found"+(lastErr?" ("+lastErr.slice(0,90)+")":""));
- var dc=Number(await T.decimals()),min=out*BigInt(10000-Math.round(slip*10000))/BigInt(10000);
- return {R:R,s:s,p:p,pay:pay,amtIn:amtIn,path:path,out:out,min:min,dc:dc,inA:inA,addr:await s.getAddress()}}
-function pf(x,v){return Number(ethers.formatUnits(v,x.dc)).toPrecision(6)+" "+x.p.n.split(" ")[0]}
+ var min=out*BigInt(10000-Math.round(slip*10000))/BigInt(10000);
+ return {R:R,s:s,p:p,pay:pay,sell:sell,amtIn:amtIn,path:path,out:out,min:min,dc:dc,inA:a0,addr:await s.getAddress()}}
+function pf(x,v){return Number(ethers.formatUnits(v,x.sell?18:x.dc)).toPrecision(6)+" "+(x.sell?x.pay:x.p.n.split(" ")[0])}
 async function pExec(x,say){
- if(x.pay!=="BNB"){var tc=new ethers.Contract(x.inA,TABI,x.s),al=await tc.allowance(x.addr,ROUTER);if(al<x.amtIn){say("Approve "+x.pay+" in your wallet...");var a=await tc.approve(ROUTER,x.amtIn);await a.wait()}}
- say("Confirm the swap in your wallet...");var dl=Math.floor(Date.now()/1000)+1200;
- var tx=x.pay==="BNB"?await x.R.swapExactETHForTokensSupportingFeeOnTransferTokens(x.min,x.path,x.addr,dl,{value:x.amtIn}):await x.R.swapExactTokensForTokensSupportingFeeOnTransferTokens(x.amtIn,x.min,x.path,x.addr,dl);
- say("Swap sent. Waiting for confirmation...");await tx.wait();say("Done. Swap confirmed on PancakeSwap: bscscan.com/tx/"+tx.hash)}
+ if(x.sell||x.pay!=="BNB"){var tc=new ethers.Contract(x.inA,TABI,x.s),al=await tc.allowance(x.addr,ROUTER);if(al<x.amtIn){say("Approve "+(x.sell?x.p.n.split(" ")[0]:x.pay)+" in your wallet...");var a=await tc.approve(ROUTER,x.amtIn);await a.wait()}}
+ say("Confirm the swap in your wallet...");var dl=Math.floor(Date.now()/1000)+1200,tx;
+ if(x.sell)tx=x.pay==="BNB"?await x.R.swapExactTokensForETHSupportingFeeOnTransferTokens(x.amtIn,x.min,x.path,x.addr,dl):await x.R.swapExactTokensForTokensSupportingFeeOnTransferTokens(x.amtIn,x.min,x.path,x.addr,dl);
+ else tx=x.pay==="BNB"?await x.R.swapExactETHForTokensSupportingFeeOnTransferTokens(x.min,x.path,x.addr,dl,{value:x.amtIn}):await x.R.swapExactTokensForTokensSupportingFeeOnTransferTokens(x.amtIn,x.min,x.path,x.addr,dl);
+ say("Swap sent. Waiting for confirmation...");await tx.wait();say("Done. "+(x.sell?"Sold":"Bought")+" on PancakeSwap: bscscan.com/tx/"+tx.hash)}
 async function pancakeGo(){var btn=$("go"),say=function(m){$("msg").textContent=m};
  try{var p=lst()[$("tok").value],amt=$("amt").value,pay=$("pay").value;
-  if(pend2){var x0=pend2;pend2=null;btn.disabled=true;say("Refreshing price...");var x=await pQuote(x0.p,x0.amt,x0.pay,x0.slip);
-   if(x.out<x0.out*BigInt(99)/BigInt(100)){pend2={p:x0.p,amt:x0.amt,pay:x0.pay,slip:x0.slip,out:x.out};btn.disabled=false;say("Price moved. New estimate: "+pf(x,x.out)+". Click again to confirm.");return}
+  if(pend2){var x0=pend2;pend2=null;btn.disabled=true;say("Refreshing price...");var x=await pQuote(x0.p,x0.amt,x0.pay,x0.slip,x0.sd);
+   if(x.out<x0.out*BigInt(99)/BigInt(100)){pend2={p:x0.p,amt:x0.amt,pay:x0.pay,slip:x0.slip,sd:x0.sd,out:x.out};btn.disabled=false;say("Price moved. New estimate: "+pf(x,x.out)+". Click again to confirm.");return}
    await pExec(x,say);btn.textContent="Get quote";btn.disabled=false;return}
   if(!(amt>0))throw new Error("Enter an amount");var slip=slipVal(p);
-  say("Connecting wallet...");await connect("BNB Chain");say("Getting price from PancakeSwap...");var q=await pQuote(p,amt,pay,slip);
-  pend2={p:p,amt:amt,pay:pay,slip:slip,out:q.out};$("out").value=pf(q,q.out);
+  say("Connecting wallet...");await connect("BNB Chain");say("Getting price from PancakeSwap...");var q=await pQuote(p,amt,pay,slip,side);
+  pend2={p:p,amt:amt,pay:pay,slip:slip,sd:side,out:q.out};$("out").value=pf(q,q.out);
   say("You get about "+pf(q,q.out)+" (minimum "+pf(q,q.min)+"). Route: PancakeSwap V2. Click again to confirm.");btn.textContent="Confirm in wallet"
  }catch(e){pend2=null;btn.disabled=false;btn.textContent="Get quote";fail(e,say)}}
 function slipDef(p){return p&&p.tax?6:1}
@@ -395,11 +399,13 @@ bind($("bgo"),function(m){$("bmsg").textContent=m},function(){
  return {fn:fn,tn:tn,fs:$("bfa").value,ts:$("bta").value,amt:amt,to:fam(fn)===fam(tn)?"":$("brecv").value.trim()}},"Get quote");
 bind($("go"),function(m){$("msg").textContent=m},function(){
  var p=lst()[$("tok").value],amt=$("amt").value;
- if(!(amt>0))throw new Error("Enter an amount");if(!p.a)throw new Error(p.n+" has no contract address yet. Add it to enable buying.");
- if(p.c==="Tron"||p.c==="Bitcoin")throw new Error("Buying on "+p.c+" is not supported yet. Bridge in from another network instead.");
- return {fn:p.c,tn:p.c,fs:$("pay").value,ts:p.a,amt:amt,slip:slipVal(p)}},"Get quote");
+ if(!(amt>0))throw new Error("Enter an amount");if(!p.a)throw new Error(p.n+" has no contract address yet. Add it to enable trading.");
+ if(p.c==="Tron"||p.c==="Bitcoin")throw new Error("Trading on "+p.c+" is not supported yet. Bridge in from another network instead.");
+ var sl=side==="sell";return {fn:p.c,tn:p.c,fs:sl?p.a:$("pay").value,ts:sl?$("pay").value:p.a,amt:amt,slip:slipVal(p)}},"Get quote");
 var liGo=$("go").onclick;$("go").onclick=function(){var p=lst()[$("tok").value];return p&&p.dex==="pancake"?pancakeGo():liGo.call(this)};
 $("slip").addEventListener("input",function(){slipDirty=true;pend=null;pend2=null;$("go").textContent="Get quote"});
+function setSide(s){side=s;var fa=$("amt").parentNode,fo=$("out").parentNode,sell=s==="sell";fa.appendChild(sell?$("tok"):$("pay"));fo.appendChild(sell?$("pay"):$("tok"));fa.parentNode.querySelector("label").htmlFor=sell?"tok":"pay";fo.parentNode.querySelector("label").htmlFor=sell?"pay":"tok";$("amt").value="";$("out").value="";$("sB").setAttribute("aria-pressed",!sell);$("sS").setAttribute("aria-pressed",sell);reset()}
+$("sB").onclick=function(){setSide("buy")};$("sS").onclick=function(){setSide("sell")};
 $("wc").onclick=async function(){try{var n=curFn(),a=await connect(n);reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
 $("rconn").onclick=async function(){try{var a=await connect($("btn").value);$("brecv").value=a;reset()}catch(e){fail(e,say1)}};
 function reset(){pend=null;pend2=null;$("bgo").textContent="Get quote";$("go").textContent="Get quote";
