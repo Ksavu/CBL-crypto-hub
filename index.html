@@ -124,6 +124,8 @@ footer{margin:48px 0 28px;padding-top:18px;border-top:1px solid var(--line);colo
 .sc-links{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.sc-links a,.sc-links button{font:inherit;font-size:13px;color:#cfe0ff;border:1px solid var(--line);background:transparent;border-radius:8px;padding:6px 12px;text-decoration:none;cursor:pointer}
 .sc-note{color:var(--mute);font-size:12.5px}
 .fld select{max-width:56%}.fld input{min-width:70px}
+.av.sm{width:28px;height:28px;font-size:12px}img.av{object-fit:cover;background:rgba(255,255,255,.08)}.card h3{display:flex;align-items:center;gap:8px}
+.soc{display:flex;gap:8px;flex-wrap:wrap}.so{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:#cfe0ff}.so:hover,.so:focus-visible{border-color:var(--cy);box-shadow:0 0 10px rgba(79,140,255,.45)}.so svg{width:15px;height:15px;fill:currentColor}.so svg.w{fill:none;stroke:currentColor}.bds{display:flex;gap:6px;flex-wrap:wrap}.stg.pre{background:rgba(251,191,36,.18);color:#fbbf24;border-color:transparent}.stg.soon{background:rgba(96,165,250,.18);color:#93c5fd;border-color:transparent}.pnote{color:var(--mute);font-size:11.5px;display:block}a.buy{font:inherit;font-size:13px;color:var(--ink);border:1px solid var(--cy);border-radius:8px;padding:4px 12px}
 </style>
 </head>
 <body>
@@ -154,6 +156,7 @@ footer{margin:48px 0 28px;padding-top:18px;border-top:1px solid var(--line);colo
  <div class="tools">
   <input type="search" id="q" placeholder="Search projects" aria-label="Search projects">
   <div class="row"><span class="lbl">Chain</span><span class="row" id="chains" style="margin:0"></span></div>
+  <div class="row"><span class="lbl">Stage</span><span class="row" id="stages" style="margin:0"></span></div>
   <div class="row"><span class="lbl">Category</span><span class="row" id="cats" style="margin:0"></span></div>
  </div>
  <div class="count" id="count" aria-live="polite"></div>
@@ -183,11 +186,18 @@ var IC={"n:solana":"data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My
 var CHN={"Solana":"solana","BNB Chain":"binance-smart-chain","Ethereum":"ethereum","Base":"base","Polygon":"polygon","Bitcoin":"bitcoin","Tron":"tron"};
 function ci(n){return CHN[n]?IC["n:"+CHN[n]]:""}
 function cic(n){var s=ci(n);return s?'<img class="ci" src="'+s+'" alt="">':""}
+function lg(name,src,cls){var l=String(name||"?").trim().charAt(0).toUpperCase().replace(/[&<>"']/g,"?"),t='<span class="av '+(cls||"")+'">'+l+'</span>';
+ if(!src||!/^(https:|\/|data:image)/.test(src))return t;
+ return '<img class="av '+(cls||"")+'" src="'+String(src).replace(/"/g,"&quot;")+'" alt="" loading="lazy" onerror="this.outerHTML=this.dataset.f" data-f="'+t.replace(/"/g,"&quot;")+'">'}
+var SOI={"x": "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z\"/></svg>", "tg": "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z\"/></svg>", "dc": "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189Z\"/></svg>", "web": "<svg class=\"w\" viewBox=\"0 0 24 24\" stroke-width=\"1.8\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18\"/></svg>"};
+function soc(l){if(!l)return "";var N={x:"X",tg:"Telegram",dc:"Discord",web:"Website"},o="";["web","x","tg","dc"].forEach(function(k){var u=l[k];if(u&&/^https:\/\//.test(u))o+='<a class="so" href="'+u.replace(/"/g,"&quot;")+'" target="_blank" rel="noopener noreferrer nofollow" aria-label="'+N[k]+'" title="'+N[k]+'">'+SOI[k]+'</a>'});return o?'<div class="soc">'+o+'</div>':""}
+function stg(p){return p.stage==="presale"?["PRESALE","pre"]:p.stage==="soon"?["COMING SOON","soon"]:null}
+function okU(u){return /^https:\/\//.test(u||"")}
 function wic(n){var k=String(n).toLowerCase().replace(/[^a-z]/g,""),m={metamask:"metamask",trust:"trust",okx:"okx",coinbase:"coinbase",rabby:"rabby",phantom:"phantom",solflare:"solflare",walletconnect:"wallet-connect",backpack:"backpack"};for(var x in m)if(k.indexOf(x)>-1)return IC["w:"+m[x]]||null;return null}
 </script>
 <script>
 var P=[
-{n:"Nexustone (NXS)",c:"BNB Chain",k:"Utility",s:"p",a:"0xFe4a9FAacbabac1883E0972fa2737a5D1B1c5601",tax:1,dex:"pancake",taxTxt:"5% buy / 5% sell",d:"AI trading token on BNB Chain with its own swap. 5% buy and 5% sell tax applies."},
+{n:"Nexustone (NXS)",c:"BNB Chain",k:"Utility",s:"p",a:"0xFe4a9FAacbabac1883E0972fa2737a5D1B1c5601",tax:1,dex:"pancake",logo:"/logos/nxs.png",links:{web:"https://nexustoneaitrading.online"},taxTxt:"5% buy / 5% sell",d:"AI trading token on BNB Chain with its own swap. 5% buy and 5% sell tax applies."},
 {n:"Pawnado",c:"Base",k:"Meme",s:"v",d:"Dog-themed meme token with a locked-liquidity launch and community-run treasury."},
 {n:"Solbrew",c:"Solana",k:"Meme",s:"r",d:"Coffee-culture meme with a creator-reward mechanic. Contract audit pending."},
 {n:"LedgerLoop",c:"Ethereum",k:"Financial",s:"v",d:"Lending vault aggregator that routes deposits to the best on-chain yield."},
@@ -196,20 +206,25 @@ var P=[
 {n:"Questline",c:"Solana",k:"Gaming",s:"r",d:"On-chain quest platform where guilds earn rewards for completing missions."},
 {n:"Deedspace",c:"Ethereum",k:"RWA",s:"v",d:"Tokenized rental property shares with legal wrappers and monthly payouts."},
 {n:"Goldleaf",c:"BNB Chain",k:"RWA",s:"p",d:"Gold-backed token with published reserve attestations."},
-{n:"Relaypay",c:"Solana",k:"Utility",s:"v",d:"Merchant payment links that settle in stablecoins in under a second."}
+{n:"Relaypay",c:"Solana",k:"Utility",s:"v",d:"Merchant payment links that settle in stablecoins in under a second."},
+{n:"Orbitra",c:"Solana",k:"Gaming",s:"v",stage:"presale",links:{web:"https://example.com",x:"https://x.com",tg:"https://t.me"},presale:"https://example.com/presale",d:"Space strategy game with an NFT fleet. Presale open, team verified, token not deployed yet."},
+{n:"Glimmer Labs",c:"Base",k:"Utility",s:"v",stage:"soon",links:{web:"https://example.com",x:"https://x.com",dc:"https://discord.com"},d:"Wallet analytics tool launching soon. Vetting in progress, no token yet."}
 ];
 var S={v:["Vetted","",""],r:["In review","rev",""],p:["Sponsored","sp","spon"]};
-var chain="All",cat="All";
+var chain="All",cat="All",stage="All";
+function stOk(p){var s=p.stage||"live";return stage==="All"||(stage==="Live"&&s==="live")||(stage==="Presale"&&s==="presale")||(stage==="Coming soon"&&s==="soon")}
 function chips(id,list,cb){var el=document.getElementById(id);el.innerHTML="";list.forEach(function(x){var b=document.createElement("button");b.className="chip";b.textContent=x;b.setAttribute("aria-pressed",x==="All");b.onclick=function(){cb(x);[].forEach.call(el.children,function(c){c.setAttribute("aria-pressed",c===b)});render()};el.appendChild(b)})}
 chips("chains",["All","Solana","BNB Chain","Base","Ethereum"],function(x){chain=x});
+chips("stages",["All","Live","Presale","Coming soon"],function(x){stage=x});
 chips("cats",["All","Meme","Financial","Gaming","RWA","Utility"],function(x){cat=x});
 function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function render(){
  var q=document.getElementById("q").value.trim().toLowerCase();
- var r=P.filter(function(p){return (chain==="All"||p.c===chain)&&(cat==="All"||p.k===cat)&&(!q||(p.n+" "+p.d).toLowerCase().indexOf(q)>-1)});
+ var r=P.filter(function(p){return (chain==="All"||p.c===chain)&&(cat==="All"||p.k===cat)&&stOk(p)&&(!q||(p.n+" "+p.d).toLowerCase().indexOf(q)>-1)});
  document.getElementById("count").textContent=r.length+" project"+(r.length===1?"":"s");
- document.getElementById("grid").innerHTML=r.length?r.map(function(p){var s=S[p.s];
-  return '<article class="card '+s[2]+'"><div class="top"><h3>'+esc(p.n)+'</h3><span class="tag">'+cic(p.c)+esc(p.c)+'</span></div><div class="meta"><span class="tag">'+esc(p.k)+'</span></div><p>'+esc(p.d)+'</p><div class="st '+s[1]+'"><span class="dot"></span>'+s[0]+(p.s!=="r"?'<button class="buy" style="margin-left:auto" onclick="buyTok(\''+p.n+'\')">Buy</button>':'')+'</div></article>'}).join(""):'<div class="empty">No projects match. Clear a filter or search term.</div>';
+ document.getElementById("grid").innerHTML=r.length?r.map(function(p){var s=S[p.s],sg=stg(p);
+  var act=sg?(okU(p.presale)?'<a class="buy" style="margin-left:auto;text-decoration:none" href="'+p.presale.replace(/"/g,"&quot;")+'" target="_blank" rel="noopener noreferrer nofollow">View presale</a>':''):(p.s!=="r"?'<button class="buy" style="margin-left:auto" onclick="buyTok(\''+p.n+'\')">Buy</button>':'');
+  return '<article class="card '+s[2]+'"><div class="top"><h3>'+lg(p.n.replace(/\s*\(.*\)/,""),p.logo,"sm")+esc(p.n)+'</h3><span class="tag">'+cic(p.c)+esc(p.c)+'</span></div><div class="meta"><span class="tag">'+esc(p.k)+'</span>'+(sg?'<span class="tag stg '+sg[1]+'">'+sg[0]+'</span>':'')+'</div><p>'+esc(p.d)+'</p>'+(sg?'<small class="pnote">'+(p.stage==="presale"?"Not tradable yet. Only use the official presale link.":"No token yet.")+'</small>':'')+soc(p.links)+'<div class="st '+s[1]+'"><span class="dot"></span>'+s[0]+act+'</div></article>'}).join(""):'<div class="empty">No projects match. Clear a filter or search term.</div>';
 }
 document.getElementById("q").oninput=render;
 render();
@@ -222,7 +237,7 @@ var N=[
 {k:"Market",t:"Weekly wrap: gaming tokens lead, memes cool off",d:"2 days ago"}];
 (function(){var f=N[0],o=N.slice(1);
 document.getElementById("newsbox").innerHTML='<article class="feat"><span class="tag" style="align-self:flex-start">'+f.k+'</span><h3>'+f.t+'</h3><p>'+f.x+'</p><small>'+f.d+' · sample story</small></article><div class="nl">'+o.map(function(n){return '<article class="ni"><span class="tag">'+n.k+'</span><b>'+n.t+'</b><small>'+n.d+'</small></article>'}).join("")+'</div>';
-var L=P.filter(function(p){return p.s!=="r"}),nat={Solana:"SOL","BNB Chain":"BNB",Base:"ETH",Ethereum:"ETH"};
+var L=P.filter(function(p){return p.s!=="r"&&(!p.stage||p.stage==="live")}),nat={Solana:"SOL","BNB Chain":"BNB",Base:"ETH",Ethereum:"ETH"};
 var tk=document.getElementById("tok"),pay=document.getElementById("pay");
 tk.innerHTML=L.map(function(p,i){return '<option value="'+i+'">'+p.n+' ('+p.c+')</option>'}).join("");
 function upd(){var p=L[tk.value];pay.innerHTML=["USDT","USDC",nat[p.c]].map(function(x){return '<option>'+x+'</option>'}).join("");document.getElementById("route").textContent="Network: "+p.c}
@@ -390,7 +405,7 @@ function bind(btn,say,get,label){
  }catch(e){pend=null;btn.disabled=false;btn.textContent=label;fail(e,say)}}}
 function brgOn(){return $("brg").style.display!=="none"}
 function say1(m){(brgOn()?$("bmsg"):$("msg")).textContent=m}
-function lst(){return P.filter(function(p){return p.s!=="r"})}
+function lst(){return P.filter(function(p){return p.s!=="r"&&(!p.stage||p.stage==="live")})}
 function curFn(){return brgOn()?$("bfn").value:(lst()[$("tok").value]||{}).c}
 bind($("bgo"),function(m){$("bmsg").textContent=m},function(){
  var fn=$("bfn").value,tn=$("btn").value,amt=$("bamt").value;
@@ -422,12 +437,13 @@ reset();
 document.getElementById("globe").src=document.querySelector(".mark").src;
 [].forEach.call(document.querySelectorAll("img[data-chain]"),function(i){i.src=ci(i.getAttribute("data-chain"))});
 document.getElementById("hw").onclick=function(){document.getElementById("wc").click()};
-var W=["Nexustone (NXS)","Apex Garage","Deedspace","Questline"],B={v:["● CBL VERIFIED","ok"],p:["● SPONSORED","sp"],r:["● UNDER REVIEW","rv"]},C={"BNB Chain":"#f3ba2f",Solana:"#a78bfa",Base:"#4f8cff",Ethereum:"#60a5fa"};
+var W=["Nexustone (NXS)","Orbitra","Apex Garage","Glimmer Labs"],B={v:["● CBL VERIFIED","ok"],p:["● SPONSORED","sp"],r:["● UNDER REVIEW","rv"]},C={"BNB Chain":"#f3ba2f",Solana:"#a78bfa",Base:"#4f8cff",Ethereum:"#60a5fa"};
 function spark(n,c){var s=0,i;for(i=0;i<n.length;i++)s=(s*31+n.charCodeAt(i))%9973;var y=18,pts=[];for(i=0;i<22;i++){s=(s*1103+12345)%9973;y+=(s%100-42)/14;y=Math.max(4,Math.min(36,y));pts.push((i*10)+","+(40-y).toFixed(1))}
  return '<svg viewBox="0 0 210 40" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="'+c+'" stroke-width="2" points="'+pts.join(" ")+'"/></svg>'}
-document.getElementById("fgrid").innerHTML=W.map(function(n){var p=P.filter(function(x){return x.n===n})[0];if(!p)return "";var m=p.n.match(/\((.*)\)/),nm=p.n.replace(/\s*\(.*\)/,""),b=B[p.s];
- return '<article class="fc"><span class="bd '+b[1]+'">'+b[0]+'</span><div class="fcn"><span class="av">'+esc(nm[0])+'</span><div><h3>'+esc(nm)+'</h3><small>'+(m?esc(m[1]):esc(p.k))+'</small></div></div><p>'+esc(p.d)+'</p><div class="meta"><span class="tag">'+cic(p.c)+esc(p.c)+'</span><span class="tag">'+esc(p.k)+'</span></div><div class="spk">'+spark(p.n,C[p.c]||"#4f8cff")+'<small>Demo data</small></div>'+
- (p.s!=="r"?'<button class="vp" type="button" onclick="buyTok(\''+p.n+'\')">Buy on CBL Swap</button>':'<a class="vp" style="text-align:center;text-decoration:none" href="#projects">View Project</a>')+'</article>'}).join("");
+document.getElementById("fgrid").innerHTML=W.map(function(n){var p=P.filter(function(x){return x.n===n})[0];if(!p)return "";var m=p.n.match(/\((.*)\)/),nm=p.n.replace(/\s*\(.*\)/,""),b=B[p.s],sg=stg(p);
+ var act=sg?(okU(p.presale)?'<a class="vp" style="text-align:center;text-decoration:none" href="'+p.presale.replace(/"/g,"&quot;")+'" target="_blank" rel="noopener noreferrer nofollow">View presale</a>':'<a class="vp" style="text-align:center;text-decoration:none" href="#projects">View Project</a>'):(p.s!=="r"?'<button class="vp" type="button" onclick="buyTok(\''+p.n+'\')">Buy on CBL Swap</button>':'<a class="vp" style="text-align:center;text-decoration:none" href="#projects">View Project</a>');
+ return '<article class="fc"><div class="bds"><span class="bd '+b[1]+'">'+b[0]+'</span>'+(sg?'<span class="bd stg '+sg[1]+'">'+sg[0]+'</span>':'')+'</div><div class="fcn">'+lg(nm,p.logo)+'<div><h3>'+esc(nm)+'</h3><small>'+(m?esc(m[1]):esc(p.k))+'</small></div></div><p>'+esc(p.d)+'</p><div class="meta"><span class="tag">'+cic(p.c)+esc(p.c)+'</span><span class="tag">'+esc(p.k)+'</span></div>'+
+ (sg?'<div class="spk"><small>'+(p.stage==="presale"?"Presale, not trading yet":"Not live yet")+'</small></div>':'<div class="spk">'+spark(p.n,C[p.c]||"#4f8cff")+'<small>Demo data</small></div>')+soc(p.links)+act+'</article>'}).join("");
 })();
 </script>
 <script>
@@ -506,7 +522,7 @@ async function scan(){
   var tok=pr?(pr.baseToken.address.toLowerCase()===low?pr.baseToken:pr.quoteToken):{},nm=tok.name||(sec&&(sec.token_name||(sec.metadata&&sec.metadata.name)))||"Unknown token",sy=tok.symbol||(sec&&(sec.token_symbol||(sec.metadata&&sec.metadata.symbol)))||"";
   var cb=P.filter(function(p){return p.a&&p.a.toLowerCase()===low})[0],cs=cb?({v:"CBL Verified",p:"Sponsored on CBL",r:"Under CBL review"})[cb.s]:"Not reviewed by CBL yet";
   var ch=(pr&&pr.priceChange&&pr.priceChange.h24);
-  var html='<div class="sc-card"><div class="sc-h"><div><h3>'+esc(nm)+(sy?' <small style="color:var(--mute)">'+esc(sy)+'</small>':'')+'</h3><div class="sc-note">'+cic(NM[chain])+esc(NM[chain])+' · '+esc(cs)+'</div></div><span class="vd '+vd[0]+'">'+vd[1]+'</span></div>';
+  var html='<div class="sc-card"><div class="sc-h"><div style="display:flex;gap:12px;align-items:center">'+lg(nm,pr&&pr.info&&pr.info.imageUrl)+'<div><h3>'+esc(nm)+(sy?' <small style="color:var(--mute)">'+esc(sy)+'</small>':'')+'</h3><div class="sc-note">'+cic(NM[chain])+esc(NM[chain])+' · '+esc(cs)+'</div></div></div><span class="vd '+vd[0]+'">'+vd[1]+'</span></div>';
   if(pr)html+='<div class="kv"><div><small>Price</small><b>$'+esc(Number(pr.priceUsd).toPrecision(4))+'</b></div><div><small>Liquidity</small><b>'+usd((pr.liquidity||{}).usd)+'</b></div><div><small>Market cap / FDV</small><b>'+usd(pr.marketCap||pr.fdv)+'</b></div><div><small>24h volume</small><b>'+usd((pr.volume||{}).h24)+'</b></div><div><small>24h change</small><b>'+(ch===undefined?"n/a":esc(ch)+"%")+'</b></div><div><small>Pair age</small><b>'+age(pr.pairCreatedAt)+'</b></div></div>';
   html+='</div><div class="sc-card">'+(C.length&&have?C.map(function(c){return '<div class="ck '+c.s+'"><i>'+({ok:"✓",warn:"!",bad:"✕",na:"?"})[c.s]+'</i><div>'+esc(c.t)+(c.d?'<small>'+esc(c.d)+'</small>':'')+'</div></div>'}).join(""):'<div class="sc-note">No security data was returned for this token.</div>')+
    '<div class="sc-links"><a href="'+EXP[chain]+esc(a)+'" target="_blank" rel="noopener">Explorer</a>'+(pr&&pr.url?'<a href="'+esc(pr.url)+'" target="_blank" rel="noopener">DexScreener</a>':'')+(cb&&cb.s!=="r"?'<button type="button" onclick="buyTok(\''+esc(cb.n)+'\')">Buy on CBL Swap</button>':'')+'</div></div>'+
