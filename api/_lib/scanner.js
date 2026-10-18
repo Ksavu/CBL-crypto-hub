@@ -71,7 +71,7 @@ async function runScan(caIn, selIn, opts) {
     if (EXPLORER_CHAINS.includes(chain)) {
       ex = await explorerEvm(chain, low, pair && pair.pairAddress).catch(() => null);
       if (ex && !opts.noDeep) {
-        const L = await evmLaunch(chain, low, pair && pair.pairAddress, pair && pair.pairCreatedAt, ex.supplyRaw).catch(() => null);
+        const L = await evmLaunch(chain, low, pair && pair.pairCreatedAt, ex.supplyRaw, ex.creationTx).catch(() => null);
         if (L) deep = { supply: null, deployerAmt: null, deployer: ex.creator, deployerPct: ex.creatorPct, traced: L.traced, debug: null, holderCount: ex.holders, top10Wallets: ex.top10, bundlers: L.bundlers || null, snipers: L.snipers || null, notes: [] };
       }
     }
