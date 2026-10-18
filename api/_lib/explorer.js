@@ -62,6 +62,16 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   const origin = cfg.api.replace(/\/api\/v2$/, "");
   let start = 0;
   if (creationTx) { const tx = await get(`${cfg.api}/transactions/${creationTx}`); start = parseInt((tx && (tx.block_number != null ? tx.block_number : tx.block)) || 0, 10); }
+  if (!(start > 0)) {
+    // deployment block straight from the node: first block where the token has code
+    const hn = parseInt(await rpcCall(cfg, "eth_blockNumber", []), 16);
+    const has = async (n) => { const c = await rpcCall(cfg, "eth_getCode", [token, "0x" + n.toString(16)]); return c === null ? null : c !== "0x" && c.length > 2; };
+    if (hn > 0 && (await has(hn)) === true) {
+      let lo = 1, hi = hn, ok = true;
+      for (let i = 0; i < 40 && lo < hi; i++) { if (left() < 5000) { ok = false; break; } const mid = Math.floor((lo + hi) / 2), v = await has(mid); if (v === null) { ok = false; break; } if (v) hi = mid; else lo = mid + 1; }
+      if (ok && lo > 1) { start = lo; dbg.startFrom = "code"; }
+    }
+  }
   if (!(start > 0) && pairCreatedMs) {
     const bt = await get(`${origin}/api?module=block&action=getblocknobytime&timestamp=${Math.floor(pairCreatedMs / 1000) - 120}&closest=after`);
     start = parseInt((bt && bt.result && (bt.result.blockNumber || bt.result)) || 0, 10);
@@ -86,7 +96,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   const dec = (l) => ({ from: "0x" + l.topics[1].slice(26).toLowerCase(), to: "0x" + l.topics[2].slice(26).toLowerCase(), blk: parseInt(l.blockNumber, 16) });
   const zero = /^0x0{40}$/;
   // 1. find the first chunk with real (non-mint) transfers and pick the distributor: the address that sends to the most different wallets (pool, pair or launchpad contract)
-  let src = null, first = null, size = cfg.chunk;
+  let src = null, first = null, size = cfg.chunk, chunkT = [];
   for (let b = start, n = 0; b <= head && n < 8 && left() > 4000 && !src; n++) {
     let L = await tl(b, Math.min(head, b + size - 1));
     if (L === null && size > 500) { size = Math.floor(size / 5); L = await tl(b, Math.min(head, b + size - 1)); }
@@ -97,7 +107,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
     const rec = {};
     T.slice(0, 400).forEach((x) => { (rec[x.from] = rec[x.from] || new Set()).add(x.to); });
     const best = Object.keys(rec).sort((a, c) => rec[c].size - rec[a].size)[0];
-    if (rec[best].size >= 2) { src = best; first = Math.min(...T.filter((x) => x.from === best).map((x) => x.blk)); }
+    if (rec[best].size >= 2) { chunkT = T; dbg.senders = Object.keys(rec).sort((a, c) => rec[c].size - rec[a].size).slice(0, 4).map((k) => k.slice(0, 8) + ":" + rec[k].size); src = best; first = Math.min(...T.filter((x) => x.from === best).map((x) => x.blk)); }
   }
   if (!src) return fail("no distributor found in the first blocks");
   // 2. everything the distributor sent in the first blocks of trading
@@ -120,6 +130,12 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   };
   const [bundlers, snipers] = await Promise.all([grp(bundle), grp(snipe)]);
   dbg.buyers = all.length; dbg.sameBlock = same.length;
+  // diagnostics: first-time receivers from ANY sender (launchpads often fan out through helper contracts)
+  const seen = {}, blkCount = {};
+  chunkT.forEach((x) => { if (x.to === src || x.to === tk || DEAD.test(x.to) || zero.test(x.to) || seen[x.to] !== undefined) return; seen[x.to] = x.blk; });
+  Object.values(seen).forEach((b) => { if (b - first <= 200) blkCount[b - first] = (blkCount[b - first] || 0) + 1; });
+  dbg.anyRecv = Object.keys(seen).length;
+  dbg.recvByBlockOffset = Object.entries(blkCount).sort((a, c) => c[1] - a[1]).slice(0, 6).map(([k, v]) => k + ":" + v);
   return { traced: true, bundlers, snipers, dbg };
 }
 module.exports = { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS: Object.keys(CFG) };
