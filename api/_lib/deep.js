@@ -68,7 +68,7 @@ async function deepSol(mint, budgetMs = 14000) {
     // 3. Find the launch: oldest transactions of the mint
     let oldestList = null;
     try { // Helius ascending query (may need a paid plan)
-      const r = await rpc("getTransactionsForAddress", [mint, { transactionDetails: "signatures", sortOrder: "asc", limit: 200 }]);
+      const r = await rpc("getTransactionsForAddress", [mint, { transactionDetails: "signatures", sortOrder: "asc", limit: 600 }]);
       const arr = (r && (r.data || r)) || [];
       if (Array.isArray(arr) && arr.length) D.path = "asc";
       if (Array.isArray(arr) && arr.length) oldestList = arr.map((x) => ({ signature: x.signature, blockTime: x.blockTime, slot: x.slot }));
@@ -81,7 +81,7 @@ async function deepSol(mint, budgetMs = 14000) {
         last = s; before = s[s.length - 1].signature;
         if (s.length < 1000) { reached = true; break; }
       }
-      if (reached && last.length) { oldestList = last.slice(-200).reverse(); D.path = "paged"; }
+      if (reached && last.length) { oldestList = last.slice(-600).reverse(); D.path = "paged"; }
     }
     if (!oldestList || !oldestList.length) { D.notes.push("Launch could not be traced (token too old or too active)"); return D; }
     D.traced = true;
@@ -108,16 +108,19 @@ async function deepSol(mint, budgetMs = 14000) {
 
     // 5. Bundlers (same block as first buy) and snipers (next few blocks)
     try {
-      const sg = oldestList.map((x) => x.signature), parts = [];
-      for (let i = 0; i < sg.length; i += 100) parts.push(sg.slice(i, i + 100));
-      const et = (await Promise.all(parts.map((p) => post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: p }).catch(() => [])))).flat();
-      const list = (Array.isArray(et) ? et : []).filter((t) => t && t.slot).sort((a, b) => a.slot - b.slot);
+      const sg = oldestList.map((x) => x.signature), list = [];
+      for (let i = 0; i < sg.length && left() > 2500; i += 100) {
+        const r = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: sg.slice(i, i + 100) }).catch(() => []);
+        if (Array.isArray(r)) list.push(...r.filter((t) => t && t.slot));
+      }
+      list.sort((a, b) => a.slot - b.slot);
       const pools = new Set(holders.filter((h) => h.kind === "program").map((h) => h.owner));
-      const first = {};
+      const first = {}; const moves = [];
       let s0 = null;
       for (const t of list) for (const tr of t.tokenTransfers || []) {
-        if (tr.mint !== mint || !tr.toUserAccount || tr.toUserAccount === D.deployer || pools.has(tr.toUserAccount)) continue;
-        if (!(tr.tokenAmount > 0)) continue;
+        if (tr.mint !== mint || !tr.toUserAccount || !(tr.tokenAmount > 0)) continue;
+        if (tr.fromUserAccount && tr.fromUserAccount !== tr.toUserAccount) moves.push([tr.fromUserAccount, tr.toUserAccount]);
+        if (tr.toUserAccount === D.deployer || pools.has(tr.toUserAccount)) continue;
         if (s0 === null) s0 = t.slot;
         if (t.slot - s0 <= 30 && !(tr.toUserAccount in first)) first[tr.toUserAccount] = t.slot - s0;
       }
@@ -125,9 +128,17 @@ async function deepSol(mint, budgetMs = 14000) {
       const same = all.filter((o) => first[o] <= 1);
       const bundled = same.length >= 2 ? same : [];
       const snipe = all.filter((o) => !bundled.includes(o) && first[o] <= 10);
+      // follow the tokens: wallets that received them from an early buyer belong to the same group
+      const spread = (seeds) => {
+        const set = new Set(seeds);
+        for (let pass = 0; pass < 3; pass++) for (const [f, t] of moves) if (set.has(f) && !set.has(t) && !pools.has(t) && t !== D.deployer) set.add(t);
+        return [...set];
+      };
+      const bundledAll = spread(bundled);
+      const snipeAll = spread(snipe).filter((o) => !bundledAll.includes(o));
       const hist = {}; all.forEach((o) => { hist[first[o]] = (hist[first[o]] || 0) + 1; });
       D.debug = { path: D.path, txsFetched: list.length, creationSlot: oldest.slot || null, firstBuySlotOffset: s0 === null ? null : s0 - (oldest.slot || s0),
-        buyersBySlotOffset: hist, bundlerWallets: bundled.map(short), sniperWallets: snipe.map(short), holdersComplete: complete };
+        buyersBySlotOffset: hist, txsParsed: list.length, seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete };
       const held = async (o) => {
         if (complete || bal[o]) return bal[o] || 0;
         try { const r = await rpc("getTokenAccountsByOwner", [o, { mint }, { encoding: "jsonParsed" }]);
@@ -137,8 +148,8 @@ async function deepSol(mint, budgetMs = 14000) {
         const amts = []; for (const o of ws.slice(0, complete ? 200 : 8)) amts.push(await held(o));
         return { wallets: ws.length, heldPct: supply ? amts.reduce((a, b) => a + b, 0) / supply * 100 : 0, stillHolding: amts.filter((x) => x > 0).length };
       };
-      D.bundlers = bundled.length ? await grp(bundled) : null;
-      D.snipers = snipe.length ? await grp(snipe) : null;
+      D.bundlers = bundledAll.length ? await grp(bundledAll) : null;
+      D.snipers = snipeAll.length ? await grp(snipeAll) : null;
     } catch (e) { D.notes.push("Early buyer check unavailable"); D.earlyFailed = true; }
   } catch (e) {
     D.notes.push("Deep scan incomplete");
@@ -164,11 +175,11 @@ function deepChecks(D, add) {
   }
   const grp = (g, label) => {
     if (!g) return;
-    add(g.heldPct >= 10 ? "high" : g.heldPct >= 5 ? "medium" : "info", `${g.wallets} ${label}`,
-      `They hold ${f(g.heldPct)} of supply (${g.stillHolding} of ${g.wallets} still holding)`);
+    add(g.heldPct >= 10 ? "high" : g.heldPct >= 5 ? "medium" : "info", `${g.stillHolding} of ${g.wallets} ${label}`,
+      `Together they hold ${f(g.heldPct)} of supply`);
   };
-  grp(D.bundlers, "bundled wallets bought in the launch block");
-  grp(D.snipers, "sniper wallets bought in the first seconds");
+  grp(D.bundlers, "bundle wallets still hold tokens (bought in the launch block or received from those buyers)");
+  grp(D.snipers, "sniper wallets still hold tokens (bought in the first seconds or received from those buyers)");
   (D.notes || []).forEach((n) => add("info", n));
 }
 module.exports = { deepSol, deepChecks };
