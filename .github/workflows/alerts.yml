@@ -11,4 +11,9 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -fsS -m 40 -H "Authorization: Bearer $CRON_SECRET" https://cryptobarlounge.space/api/cron
+          if [ -z "$CRON_SECRET" ]; then echo "GitHub secret CRON_SECRET is empty or missing"; exit 1; fi
+          code=$(curl -sS -m 40 -o body.txt -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" https://cryptobarlounge.space/api/cron || true)
+          echo "HTTP status: $code"
+          cat body.txt || true
+          echo
+          case "$code" in 2*) exit 0 ;; *) exit 1 ;; esac
