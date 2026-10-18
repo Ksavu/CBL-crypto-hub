@@ -1,7 +1,7 @@
 // Shared scan engine used by /api/scan (website) and /api/telegram (bot).
 const { analyze } = require("./score");
 const { deepSol } = require("./deep");
-const { explorerEvm, evmLaunch, EXPLORER_CHAINS } = require("./explorer");
+const { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS } = require("./explorer");
 
 const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663 };
 const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"];
@@ -73,7 +73,7 @@ async function runScan(caIn, selIn, opts) {
       if (!opts.noDeep) {
         let err = null;
         const L = await evmLaunch(chain, low, pair && pair.pairCreatedAt, ex && ex.supplyRaw, ex && ex.creationTx).catch((e) => { err = String(e && e.message || e); return null; });
-        const dbg = Object.assign({ explorer: !!ex, error: err }, (L && L.dbg) || {});
+        const dbg = Object.assign({ explorer: !!ex, error: err, net: NET.slice(0, 6) }, (L && L.dbg) || {});
         deep = { supply: null, deployerAmt: null, deployer: ex && ex.creator, deployerPct: ex ? ex.creatorPct : null, traced: !!(L && L.traced), debug: dbg, holderCount: ex ? ex.holders : null, top10Wallets: ex ? ex.top10 : null, bundlers: (L && L.bundlers) || null, snipers: (L && L.snipers) || null, notes: [] };
       }
     }
