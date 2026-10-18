@@ -14,7 +14,7 @@ function analyze(i) {
   if (kind === "evm") {
     if (gp && Object.keys(gp).length) evmGoPlus(gp, hp, add);
     if (hp) evmHoneypot(hp, gp, add);
-    if (i.ex && !(gp && Object.keys(gp).length)) evmExplorer(i.ex, hp, add);
+    if (i.ex) evmExplorer(i.ex, hp, add);
   } else {
     if (gp && Object.keys(gp).length) solGoPlus(gp, add, !!i.deep);
     if (rc && rc.risks) {
@@ -32,7 +32,7 @@ function analyze(i) {
   if (pair && i.links && !Object.keys(i.links).length) add("info", "No website or socials listed", "Official links are missing on DexScreener. Check the project yourself.");
 
   // Chains without GoPlus coverage: mint, blacklist and hidden-owner flags can't be checked, so never present a top score.
-  const limited = kind === "evm" && !(gp && Object.keys(gp).length);
+  const limited = kind === "evm" && !["ethereum", "bsc", "base"].includes(i.chain);
   if (limited && hasSec) add("info", "Limited coverage on this chain", "Mint, blacklist, pause and hidden-owner functions could not be checked automatically. Verify the contract yourself.");
   let score = 100;
   for (const r of R) score -= PTS[r.sev] || 0;

@@ -68,7 +68,7 @@ async function runScan(caIn, selIn, opts) {
       j(`https://api.gopluslabs.io/api/v1/token_security/${id}?contract_addresses=${low}`).then((r) => r.result && r.result[low]).catch(() => null),
       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
     ]);
-    if (!(gp && Object.keys(gp).length) && EXPLORER_CHAINS.includes(chain)) ex = await explorerEvm(chain, low, pair && pair.pairAddress).catch(() => null);
+    if (EXPLORER_CHAINS.includes(chain)) ex = await explorerEvm(chain, low, pair && pair.pairAddress).catch(() => null);
   } else {
     [gp, rc, deep] = await Promise.all([
       j(`https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=${ca}`).then((r) => r.result && (r.result[ca] || r.result[Object.keys(r.result)[0]])).catch(() => null),
