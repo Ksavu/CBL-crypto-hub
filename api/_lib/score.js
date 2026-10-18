@@ -19,7 +19,9 @@ function analyze(i) {
     if (rc && rc.risks) {
       rc.risks.slice(0, 8).forEach((r) =>
         add(r.level === "danger" ? "high" : r.level === "warn" ? "medium" : "info", r.name, r.description));
-      if (typeof rc.lpLockedPct === "number")
+      const bc = pair && /pump/i.test(pair.dexId || "") && !(pair.liquidity && pair.liquidity.usd);
+      if (bc) add("info", "Still on the pump.fun bonding curve", "No liquidity pool yet, so LP lock does not apply. Risk is in the holders and the deployer.");
+      else if (typeof rc.lpLockedPct === "number")
         add(rc.lpLockedPct >= 90 ? "ok" : rc.lpLockedPct >= 50 ? "medium" : "high",
           `${rc.lpLockedPct.toFixed(0)}% of liquidity locked or burned`);
     }

@@ -29,6 +29,14 @@ function card(r, site) {
       `📊 Vol 24h ${usd(m.volume24h)}   🕒 Age ${age(m.pairCreatedAt)}`,
       `💲 $${esc(Number(m.price).toPrecision(4))}${ch}`);
   }
+  if (r.chain === "solana") {
+    const d = r.deep;
+    if (!d) L.push("", "🧬 Deep scan unavailable");
+    else {
+      const p = (n) => (typeof n === "number" ? n.toFixed(1) + "%" : "n/a");
+      L.push("", `🧬 Deployer ${p(d.deployerPct)} · Top 10 wallets ${p(d.top10)}` + (d.early ? ` · Early buyers ${d.early.wallets} (${p(d.early.heldPct)} held)` : ""));
+    }
+  }
   const flags = r.reasons.filter((x) => ICON[x.sev]).slice(0, 6);
   if (flags.length) L.push("", ...flags.map((x) => `${ICON[x.sev]} ${esc(x.title)}`));
   const ok = r.reasons.filter((x) => x.sev === "ok").length;
