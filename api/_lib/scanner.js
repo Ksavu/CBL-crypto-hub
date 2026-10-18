@@ -1,6 +1,7 @@
 // Shared scan engine used by /api/scan (website) and /api/telegram (bot).
 const { analyze } = require("./score");
 const { deepSol } = require("./deep");
+const { explorerEvm, EXPLORER_CHAINS } = require("./explorer");
 
 const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663 };
 const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"];
@@ -60,13 +61,14 @@ async function runScan(caIn, selIn, opts) {
   pairs = pairs.filter((p) => p.chainId === chain).sort((a, b) => liq(b) - liq(a));
   const pair = pairs[0] || null;
 
-  let gp = null, hp = null, rc = null, deep = null;
+  let gp = null, hp = null, rc = null, deep = null, ex = null;
   if (kind === "evm") {
     const id = EVM[chain];
     [gp, hp] = await Promise.all([
       j(`https://api.gopluslabs.io/api/v1/token_security/${id}?contract_addresses=${low}`).then((r) => r.result && r.result[low]).catch(() => null),
       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
     ]);
+    if (!(gp && Object.keys(gp).length) && EXPLORER_CHAINS.includes(chain)) ex = await explorerEvm(chain, low, pair && pair.pairAddress).catch(() => null);
   } else {
     [gp, rc, deep] = await Promise.all([
       j(`https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=${ca}`).then((r) => r.result && (r.result[ca] || r.result[Object.keys(r.result)[0]])).catch(() => null),
@@ -77,8 +79,9 @@ async function runScan(caIn, selIn, opts) {
   sources.goplus = !!(gp && Object.keys(gp).length);
   sources.honeypot = !!hp;
   sources.rugcheck = !!rc;
+  sources.explorer = !!ex;
   sources.helius = !!deep;
-  if (!pair && !sources.goplus && !sources.honeypot && !sources.rugcheck) throw fail(404, "No data found for this address on " + chain);
+  if (!pair && !sources.goplus && !sources.honeypot && !sources.rugcheck && !sources.explorer) throw fail(404, "No data found for this address on " + chain);
 
   const stv = (x) => (x && typeof x === "object" && "status" in x ? x.status : x);
   const hasGp = !!(gp && Object.keys(gp).length), sim = hp && hp.simulationResult;
@@ -86,9 +89,9 @@ async function runScan(caIn, selIn, opts) {
     ? { mint: hasGp ? stv(gp.mintable) === "1" : null, freeze: hasGp ? stv(gp.freezable) === "1" : null }
     : { honeypot: hasGp || hp ? !!((hp && hp.honeypotResult && hp.honeypotResult.isHoneypot) || (gp && (gp.is_honeypot === "1" || gp.cannot_sell_all === "1"))) : null,
         sellTax: sim && Number.isFinite(parseFloat(sim.sellTax)) ? parseFloat(sim.sellTax) : hasGp && Number.isFinite(parseFloat(gp.sell_tax)) ? parseFloat(gp.sell_tax) * 100 : null,
-        owner: hasGp && gp.owner_address ? String(gp.owner_address).toLowerCase() : null };
+        owner: hasGp && gp.owner_address ? String(gp.owner_address).toLowerCase() : ex && ex.ownerKnown ? ex.owner : null };
   const links = extractLinks(pair);
-  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, sources, links, deep });
+  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep });
   const tok = pair ? (pair.baseToken.address.toLowerCase() === low ? pair.baseToken : pair.quoteToken) : {};
   const out = {
     ok: true, chain, address: ca, ts: now,

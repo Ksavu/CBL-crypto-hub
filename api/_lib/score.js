@@ -9,11 +9,12 @@ function analyze(i) {
   const R = [];
   const add = (sev, title, detail) => R.push({ sev, title, detail: detail || "" });
   const { kind, pair, gp, hp, rc } = i;
-  const hasSec = !!(gp && Object.keys(gp).length) || !!hp || !!rc || !!i.deep;
+  const hasSec = !!(gp && Object.keys(gp).length) || !!hp || !!rc || !!i.deep || !!i.ex;
 
   if (kind === "evm") {
     if (gp && Object.keys(gp).length) evmGoPlus(gp, hp, add);
     if (hp) evmHoneypot(hp, gp, add);
+    if (i.ex && !(gp && Object.keys(gp).length)) evmExplorer(i.ex, hp, add);
   } else {
     if (gp && Object.keys(gp).length) solGoPlus(gp, add, !!i.deep);
     if (rc && rc.risks) {
@@ -30,15 +31,19 @@ function analyze(i) {
   if (pair) marketChecks(pair, add);
   if (pair && i.links && !Object.keys(i.links).length) add("info", "No website or socials listed", "Official links are missing on DexScreener. Check the project yourself.");
 
+  // Chains without GoPlus coverage: mint, blacklist and hidden-owner flags can't be checked, so never present a top score.
+  const limited = kind === "evm" && !(gp && Object.keys(gp).length);
+  if (limited && hasSec) add("info", "Limited coverage on this chain", "Mint, blacklist, pause and hidden-owner functions could not be checked automatically. Verify the contract yourself.");
   let score = 100;
   for (const r of R) score -= PTS[r.sev] || 0;
   const critical = R.some((r) => r.sev === "critical");
   score = Math.max(0, Math.min(100, score));
   if (critical) score = Math.min(score, 20);
+  else if (limited) score = Math.min(score, 85);
 
   const sources = i.sources || {};
   const okCount = ["goplus", "honeypot", "rugcheck"].filter((k) => sources[k]).length;
-  const confidence = !hasSec ? "none" : okCount >= 2 && sources.dexscreener ? "high" : okCount >= 1 ? "medium" : "low";
+  const confidence = !hasSec ? "none" : limited ? "medium" : okCount >= 2 && sources.dexscreener ? "high" : okCount >= 1 ? "medium" : "low";
 
   let verdict;
   if (!hasSec) verdict = "Security data unavailable";
@@ -107,6 +112,16 @@ function evmGoPlus(s, hp, add) {
     const lk = lp.reduce((a, x) => a + (x.is_locked === "1" || DEAD.test(x.address || "") ? pc(x.percent) || 0 : 0), 0);
     add(lk >= 90 ? "ok" : lk >= 50 ? "medium" : "high", `${Math.min(100, lk).toFixed(0)}% of liquidity locked or burned`);
   } else add("info", "Liquidity lock unknown", "Common for V3 pools or very new tokens");
+}
+
+function evmExplorer(x, hp, add) {
+  if (x.verified === true) add("ok", "Contract source verified");
+  else if (x.verified === false) add("medium", "Contract source not verified");
+  if (x.proxy) add("medium", "Upgradeable proxy", "The contract logic can be changed");
+  if (x.ownerKnown) !x.owner || DEAD.test(x.owner) ? add("ok", "Ownership renounced") : add("medium", "Ownership not renounced", `Owner ${x.owner.slice(0, 6)}...${x.owner.slice(-4)}`);
+  if (x.top1 !== null) add(x.top1 >= 30 ? "high" : x.top1 >= 15 ? "medium" : "ok", `Largest wallet holds ${x.top1.toFixed(1)}%`, `Top 5 wallets ${x.top5.toFixed(1)}% (contracts and burn wallets excluded)`);
+  if (x.creatorPct !== null && x.creatorPct >= 10) add("medium", "Creator holds a large share", `${x.creatorPct.toFixed(1)}% of supply`);
+  if (x.holders) add(x.holders < 50 ? "medium" : x.holders < 200 ? "low" : "ok", `${x.holders.toLocaleString("en-US")} holders`);
 }
 
 function evmHoneypot(hp, gp, add) {
