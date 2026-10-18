@@ -194,14 +194,15 @@ async function deepSol(mint, budgetMs = 25000) {
             const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === o && x.fromUserAccount !== o && x.amount > 0); if (nt) funder[o] = nt.fromUserAccount; });
         }
         const cnt = {}; bundledAll.filter((o) => funder[o]).forEach((o) => { cnt[funder[o]] = (cnt[funder[o]] || 0) + 1; });
-        const shared = new Set(Object.keys(cnt).filter((f) => cnt[f] >= 2));
+        const all3 = {}; Object.keys(funder).forEach((o) => { if (bal[o] > 0) all3[funder[o]] = (all3[funder[o]] || 0) + 1; });
+        const shared = new Set([...Object.keys(cnt).filter((f) => cnt[f] >= 2), ...Object.keys(all3).filter((f) => all3[f] >= 3)]);
         D.sharedFunders = shared.size;
         Object.keys(funder).forEach((o) => { if (shared.has(funder[o]) && !bundledAll.includes(o)) { bundledAll.push(o); const k = snipeAll.indexOf(o); if (k >= 0) snipeAll.splice(k, 1); } });
       } catch (e) { bad("funderstep", e); }
       const hist = {}; all.forEach((o) => { hist[first[o]] = (hist[first[o]] || 0) + 1; });
       D.debug = { path: D.path, txsFetched: list.length, creationSlot: oldest.slot || null, firstBuySlotOffset: s0 === null ? null : s0 - (oldest.slot || s0),
         buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, ms: Date.now() - t0, errs: D.errs, retries: D.retries || 0, funderKnown: Object.keys(funder).length, funderGroups: Object.entries(Object.values(funder).reduce((m, f) => (m[f] = (m[f] || 0) + 1, m), {})).filter((x) => x[1] >= 2).map((x) => short(x[0]) + " x" + x[1]), sharedFunders: D.sharedFunders || 0, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
-        holderList: Object.keys(bal).filter((o) => !pools.has(o) && bal[o] > 0).sort((a, b) => bal[b] - bal[a]).slice(0, 60).map((o) => o.slice(0, 3) + "..." + o.slice(-4) + " " + (bal[o] / supply * 100).toFixed(2) + "% slot+" + (slotOf[o] && cs ? slotOf[o] - cs : "?") + (bundledAll.includes(o) ? " B" : snipeAll.includes(o) ? " S" : "")) };
+        holderList: Object.keys(bal).filter((o) => !pools.has(o) && bal[o] > 0).sort((a, b) => bal[b] - bal[a]).slice(0, 60).map((o) => o.slice(0, 3) + "..." + o.slice(-4) + " " + (bal[o] / supply * 100).toFixed(2) + "% slot+" + (slotOf[o] && cs ? slotOf[o] - cs : "?") + (funder[o] ? " f:" + funder[o].slice(0, 4) : "") + (bundledAll.includes(o) ? " B" : snipeAll.includes(o) ? " S" : "")) };
       const held = async (o) => {
         if (complete || bal[o]) return bal[o] || 0;
         try { const r = await rpc("getTokenAccountsByOwner", [o, { mint }, { encoding: "jsonParsed" }]);
