@@ -1,3 +1,4 @@
+const { deepChecks } = require("./deep");
 // CBL risk scoring. Pure functions, no network. Input: normalized API data. Output: score + reasons.
 const N = (x) => { const n = parseFloat(x); return Number.isFinite(n) ? n : null; };
 const pc = (x) => { const n = N(x); return n === null ? null : n * 100; };
@@ -8,13 +9,13 @@ function analyze(i) {
   const R = [];
   const add = (sev, title, detail) => R.push({ sev, title, detail: detail || "" });
   const { kind, pair, gp, hp, rc } = i;
-  const hasSec = !!(gp && Object.keys(gp).length) || !!hp || !!rc;
+  const hasSec = !!(gp && Object.keys(gp).length) || !!hp || !!rc || !!i.deep;
 
   if (kind === "evm") {
     if (gp && Object.keys(gp).length) evmGoPlus(gp, hp, add);
     if (hp) evmHoneypot(hp, gp, add);
   } else {
-    if (gp && Object.keys(gp).length) solGoPlus(gp, add);
+    if (gp && Object.keys(gp).length) solGoPlus(gp, add, !!i.deep);
     if (rc && rc.risks) {
       rc.risks.slice(0, 8).forEach((r) =>
         add(r.level === "danger" ? "high" : r.level === "warn" ? "medium" : "info", r.name, r.description));
@@ -23,7 +24,9 @@ function analyze(i) {
           `${rc.lpLockedPct.toFixed(0)}% of liquidity locked or burned`);
     }
   }
+  if (i.deep) deepChecks(i.deep, add);
   if (pair) marketChecks(pair, add);
+  if (pair && i.links && !Object.keys(i.links).length) add("info", "No website or socials listed", "Official links are missing on DexScreener. Check the project yourself.");
 
   let score = 100;
   for (const r of R) score -= PTS[r.sev] || 0;
@@ -116,7 +119,7 @@ function evmHoneypot(hp, gp, add) {
     add("info", "Taxes measured by live simulation");
 }
 
-function solGoPlus(s, add) {
+function solGoPlus(s, add, skipHolders) {
   const st = (x) => (x && typeof x === "object" && "status" in x ? x.status : x);
   st(s.mintable) === "1" ? add("high", "Mint authority active", "Supply can be increased") : add("ok", "Mint authority revoked");
   st(s.freezable) === "1" ? add("high", "Freeze authority active", "Wallets can be frozen") : add("ok", "No freeze authority");
@@ -127,7 +130,7 @@ function solGoPlus(s, add) {
   if (s.transfer_fee && typeof s.transfer_fee === "object" && Object.keys(s.transfer_fee).length) add("medium", "Token has a transfer fee");
   if (s.transfer_hook && s.transfer_hook.length) add("medium", "Transfer hook present");
   const h = (s.holders || []).map((x) => pc(x.percent) || 0).sort((a, b) => b - a);
-  if (h.length) {
+  if (h.length && !skipHolders) {
     const t10 = h.slice(0, 10).reduce((a, b) => a + b, 0);
     add(t10 >= 60 ? "high" : t10 >= 30 ? "medium" : "ok", `Top 10 wallets hold ${t10.toFixed(1)}%`, "May include liquidity pool accounts");
   }

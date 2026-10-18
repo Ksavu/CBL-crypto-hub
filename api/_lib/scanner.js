@@ -1,5 +1,6 @@
 // Shared scan engine used by /api/scan (website) and /api/telegram (bot).
 const { analyze } = require("./score");
+const { deepSol } = require("./deep");
 
 const EVM = { ethereum: 1, bsc: 56, base: 8453 };
 const OK_CHAINS = ["ethereum", "bsc", "base", "solana"];
@@ -13,6 +14,21 @@ async function j(url, ms = 4000) {
     if (!r.ok) throw new Error("HTTP " + r.status);
     return await r.json();
   } finally { clearTimeout(t); }
+}
+function cleanUrl(u) {
+  try { const x = new URL(String(u)); return x.protocol === "https:" ? x.href.slice(0, 300) : null; } catch (e) { return null; }
+}
+function extractLinks(pair) {
+  const info = (pair && pair.info) || {}, L = {};
+  for (const w of info.websites || []) { const u = cleanUrl(w && w.url); if (u && !L.web) L.web = u; }
+  for (const s of info.socials || []) {
+    const u = cleanUrl(s && s.url), t = String((s && s.type) || "").toLowerCase();
+    if (!u) continue;
+    if ((t === "twitter" || t === "x") && !L.x) L.x = u;
+    else if (t === "telegram" && !L.tg) L.tg = u;
+    else if (t === "discord" && !L.dc) L.dc = u;
+  }
+  return L;
 }
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
@@ -43,7 +59,7 @@ async function runScan(caIn, selIn) {
   pairs = pairs.filter((p) => p.chainId === chain).sort((a, b) => liq(b) - liq(a));
   const pair = pairs[0] || null;
 
-  let gp = null, hp = null, rc = null;
+  let gp = null, hp = null, rc = null, deep = null;
   if (kind === "evm") {
     const id = EVM[chain];
     [gp, hp] = await Promise.all([
@@ -51,17 +67,20 @@ async function runScan(caIn, selIn) {
       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
     ]);
   } else {
-    [gp, rc] = await Promise.all([
+    [gp, rc, deep] = await Promise.all([
       j(`https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=${ca}`).then((r) => r.result && (r.result[ca] || r.result[Object.keys(r.result)[0]])).catch(() => null),
       j(`https://api.rugcheck.xyz/v1/tokens/${ca}/report/summary`).catch(() => null),
+      deepSol(ca).catch(() => null),
     ]);
   }
   sources.goplus = !!(gp && Object.keys(gp).length);
   sources.honeypot = !!hp;
   sources.rugcheck = !!rc;
+  sources.helius = !!deep;
   if (!pair && !sources.goplus && !sources.honeypot && !sources.rugcheck) throw fail(404, "No data found for this address on " + chain);
 
-  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, sources });
+  const links = extractLinks(pair);
+  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, sources, links, deep });
   const tok = pair ? (pair.baseToken.address.toLowerCase() === low ? pair.baseToken : pair.quoteToken) : {};
   const out = {
     ok: true, chain, address: ca, ts: now,
@@ -71,7 +90,7 @@ async function runScan(caIn, selIn) {
     market: pair ? { price: pair.priceUsd, liquidity: liq(pair), fdv: pair.fdv, marketCap: pair.marketCap,
              volume24h: pair.volume && pair.volume.h24, change24h: pair.priceChange && pair.priceChange.h24,
              pairCreatedAt: pair.pairCreatedAt, dex: pair.dexId, url: pair.url } : null,
-    score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
+    links, score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };
   cache.set(key, { t: now, v: out });
   if (cache.size > 500) cache.delete(cache.keys().next().value);

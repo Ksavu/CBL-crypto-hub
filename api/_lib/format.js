@@ -44,6 +44,12 @@ function card(r, site) {
     { text: "🔄 Rescan", callback_data: "r:" + r.address },
     { text: "💱 CBL Swap", url: `${site}/#swap` },
   ]];
+  const so = [];
+  if (r.links && r.links.web) so.push({ text: "🌐 Website", url: r.links.web });
+  if (r.links && r.links.x) so.push({ text: "𝕏", url: r.links.x });
+  if (r.links && r.links.tg) so.push({ text: "✈️ Telegram", url: r.links.tg });
+  if (r.links && r.links.dc) so.push({ text: "💬 Discord", url: r.links.dc });
+  if (so.length) rows.splice(1, 0, so);
   return { text: L.join("\n"), reply_markup: { inline_keyboard: rows } };
 }
 
