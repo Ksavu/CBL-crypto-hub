@@ -28,7 +28,9 @@ async function deepSol(mint, budgetMs = 25000) {
     if (ms < 400) throw new Error("budget");
     const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
     try {
-      const r = await fetch(url, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      let r = await fetch(url, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      for (let k = 0; r.status === 429 && k < 2 && left() > 1500; k++) { await new Promise((z) => setTimeout(z, 400 * (k + 1))); D.retries = (D.retries || 0) + 1;
+        r = await fetch(url, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) }); }
       if (!r.ok) throw new Error("HTTP " + r.status);
       return await r.json();
     } finally { clearTimeout(t); }
@@ -38,7 +40,8 @@ async function deepSol(mint, budgetMs = 25000) {
     if (r.error) throw new Error(r.error.message || "rpc");
     return r.result;
   };
-  const D = { notes: [], traced: false };
+  const D = { notes: [], traced: false, errs: {} };
+  const bad = (tag, e) => { const k = tag + ": " + String((e && e.message) || e).slice(0, 80); D.errs[k] = (D.errs[k] || 0) + 1; };
   try {
     // 1. Mint basics
     const mi = await rpc("getAccountInfo", [mint, { encoding: "jsonParsed" }]);
@@ -162,10 +165,10 @@ async function deepSol(mint, budgetMs = 25000) {
           try {
             const r = await rpc("getTransactionsForAddress", [taddr[o], { transactionDetails: "signatures", sortOrder: "asc", limit: 1 }]);
             const a = (r && (r.data || r)) || [];
-            if (Array.isArray(a) && a[0] && a[0].slot) slotOf[o] = a[0].slot;
-          } catch (e) {}
+            if (Array.isArray(a) && a[0] && a[0].slot) slotOf[o] = a[0].slot; else bad("slot-empty", "no tx");
+          } catch (e) { bad("slot", e); }
         }));
-      } catch (e) {}
+      } catch (e) { bad("slotstep", e); }
       const bySlot = {}; Object.keys(slotOf).forEach((o) => (bySlot[slotOf[o]] = bySlot[slotOf[o]] || []).push(o));
       const grouped = Object.values(bySlot).filter((g) => g.length >= 3).flat();
       const cs = oldest.slot || 0;
@@ -180,7 +183,7 @@ async function deepSol(mint, budgetMs = 25000) {
         const sigsOf = {};
         for (let i = 0; i < cand.length && left() > 3000; i += 8) await Promise.all(cand.slice(i, i + 8).map(async (o) => {
           try { const r = await rpc("getTransactionsForAddress", [o, { transactionDetails: "signatures", sortOrder: "asc", limit: 3 }]);
-            const a = (r && (r.data || r)) || []; if (Array.isArray(a) && a.length) sigsOf[o] = a.map((x) => x.signature); } catch (e) {}
+            const a = (r && (r.data || r)) || []; if (Array.isArray(a) && a.length) sigsOf[o] = a.map((x) => x.signature); else bad("funder-empty", "no tx"); } catch (e) { bad("funder-sig", e); }
         }));
         const flat = []; Object.keys(sigsOf).forEach((o) => sigsOf[o].forEach((s) => flat.push([o, s])));
         for (let i = 0; i < flat.length && left() > 1500; i += 100) {
@@ -194,10 +197,10 @@ async function deepSol(mint, budgetMs = 25000) {
         const shared = new Set(Object.keys(cnt).filter((f) => cnt[f] >= 2));
         D.sharedFunders = shared.size;
         Object.keys(funder).forEach((o) => { if (shared.has(funder[o]) && !bundledAll.includes(o)) { bundledAll.push(o); const k = snipeAll.indexOf(o); if (k >= 0) snipeAll.splice(k, 1); } });
-      } catch (e) {}
+      } catch (e) { bad("funderstep", e); }
       const hist = {}; all.forEach((o) => { hist[first[o]] = (hist[first[o]] || 0) + 1; });
       D.debug = { path: D.path, txsFetched: list.length, creationSlot: oldest.slot || null, firstBuySlotOffset: s0 === null ? null : s0 - (oldest.slot || s0),
-        buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, funderKnown: Object.keys(funder).length, funderGroups: Object.entries(Object.values(funder).reduce((m, f) => (m[f] = (m[f] || 0) + 1, m), {})).filter((x) => x[1] >= 2).map((x) => short(x[0]) + " x" + x[1]), sharedFunders: D.sharedFunders || 0, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
+        buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, ms: Date.now() - t0, errs: D.errs, retries: D.retries || 0, funderKnown: Object.keys(funder).length, funderGroups: Object.entries(Object.values(funder).reduce((m, f) => (m[f] = (m[f] || 0) + 1, m), {})).filter((x) => x[1] >= 2).map((x) => short(x[0]) + " x" + x[1]), sharedFunders: D.sharedFunders || 0, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
         holderList: Object.keys(bal).filter((o) => !pools.has(o) && bal[o] > 0).sort((a, b) => bal[b] - bal[a]).slice(0, 60).map((o) => o.slice(0, 3) + "..." + o.slice(-4) + " " + (bal[o] / supply * 100).toFixed(2) + "% slot+" + (slotOf[o] && cs ? slotOf[o] - cs : "?") + (bundledAll.includes(o) ? " B" : snipeAll.includes(o) ? " S" : "")) };
       const held = async (o) => {
         if (complete || bal[o]) return bal[o] || 0;
