@@ -1,6 +1,6 @@
 // On-chain fallback for EVM chains where GoPlus has no coverage (e.g. Robinhood Chain): Blockscout API + RPC.
 const CFG = {
-  robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 50, bwin: 20, fan: 3000, chunk: 20000 },
+  robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 50, bwin: 20, fan: 20000, chunk: 20000 },
 };
 const DEAD = /^0x(0{40}|0{39}1|[0d]*dead[0-9a-f]*)$/i;
 const NET = [];
@@ -140,7 +140,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   chunkAll.concat(sends).forEach((x) => { if (got[x.to] === undefined || x.blk < got[x.to]) got[x.to] = x.blk; });
   const fan = {};
   chunkT.forEach((x) => { if (x.from === src || x.blk - first > cfg.fan || x.to === src || DEAD.test(x.to) || x.to === tk || zero.test(x.to)) return; (fan[x.from] = fan[x.from] || { to: new Set(), amt: 0 }); fan[x.from].to.add(x.to); fan[x.from].amt += x.amt; });
-  const fans = Object.keys(fan).filter((a) => fan[a].to.size >= 5 && got[a] !== undefined && got[a] <= first + cfg.fan).sort((a, c) => fan[c].to.size - fan[a].to.size);
+  const fans = Object.keys(fan).filter((a) => fan[a].to.size >= 5).sort((a, c) => fan[c].amt - fan[a].amt);
   dbg.fanOut = fans.slice(0, 4).map((a) => a.slice(0, 8) + ":" + fan[a].to.size + ":" + (supply > 0 ? ((fan[a].amt / supply) * 100).toFixed(1) : "?") + "%");
   let bundle = fans.length ? Array.from(fan[fans[0]].to).filter((a) => a !== src).slice(0, 60) : (same.length >= 2 ? same : []);
   const snipe = all.filter((a) => !bundle.includes(a));
