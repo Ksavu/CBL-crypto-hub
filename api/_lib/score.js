@@ -31,6 +31,14 @@ function analyze(i) {
   if (pair) marketChecks(pair, add);
   if (pair && i.links && !Object.keys(i.links).length) add("info", "No website or socials listed", "Official links are missing on DexScreener. Check the project yourself.");
 
+  // Launchpad token: real trading runs through a bonding-curve contract, the DEX pool is a tiny side pool. Pool-based liquidity penalties don't describe the real market.
+  let launchpad = false;
+  const lsrc = i.deep && i.deep.debug && i.deep.debug.source;
+  if (kind === "evm" && lsrc && pair && pair.pairAddress && String(lsrc).toLowerCase() !== String(pair.pairAddress).toLowerCase() && ((pair.liquidity && pair.liquidity.usd) || 0) < 2000) {
+    launchpad = true;
+    for (let k = R.length - 1; k >= 0; k--) if (/liquidity|^Pair is less than/i.test(R[k].title)) R.splice(k, 1);
+    add("info", "Likely trades on a launchpad bonding curve", "Most trading goes through a launchpad contract, not the small DEX pool shown on DexScreener. Pool liquidity and lock checks are skipped. Check the launchpad page for the real liquidity.");
+  }
   // Chains without GoPlus coverage: mint, blacklist and hidden-owner flags can't be checked, so never present a top score.
   const limited = kind === "evm" && !["ethereum", "bsc", "base"].includes(i.chain);
   if (limited && hasSec) add("info", "Limited coverage on this chain", "Mint, blacklist, pause and hidden-owner functions could not be checked automatically. Verify the contract yourself.");
@@ -39,7 +47,7 @@ function analyze(i) {
   const critical = R.some((r) => r.sev === "critical");
   score = Math.max(0, Math.min(100, score));
   if (critical) score = Math.min(score, 20);
-  else if (limited) score = Math.min(score, 85);
+  else if (limited) score = Math.min(score, launchpad ? 75 : 85);
 
   const sources = i.sources || {};
   const okCount = ["goplus", "honeypot", "rugcheck"].filter((k) => sources[k]).length;

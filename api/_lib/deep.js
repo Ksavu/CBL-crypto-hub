@@ -254,7 +254,7 @@ function deepChecks(D, add) {
   }
   const grp = (g, label) => {
     if (!g) return;
-    add((g.heldPct || 0) >= 10 ? "high" : (g.heldPct || 0) >= 5 ? "medium" : "info", `${g.stillHolding} of ${g.wallets} ${label}`,
+    add((g.heldPct || 0) >= 10 ? "high" : (g.heldPct || 0) >= 5 || (g.boughtPct || 0) >= 10 ? "medium" : (g.boughtPct || 0) >= 5 ? "low" : "info", `${g.stillHolding} of ${g.wallets} ${label}`,
       `Together they hold ${f(g.heldPct)} of supply`);
   };
   grp(D.bundlers, "bundle wallets still hold tokens (bought in the launch block or received from those buyers)");
