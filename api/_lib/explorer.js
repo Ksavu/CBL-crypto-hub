@@ -53,7 +53,8 @@ const rpcCall = (cfg, method, params) => get(cfg.rpc, { method: "POST", headers:
 const logs = (cfg, token, pair, from, to) => rpcCall(cfg, "eth_getLogs", [{ address: token, topics: [TRANSFER, pad(pair)], fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) }]);
 
 async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budgetMs = 14000) {
-  const cfg = CFG[chain]; if (!cfg || !(supply > 0)) return null;
+  const cfg = CFG[chain]; if (!cfg) return null;
+  const dbg = { supply: supply || null, creationTx: creationTx || null }, fail = (why) => ({ traced: false, dbg: Object.assign(dbg, { why }) });
   const t0 = Date.now(), left = () => budgetMs - (Date.now() - t0);
   const origin = cfg.api.replace(/\/api\/v2$/, "");
   let start = 0;
@@ -62,8 +63,10 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
     const bt = await get(`${origin}/api?module=block&action=getblocknobytime&timestamp=${Math.floor(pairCreatedMs / 1000) - 120}&closest=after`);
     start = parseInt((bt && bt.result && (bt.result.blockNumber || bt.result)) || 0, 10);
   }
-  if (!(start > 0)) return { traced: false };
+  dbg.start = start;
+  if (!(start > 0)) return fail("no start block (creation tx and pair time unavailable)");
   const head = parseInt(await rpcCall(cfg, "eth_blockNumber", []), 16);
+  dbg.head = head;
   const tl = (from, to, src) => rpcCall(cfg, "eth_getLogs", [{ address: token, topics: src ? [TRANSFER, pad(src)] : [TRANSFER], fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) }]);
   const dec = (l) => ({ from: "0x" + l.topics[1].slice(26).toLowerCase(), to: "0x" + l.topics[2].slice(26).toLowerCase(), blk: parseInt(l.blockNumber, 16) });
   const zero = /^0x0{40}$/;
@@ -72,8 +75,8 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   for (let b = start, n = 0; b <= head && n < 8 && left() > 4000 && !src; n++) {
     let L = await tl(b, Math.min(head, b + size - 1));
     if (L === null && size > 500) { size = Math.floor(size / 5); L = await tl(b, Math.min(head, b + size - 1)); }
-    if (L === null) return { traced: false };
-    b += size;
+    if (L === null) return fail("eth_getLogs failed on the RPC (range too large or blocked)");
+    b += size; dbg.chunks = (dbg.chunks || 0) + 1; dbg.logs = (dbg.logs || 0) + L.length;
     const T = L.map(dec).filter((x) => !zero.test(x.from));
     if (!T.length) continue;
     const rec = {};
@@ -81,10 +84,11 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
     const best = Object.keys(rec).sort((a, c) => rec[c].size - rec[a].size)[0];
     if (rec[best].size >= 2) { src = best; first = Math.min(...T.filter((x) => x.from === best).map((x) => x.blk)); }
   }
-  if (!src) return { traced: false };
+  if (!src) return fail("no distributor found in the first blocks");
   // 2. everything the distributor sent in the first blocks of trading
   const W = await tl(first, Math.min(head, first + cfg.win), src);
-  if (!W || !W.length) return { traced: false };
+  if (!W || !W.length) return fail("no transfers from distributor in window");
+  dbg.source = src; dbg.firstBlock = first;
   const by = {}, tk = token.toLowerCase();
   for (const l of W) {
     const x = dec(l);
@@ -97,9 +101,10 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
     if (!ws.length) return null;
     const sel = ws.slice(0, 40);
     const bal = await Promise.all(sel.map((a) => rpcCall(cfg, "eth_call", [{ to: token, data: "0x70a08231" + pad(a).slice(2) }, "latest"]).then((v) => (typeof v === "string" && v.length > 2 ? parseInt(v, 16) : 0)).catch(() => 0)));
-    return { wallets: ws.length, stillHolding: bal.filter((x) => x > 0).length, heldPct: (bal.reduce((x, y) => x + y, 0) / supply) * 100 };
+    return { wallets: ws.length, stillHolding: bal.filter((x) => x > 0).length, heldPct: (supply > 0 ? (bal.reduce((x, y) => x + y, 0) / supply) * 100 : null) };
   };
   const [bundlers, snipers] = await Promise.all([grp(bundle), grp(snipe)]);
-  return { traced: true, bundlers, snipers, firstBlock: first, source: src };
+  dbg.buyers = all.length; dbg.sameBlock = same.length;
+  return { traced: true, bundlers, snipers, dbg };
 }
 module.exports = { explorerEvm, evmLaunch, EXPLORER_CHAINS: Object.keys(CFG) };
