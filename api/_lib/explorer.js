@@ -77,6 +77,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
       if (lo > 1 && lo < hn) start = lo;
     }
   }
+  if (!(supply > 0)) { const ts = await rpcCall(cfg, "eth_call", [{ to: token, data: "0x18160ddd" }, "latest"]); const v = typeof ts === "string" && ts.length > 2 ? parseInt(ts, 16) : 0; if (v > 0) { supply = v; dbg.supply = v; } }
   dbg.start = start; dbg.net = NET.slice(0, 6);
   if (!(start > 0)) return fail("no start block (explorer and RPC unavailable)");
   const head = parseInt(await rpcCall(cfg, "eth_blockNumber", []), 16);

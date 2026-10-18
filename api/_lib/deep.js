@@ -238,7 +238,7 @@ async function deepSol(mint, budgetMs = 25000) {
 
 function deepChecks(D, add) {
   if (!D) return;
-  const f = (n) => n.toFixed(1) + "%";
+  const f = (n) => (typeof n === "number" ? n.toFixed(1) + "%" : "n/a");
   if (D.mintAuthority === null && D.freezeAuthority === null) add("ok", "Mint and freeze authority revoked (on-chain check)");
   if (D.topWallet) add(D.topWallet.pct >= 20 ? "high" : D.topWallet.pct >= 10 ? "medium" : "ok",
     `Largest real wallet holds ${f(D.topWallet.pct)}`, `Pool and program accounts excluded. ${short(D.topWallet.owner)}`);
@@ -254,7 +254,7 @@ function deepChecks(D, add) {
   }
   const grp = (g, label) => {
     if (!g) return;
-    add(g.heldPct >= 10 ? "high" : g.heldPct >= 5 ? "medium" : "info", `${g.stillHolding} of ${g.wallets} ${label}`,
+    add((g.heldPct || 0) >= 10 ? "high" : (g.heldPct || 0) >= 5 ? "medium" : "info", `${g.stillHolding} of ${g.wallets} ${label}`,
       `Together they hold ${f(g.heldPct)} of supply`);
   };
   grp(D.bundlers, "bundle wallets still hold tokens (bought in the launch block or received from those buyers)");
