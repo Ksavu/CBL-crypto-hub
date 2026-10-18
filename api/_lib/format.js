@@ -37,7 +37,7 @@ function card(r, site, opt) {
     else {
       const p = (n) => (typeof n === "number" ? n.toFixed(1) + "%" : "n/a");
       L.push("", `🧬 Deployer ${d.traced ? p(d.deployerPct) : "n/a"} · Top 10 wallets ${p(d.top10)}${d.holders ? " · " + d.holders + " holders" : ""}`);
-      const g = (x) => `${x.stillHolding} holding of ${x.wallets} · ${p(x.heldPct)} of supply`;
+      const g = (x) => `${x.stillHolding} holding of ${x.wallets} · ${p(x.heldPct)} of supply${typeof x.boughtPct === "number" ? " · bought " + p(x.boughtPct) : ""}`;
       if (d.traced) L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
       else L.push("🎯 Snipers / 📦 Bundlers: n/a (launch too old to trace)");
     }

@@ -1,6 +1,6 @@
 // On-chain fallback for EVM chains where GoPlus has no coverage (e.g. Robinhood Chain): Blockscout API + RPC.
 const CFG = {
-  robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 600, bwin: 20, chunk: 20000 },
+  robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 50, bwin: 20, fan: 3000, chunk: 20000 },
 };
 const DEAD = /^0x(0{40}|0{39}1|[0d]*dead[0-9a-f]*)$/i;
 const NET = [];
@@ -93,10 +93,10 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   const head = parseInt(await rpcCall(cfg, "eth_blockNumber", []), 16);
   dbg.head = head;
   const tl = (from, to, src) => rpcCall(cfg, "eth_getLogs", [{ address: token, topics: src ? [TRANSFER, pad(src)] : [TRANSFER], fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) }]);
-  const dec = (l) => ({ from: "0x" + l.topics[1].slice(26).toLowerCase(), to: "0x" + l.topics[2].slice(26).toLowerCase(), blk: parseInt(l.blockNumber, 16) });
+  const dec = (l) => ({ from: "0x" + l.topics[1].slice(26).toLowerCase(), to: "0x" + l.topics[2].slice(26).toLowerCase(), blk: parseInt(l.blockNumber, 16), amt: Number(l.data && l.data.length > 2 ? parseInt(l.data, 16) : 0) || 0 });
   const zero = /^0x0{40}$/;
   // 1. find the first chunk with real (non-mint) transfers and pick the distributor: the address that sends to the most different wallets (pool, pair or launchpad contract)
-  let src = null, first = null, size = cfg.chunk, chunkT = [];
+  let src = null, first = null, size = cfg.chunk, chunkT = [], chunkAll = [];
   for (let b = start, n = 0; b <= head && n < 8 && left() > 4000 && !src; n++) {
     let L = await tl(b, Math.min(head, b + size - 1));
     if (L === null && size > 500) { size = Math.floor(size / 5); L = await tl(b, Math.min(head, b + size - 1)); }
@@ -107,7 +107,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
     const rec = {};
     T.slice(0, 400).forEach((x) => { (rec[x.from] = rec[x.from] || new Set()).add(x.to); });
     const best = Object.keys(rec).sort((a, c) => rec[c].size - rec[a].size)[0];
-    if (rec[best].size >= 2) { chunkT = T; dbg.senders = Object.keys(rec).sort((a, c) => rec[c].size - rec[a].size).slice(0, 4).map((k) => k.slice(0, 8) + ":" + rec[k].size); src = best; first = Math.min(...T.filter((x) => x.from === best).map((x) => x.blk)); }
+    if (rec[best].size >= 2) { chunkT = T; chunkAll = L.map(dec); dbg.senders = Object.keys(rec).sort((a, c) => rec[c].size - rec[a].size).slice(0, 4).map((k) => k.slice(0, 8) + ":" + rec[k].size); src = best; first = Math.min(...T.filter((x) => x.from === best).map((x) => x.blk)); }
   }
   if (!src) return fail("no distributor found in the first blocks");
   // 2. everything the distributor ever sent. Real "launch" = first burst of new buyers (a token can sit idle or have a few early buyers before trading starts)
@@ -129,22 +129,26 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
     seenTo[x.to] = x.blk; recs.push({ to: x.to, blk: x.blk });
   }
   if (!recs.length) return fail("no recipients");
-  let launch = recs[0].blk;
-  for (let a = 0; a < recs.length; a++) {
-    let n = 0;
-    for (let k = a; k < recs.length && recs[k].blk - recs[a].blk <= cfg.win; k++) n++;
-    if (n >= 8) { launch = recs[a].blk; break; }
-  }
+  const launch = first;
   dbg.source = src; dbg.firstBlock = first; dbg.launch = launch; dbg.launchOffset = launch - first; dbg.recipients = recs.length;
   const by = {};
   recs.forEach((r) => { if (r.blk >= launch && r.blk - launch <= cfg.win) by[r.to] = { first: r.blk }; });
+  const boughtOf = (ws) => { const set = new Set(ws); let t = 0; sends.concat(chunkT).forEach((x) => { if (set.has(x.to) && x.blk >= launch && x.blk - launch <= cfg.fan) t += x.amt; }); return supply > 0 ? (t / supply) * 100 : null; };
   const all = Object.keys(by), same = all.filter((a) => by[a].first - launch <= (cfg.bwin || 0));
-  const bundle = same.length >= 2 ? same : [], snipe = all.filter((a) => !bundle.includes(a));
+  // Bundle = one wallet that received tokens at launch and immediately fanned them out to many fresh wallets
+  const got = {}; // wallets that received tokens (from the distributor or a mint) -> block
+  chunkAll.concat(sends).forEach((x) => { if (got[x.to] === undefined || x.blk < got[x.to]) got[x.to] = x.blk; });
+  const fan = {};
+  chunkT.forEach((x) => { if (x.from === src || x.blk - first > cfg.fan || x.to === src || DEAD.test(x.to) || x.to === tk || zero.test(x.to)) return; (fan[x.from] = fan[x.from] || { to: new Set(), amt: 0 }); fan[x.from].to.add(x.to); fan[x.from].amt += x.amt; });
+  const fans = Object.keys(fan).filter((a) => fan[a].to.size >= 5 && got[a] !== undefined && got[a] <= first + cfg.fan).sort((a, c) => fan[c].to.size - fan[a].to.size);
+  dbg.fanOut = fans.slice(0, 4).map((a) => a.slice(0, 8) + ":" + fan[a].to.size + ":" + (supply > 0 ? ((fan[a].amt / supply) * 100).toFixed(1) : "?") + "%");
+  let bundle = fans.length ? Array.from(fan[fans[0]].to).filter((a) => a !== src).slice(0, 60) : (same.length >= 2 ? same : []);
+  const snipe = all.filter((a) => !bundle.includes(a));
   const grp = async (ws) => {
     if (!ws.length) return null;
     const sel = ws.slice(0, 40);
     const bal = await Promise.all(sel.map((a) => rpcCall(cfg, "eth_call", [{ to: token, data: "0x70a08231" + pad(a).slice(2) }, "latest"]).then((v) => (typeof v === "string" && v.length > 2 ? parseInt(v, 16) : 0)).catch(() => 0)));
-    return { wallets: ws.length, stillHolding: bal.filter((x) => x > 0).length, heldPct: (supply > 0 ? (bal.reduce((x, y) => x + y, 0) / supply) * 100 : null) };
+    return { wallets: ws.length, boughtPct: boughtOf(ws), stillHolding: bal.filter((x) => x > 0).length, heldPct: (supply > 0 ? (bal.reduce((x, y) => x + y, 0) / supply) * 100 : null) };
   };
   const [bundlers, snipers] = await Promise.all([grp(bundle), grp(snipe)]);
   dbg.buyers = all.length; dbg.sameBlock = same.length;
