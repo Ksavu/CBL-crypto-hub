@@ -27,10 +27,13 @@ module.exports = async (req, res) => {
     if (fee > 0 && fee <= 0.05) u.searchParams.set("fee", String(fee));
   }
   const headers = { accept: "application/json" };
-  if (process.env.LIFI_API_KEY) headers["x-lifi-api-key"] = process.env.LIFI_API_KEY;
+  const key = (process.env.LIFI_API_KEY || "").trim().replace(/^["']|["']$/g, "");
+  if (key) headers["x-lifi-api-key"] = key;
   const c = new AbortController(), t = setTimeout(() => c.abort(), 25000);
   try {
-    const r = await fetch(u.toString(), { headers, signal: c.signal });
+    let r = await fetch(u.toString(), { headers, signal: c.signal });
+    // A bad or mismatched key must not break swaps: retry once without it (lower rate limit, fee still applies).
+    if ((r.status === 401 || r.status === 403) && key) { delete headers["x-lifi-api-key"]; r = await fetch(u.toString(), { headers, signal: c.signal }); }
     const body = await r.text();
     res.setHeader("Cache-Control", path === "/chains" || path === "/token" ? "public, s-maxage=300" : "no-store");
     res.setHeader("content-type", "application/json");
