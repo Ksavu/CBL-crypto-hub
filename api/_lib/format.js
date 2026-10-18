@@ -18,7 +18,8 @@ function age(ms) {
   return d < 1 ? Math.max(1, Math.round(d * 24)) + "h" : d < 60 ? Math.round(d) + "d" : Math.round(d / 30) + "mo";
 }
 
-function card(r, site) {
+function card(r, site, opt) {
+  opt = opt || {};
   const dot = r.score === null ? "⚪" : r.score >= 80 ? "🟢" : r.score >= 60 ? "🟡" : r.score >= 40 ? "🟠" : "🔴";
   const L = [];
   L.push(`<b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${NAMES[r.chain]}`);
@@ -31,7 +32,8 @@ function card(r, site) {
   }
   if (r.chain === "solana") {
     const d = r.deep;
-    if (!d) L.push("", "🧬 Deep scan unavailable");
+    if (!d && opt.pending) L.push("", "🧬 Deep scan running… (holders, snipers, bundlers)");
+    else if (!d) L.push("", "🧬 Deep scan unavailable");
     else {
       const p = (n) => (typeof n === "number" ? n.toFixed(1) + "%" : "n/a");
       L.push("", `🧬 Deployer ${d.traced ? p(d.deployerPct) : "n/a"} · Top 10 wallets ${p(d.top10)}${d.holders ? " · " + d.holders + " holders" : ""}`);

@@ -60,9 +60,16 @@ async function doScan(msg, ca, chain, explicit) {
   seen.set(k, Date.now()); if (seen.size > 2000) seen.delete(seen.keys().next().value);
   tg("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
   try {
-    const r = await runScan(ca, chain);
-    const c = card(r, SITE());
-    await reply(msg, c.text, { reply_markup: c.reply_markup });
+    const deep = detect(ca) === "sol" && !!process.env.HELIUS_API_KEY;
+    const r = await runScan(ca, chain, deep ? { noDeep: true } : undefined); // fast first answer
+    const c = card(r, SITE(), { pending: deep });
+    const sent = await reply(msg, c.text, { reply_markup: c.reply_markup });
+    if (deep && sent && sent.ok) { // then fill in the slow Solana deep scan
+      const full = await runScan(ca, chain).catch(() => null);
+      if (full) { const c2 = card(full, SITE());
+        await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c2.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c2.reply_markup }); }
+      else await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c.text.replace("🧬 Deep scan running… (holders, snipers, bundlers)", "🧬 Deep scan unavailable"), parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
+    }
   } catch (e) {
     if (!group || explicit) await reply(msg, "⚠️ " + esc(e.status ? e.message : "Scan failed. Try again."));
   }
@@ -128,10 +135,12 @@ async function onCallback(q) {
   if (limited(q.from.id)) return void (await tg("answerCallbackQuery", { callback_query_id: q.id, text: "Slow down a little.", show_alert: false }));
   await tg("answerCallbackQuery", { callback_query_id: q.id, text: "Rescanning..." });
   try {
-    const r = await runScan(ca, "auto");
-    const c = card(r, SITE());
-    await tg("editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text: c.text,
+    const edit = (c) => tg("editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text: c.text,
       parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
+    const deep = detect(ca) === "sol" && !!process.env.HELIUS_API_KEY;
+    const r = await runScan(ca, "auto", deep ? { noDeep: true, fresh: true } : undefined);
+    await edit(card(r, SITE(), { pending: deep }));
+    if (deep) { const full = await runScan(ca, "auto", { fresh: true }).catch(() => null); if (full) await edit(card(full, SITE())); }
   } catch (e) { /* message not modified or scan failed: ignore */ }
 }
 
