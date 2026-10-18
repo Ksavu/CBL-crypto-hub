@@ -1,5 +1,22 @@
 // Deep Solana scan via Helius. Needs env HELIUS_API_KEY. Every step is optional: failures drop that check, never the scan.
 const SYS = "11111111111111111111111111111111";
+// Is this address a normal wallet (on the ed25519 curve) or a program-derived address?
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const P = (1n << 255n) - 19n, DC = (((-121665n % P) + P) % P) * modpow(121666n, P - 2n, P) % P;
+function modpow(b, e, m) { let r = 1n; b %= m; while (e > 0n) { if (e & 1n) r = r * b % m; b = b * b % m; e >>= 1n; } return r; }
+function onCurve(addr) {
+  try {
+    let n = 0n; for (const c of addr) { const i = B58.indexOf(c); if (i < 0) return true; n = n * 58n + BigInt(i); }
+    let y = 0n; for (let i = 0; i < 32; i++) y |= ((n >> BigInt(8 * i)) & 255n) << BigInt(8 * i); // little-endian bytes from big-endian number
+    const bytes = []; let t = n; for (let i = 0; i < 32; i++) { bytes.unshift(Number(t & 255n)); t >>= 8n; }
+    y = 0n; for (let i = 0; i < 32; i++) y |= BigInt(bytes[i]) << BigInt(8 * i);
+    y &= (1n << 255n) - 1n;
+    const y2 = y * y % P, u = (y2 - 1n + P) % P, v = (DC * y2 + 1n) % P;
+    if (u === 0n) return true;
+    const r = u * modpow(v, P - 2n, P) % P;
+    return modpow(r, (P - 1n) / 2n, P) === 1n;
+  } catch (e) { return true; }
+}
 const short = (a) => a.slice(0, 4) + "..." + a.slice(-4);
 
 async function deepSol(mint, budgetMs = 14000) {
@@ -57,7 +74,7 @@ async function deepSol(mint, budgetMs = 14000) {
     if (ranked.length && supply) {
       const topO = ranked.slice(0, 20).map((x) => x[0]);
       const oa = await rpc("getMultipleAccounts", [topO, { encoding: "base64", dataSlice: { offset: 0, length: 0 } }]);
-      holders = topO.map((o, i) => { const v = oa.value && oa.value[i]; return { owner: o, pct: bal[o] / supply * 100, kind: !v || v.owner !== SYS ? "program" : "wallet" }; });
+      holders = topO.map((o, i) => { const v = oa.value && oa.value[i]; return { owner: o, pct: bal[o] / supply * 100, kind: (!v ? !onCurve(o) : v.owner !== SYS) ? "program" : "wallet" }; });
     }
     D.holders = holders;
     const real = holders.filter((h) => h.kind === "wallet");
@@ -155,9 +172,30 @@ async function deepSol(mint, budgetMs = 14000) {
       const earlyHold = Object.keys(slotOf).filter((o) => cs && slotOf[o] - cs <= 3 && !grouped.includes(o));
       bundledAll.push(...grouped.filter((o) => !bundledAll.includes(o)));
       earlyHold.forEach((o) => { if (!bundledAll.includes(o) && !snipeAll.includes(o)) snipeAll.push(o); });
+      // same-funder check: wallets first funded by the same source as the core bundle
+      const funder = {};
+      try {
+        const cand = Object.keys(bal).filter((o) => bal[o] > 0 && !pools.has(o) && o !== D.deployer).sort((a, b) => bal[b] - bal[a]).slice(0, 60);
+        const sigOf = {};
+        for (let i = 0; i < cand.length && left() > 2500; i += 8) await Promise.all(cand.slice(i, i + 8).map(async (o) => {
+          try { const r = await rpc("getTransactionsForAddress", [o, { transactionDetails: "signatures", sortOrder: "asc", limit: 1 }]);
+            const a = (r && (r.data || r)) || []; if (Array.isArray(a) && a[0] && a[0].signature) sigOf[o] = a[0].signature; } catch (e) {}
+        }));
+        const owners = Object.keys(sigOf);
+        for (let i = 0; i < owners.length && left() > 1800; i += 100) {
+          const part = owners.slice(i, i + 100);
+          const r = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: part.map((o) => sigOf[o]) }).catch(() => []);
+          (Array.isArray(r) ? r : []).forEach((t) => { const o = part.find((x) => sigOf[x] === t.signature); if (!o) return;
+            const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === o && x.fromUserAccount !== o); if (nt) funder[o] = nt.fromUserAccount; });
+        }
+        const cnt = {}; bundledAll.filter((o) => funder[o]).forEach((o) => { cnt[funder[o]] = (cnt[funder[o]] || 0) + 1; });
+        const shared = new Set(Object.keys(cnt).filter((f) => cnt[f] >= 2));
+        D.sharedFunders = shared.size;
+        Object.keys(funder).forEach((o) => { if (shared.has(funder[o]) && !bundledAll.includes(o)) { bundledAll.push(o); const k = snipeAll.indexOf(o); if (k >= 0) snipeAll.splice(k, 1); } });
+      } catch (e) {}
       const hist = {}; all.forEach((o) => { hist[first[o]] = (hist[first[o]] || 0) + 1; });
       D.debug = { path: D.path, txsFetched: list.length, creationSlot: oldest.slot || null, firstBuySlotOffset: s0 === null ? null : s0 - (oldest.slot || s0),
-        buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
+        buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, funderKnown: Object.keys(funder).length, sharedFunders: D.sharedFunders || 0, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
         holderList: Object.keys(bal).filter((o) => !pools.has(o) && bal[o] > 0).sort((a, b) => bal[b] - bal[a]).slice(0, 60).map((o) => o.slice(0, 3) + "..." + o.slice(-4) + " " + (bal[o] / supply * 100).toFixed(2) + "% slot+" + (slotOf[o] && cs ? slotOf[o] - cs : "?") + (bundledAll.includes(o) ? " B" : snipeAll.includes(o) ? " S" : "")) };
       const held = async (o) => {
         if (complete || bal[o]) return bal[o] || 0;
