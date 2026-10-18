@@ -1,6 +1,6 @@
 // On-chain fallback for EVM chains where GoPlus has no coverage (e.g. Robinhood Chain): Blockscout API + RPC.
 const CFG = {
-  robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 40, chunk: 5000 },
+  robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 600, bwin: 20, chunk: 20000 },
 };
 const DEAD = /^0x(0{40}|0{39}1|[0d]*dead[0-9a-f]*)$/i;
 const NET = [];
@@ -120,7 +120,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
     if (x.to === src || DEAD.test(x.to) || zero.test(x.to) || x.to === tk) continue;
     (by[x.to] = by[x.to] || { first: x.blk }).first = Math.min(by[x.to].first, x.blk);
   }
-  const all = Object.keys(by), same = all.filter((a) => by[a].first === first);
+  const all = Object.keys(by), same = all.filter((a) => by[a].first - first <= (cfg.bwin || 0));
   const bundle = same.length >= 2 ? same : [], snipe = all.filter((a) => !bundle.includes(a));
   const grp = async (ws) => {
     if (!ws.length) return null;
