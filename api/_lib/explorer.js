@@ -110,17 +110,35 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
     if (rec[best].size >= 2) { chunkT = T; dbg.senders = Object.keys(rec).sort((a, c) => rec[c].size - rec[a].size).slice(0, 4).map((k) => k.slice(0, 8) + ":" + rec[k].size); src = best; first = Math.min(...T.filter((x) => x.from === best).map((x) => x.blk)); }
   }
   if (!src) return fail("no distributor found in the first blocks");
-  // 2. everything the distributor sent in the first blocks of trading
-  const W = await tl(first, Math.min(head, first + cfg.win), src);
-  if (!W || !W.length) return fail("no transfers from distributor in window");
-  dbg.source = src; dbg.firstBlock = first;
-  const by = {}, tk = token.toLowerCase();
-  for (const l of W) {
-    const x = dec(l);
-    if (x.to === src || DEAD.test(x.to) || zero.test(x.to) || x.to === tk) continue;
-    (by[x.to] = by[x.to] || { first: x.blk }).first = Math.min(by[x.to].first, x.blk);
+  // 2. everything the distributor ever sent. Real "launch" = first burst of new buyers (a token can sit idle or have a few early buyers before trading starts)
+  const sends = [];
+  let sz = 100000;
+  for (let b = start; b <= head && left() > 2500;) {
+    let L = await tl(b, Math.min(head, b + sz - 1), src);
+    if (L === null && sz > 10000) { sz = 20000; L = await tl(b, Math.min(head, b + sz - 1), src); }
+    if (L === null) break;
+    L.forEach((l) => sends.push(dec(l)));
+    b += sz; dbg.sendChunks = (dbg.sendChunks || 0) + 1;
+    if (sends.length > 20000) break;
   }
-  const all = Object.keys(by), same = all.filter((a) => by[a].first - first <= (cfg.bwin || 0));
+  if (!sends.length) return fail("no transfers from distributor");
+  const tk = token.toLowerCase(), seenTo = {}, recs = [];
+  sends.sort((a, c) => a.blk - c.blk);
+  for (const x of sends) {
+    if (x.to === src || DEAD.test(x.to) || zero.test(x.to) || x.to === tk || seenTo[x.to] !== undefined) continue;
+    seenTo[x.to] = x.blk; recs.push({ to: x.to, blk: x.blk });
+  }
+  if (!recs.length) return fail("no recipients");
+  let launch = recs[0].blk;
+  for (let a = 0; a < recs.length; a++) {
+    let n = 0;
+    for (let k = a; k < recs.length && recs[k].blk - recs[a].blk <= cfg.win; k++) n++;
+    if (n >= 8) { launch = recs[a].blk; break; }
+  }
+  dbg.source = src; dbg.firstBlock = first; dbg.launch = launch; dbg.launchOffset = launch - first; dbg.recipients = recs.length;
+  const by = {};
+  recs.forEach((r) => { if (r.blk >= launch && r.blk - launch <= cfg.win) by[r.to] = { first: r.blk }; });
+  const all = Object.keys(by), same = all.filter((a) => by[a].first - launch <= (cfg.bwin || 0));
   const bundle = same.length >= 2 ? same : [], snipe = all.filter((a) => !bundle.includes(a));
   const grp = async (ws) => {
     if (!ws.length) return null;
