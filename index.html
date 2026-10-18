@@ -127,6 +127,7 @@ footer{margin:48px 0 28px;padding-top:18px;border-top:1px solid var(--line);colo
 .av.sm{width:28px;height:28px;font-size:12px}img.av{object-fit:cover;background:rgba(255,255,255,.08)}.card h3{display:flex;align-items:center;gap:8px}
 .soc{display:flex;gap:8px;flex-wrap:wrap}.so{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:#cfe0ff}.so:hover,.so:focus-visible{border-color:var(--cy);box-shadow:0 0 10px rgba(79,140,255,.45)}.so svg{width:15px;height:15px;fill:currentColor}.so svg.w{fill:none;stroke:currentColor}.bds{display:flex;gap:6px;flex-wrap:wrap}.stg.pre{background:rgba(251,191,36,.18);color:#fbbf24;border-color:transparent}.stg.soon{background:rgba(96,165,250,.18);color:#93c5fd;border-color:transparent}.pnote{color:var(--mute);font-size:11.5px;display:block}a.buy{font:inherit;font-size:13px;color:var(--ink);border:1px solid var(--cy);border-radius:8px;padding:4px 12px}
 .wmn{position:fixed;top:58px;right:16px;z-index:40;background:var(--panel);border:1px solid var(--cy);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:260px;box-shadow:0 0 24px rgba(79,140,255,.4)}.wmn[hidden]{display:none}.wmr{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.wmr span{flex:1;font-size:13px}.wmr .chip,.wmn>.chip{padding:5px 11px;font-size:12px}.hw.ok::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#34d399;margin-right:8px;box-shadow:0 0 8px #34d399}.wmp .tabs{flex-wrap:wrap}
+.rg{display:flex;gap:12px;align-items:center}.ring{--p:0;--c:#34d399;width:76px;height:76px;border-radius:50%;background:conic-gradient(var(--c) calc(var(--p)*1%),rgba(255,255,255,.1) 0);display:flex;align-items:center;justify-content:center;position:relative;flex:none}.ring::before{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--panel)}.ring b,.ring small{position:relative;font-family:Sora,sans-serif}.ring b{font-size:22px;font-weight:700}.ring small{color:var(--mute);font-size:10px;align-self:flex-end;margin:0 0 20px -2px}
 </style>
 </head>
 <body>
@@ -521,6 +522,23 @@ function solChecks(s,C){
  var h=(s.holders||[]).map(function(x){return pc(x.percent)||0}).sort(function(a,b){return b-a});
  if(h.length){var t10=h.slice(0,10).reduce(function(a,b){return a+b},0);C.push({s:t10>=60?"bad":t10>=30?"warn":"ok",t:"Top 10 wallets hold "+t10.toFixed(1)+"%",d:"May include liquidity pool accounts"})}
  var n=parseInt(s.holder_count,10);if(n)C.push({s:n<50?"warn":"ok",t:n.toLocaleString()+" holders"})}
+async function apiScan(a,sel){try{var r=await fetch("/api/scan?ca="+encodeURIComponent(a)+"&chain="+encodeURIComponent(sel));
+  if(!(r.headers.get("content-type")||"").includes("json"))return null;var d=await r.json();
+  if(d&&d.ok)return d;if(d&&d.error&&[400,404,429].indexOf(r.status)>-1){msg(d.error);return {handled:true}}return null}catch(e){return null}}
+function renderApi(d,a,sel){
+ var cb=P.filter(function(p){return p.a&&p.a.toLowerCase()===a.toLowerCase()})[0],cs=cb?({v:"CBL Verified",p:"Sponsored on CBL",r:"Under CBL review"})[cb.s]:"Not reviewed by CBL yet",m=d.market,sc=d.score,
+  col=sc===null?"#94a3b8":sc>=80?"#34d399":sc>=60?"#fbbf24":sc>=40?"#fb923c":"#f87171",
+  cl={critical:"bad",high:"bad",medium:"warn",low:"warn",info:"na",ok:"ok"},ic={critical:"✕",high:"✕",medium:"!",low:"!",info:"?",ok:"✓"},
+  SN={dexscreener:"DexScreener",goplus:"GoPlus",honeypot:"Honeypot.is",rugcheck:"RugCheck"};
+ var src=Object.keys(d.sources||{}).filter(function(k){return d.chain==="solana"?k!=="honeypot":k!=="rugcheck"}).map(function(k){return SN[k]+(d.sources[k]?" ✓":" ✕")}).join(" · ");
+ var h='<div class="sc-card"><div class="sc-h"><div style="display:flex;gap:12px;align-items:center">'+lg(d.token.name,d.token.logo)+'<div><h3>'+esc(d.token.name)+(d.token.symbol?' <small style="color:var(--mute)">'+esc(d.token.symbol)+'</small>':'')+'</h3><div class="sc-note">'+cic(NM[d.chain])+esc(NM[d.chain])+' · '+esc(cs)+'</div></div></div>'+
+  '<div class="rg"><div class="ring" style="--p:'+(sc===null?0:sc)+';--c:'+col+'"><b>'+(sc===null?"?":sc)+'</b><small>/100</small></div><div><b style="color:'+col+'">'+esc(d.verdict)+'</b><div class="sc-note">CBL risk score</div></div></div></div>';
+ if(m)h+='<div class="kv"><div><small>Price</small><b>$'+esc(Number(m.price).toPrecision(4))+'</b></div><div><small>Liquidity</small><b>'+usd(m.liquidity)+'</b></div><div><small>Market cap / FDV</small><b>'+usd(m.marketCap||m.fdv)+'</b></div><div><small>24h volume</small><b>'+usd(m.volume24h)+'</b></div><div><small>24h change</small><b>'+(m.change24h===undefined||m.change24h===null?"n/a":esc(m.change24h)+"%")+'</b></div><div><small>Pair age</small><b>'+age(m.pairCreatedAt)+'</b></div></div>';
+ h+='</div><div class="sc-card">'+d.reasons.map(function(r){return '<div class="ck '+cl[r.sev]+'"><i>'+ic[r.sev]+'</i><div>'+esc(r.title)+(r.detail?'<small>'+esc(r.detail)+'</small>':'')+'</div></div>'}).join("")+
+  '<div class="sc-links"><a href="'+EXP[d.chain]+esc(a)+'" target="_blank" rel="noopener">Explorer</a>'+(m&&m.url?'<a href="'+esc(m.url)+'" target="_blank" rel="noopener">DexScreener</a>':'')+(cb&&cb.s!=="r"&&!cb.stage?'<button type="button" onclick="buyTok(\''+esc(cb.n)+'\')">Buy on CBL Swap</button>':'')+'<button type="button" id="sc-share">Copy share link</button></div></div>'+
+  '<div class="sc-note">Data: '+esc(src)+(d.confidence==="medium"||d.confidence==="low"?'. Some sources did not respond, so this result may be incomplete.':'')+' · Scanned '+new Date(d.ts).toLocaleTimeString()+'. Automated checks flag common red flags but cannot guarantee a token is safe. Always do your own research.</div>';
+ $("sc-res").innerHTML=h;
+ $("sc-share").onclick=function(){var u=location.origin+location.pathname+"?ca="+a;try{navigator.clipboard.writeText(u);$("sc-share").textContent="Link copied"}catch(e){$("sc-share").textContent=u}}}
 async function scan(){
  var a=$("sc-ca").value.trim(),sel=$("sc-chain").value;
  var kind=/^0x[a-fA-F0-9]{40}$/.test(a)?"evm":/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a)?"sol":"";
@@ -529,6 +547,7 @@ async function scan(){
  if(kind==="evm"&&sel==="solana")return msg("That looks like an EVM address. Pick Ethereum, BNB Chain, Base or Auto.");
  msg("Scanning...");$("sc-go").disabled=true;
  try{
+  var ap=await apiScan(a,sel);if(ap&&ap.handled)return;if(ap)return renderApi(ap,a,sel);
   var low=a.toLowerCase(),blocked=0;
   var dx=await j("https://api.dexscreener.com/latest/dex/tokens/"+a).catch(function(){blocked++;return null});
   var pairs=((dx&&dx.pairs)||[]).filter(function(p){return OKC.indexOf(p.chainId)>-1&&(kind==="sol"?p.chainId==="solana":(p.baseToken.address.toLowerCase()===low||p.quoteToken.address.toLowerCase()===low))});
