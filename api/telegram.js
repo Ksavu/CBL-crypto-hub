@@ -7,7 +7,7 @@ const W = require("./_lib/watch");
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
 const SITE = () => (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
-const CHAIN = { eth: "ethereum", ethereum: "ethereum", bsc: "bsc", bnb: "bsc", base: "base", sol: "solana", solana: "solana" };
+const CHAIN = { eth: "ethereum", ethereum: "ethereum", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", sol: "solana", solana: "solana" };
 const EVM_RE = /\b0x[a-fA-F0-9]{40}\b/, SOL_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
 const seen = new Map(), users = new Map(); // per warm instance
 

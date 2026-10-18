@@ -1,7 +1,7 @@
 // Telegram message formatting (HTML parse mode).
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", solana: "Solana" };
-const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", solana: "https://solscan.io/token/" };
+const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", solana: "Solana" };
+const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", solana: "https://solscan.io/token/" };
 const ICON = { critical: "🚨", high: "🔴", medium: "🟠", low: "🟡" };
 
 function usd(n) {
@@ -74,7 +74,7 @@ const HELP = [
   "Works on <b>Ethereum, BNB Chain, Base and Solana</b>.",
   "",
   "<b>Commands</b>",
-  "/scan &lt;address&gt; [eth|bsc|base|sol]",
+  "/scan &lt;address&gt; [eth|bsc|base|rh|sol]",
   "/watch &lt;address&gt; – get alerts in DM (rug signals)",
   "/unwatch &lt;address&gt;",
   "/list – your watchlist",
