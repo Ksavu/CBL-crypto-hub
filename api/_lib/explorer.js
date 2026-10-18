@@ -5,7 +5,7 @@ const CFG = {
 const DEAD = /^0x(0{40}|0{39}1|[0d]*dead[0-9a-f]*)$/i;
 const NET = [];
 const get = async (u, opt = {}) => {
-  const c = new AbortController(), t = setTimeout(() => c.abort(), 8000);
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 4000);
   const h = Object.assign({ accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; CBLScanner/1.0; +https://cryptobarlounge.space)" }, opt.headers || {});
   try { const r = await fetch(u, Object.assign({}, opt, { signal: c.signal, headers: h })); if (!r.ok) { NET.push(new URL(u).host + " HTTP " + r.status); return null; } return await r.json(); }
   catch (e) { NET.push(new URL(u).host + " " + String((e && e.cause && e.cause.code) || (e && e.message) || e).slice(0, 60)); return null; } finally { clearTimeout(t); }
@@ -55,7 +55,7 @@ const pad = (a) => "0x" + a.toLowerCase().replace(/^0x/, "").padStart(64, "0");
 const rpcCall = (cfg, method, params) => get(cfg.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }).then((r) => (r && r.result !== undefined ? r.result : null));
 const logs = (cfg, token, pair, from, to) => rpcCall(cfg, "eth_getLogs", [{ address: token, topics: [TRANSFER, pad(pair)], fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) }]);
 
-async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budgetMs = 14000) {
+async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budgetMs = 9000) {
   const cfg = CFG[chain]; if (!cfg) return null;
   const dbg = { supply: supply || null, creationTx: creationTx || null }, fail = (why) => ({ traced: false, dbg: Object.assign(dbg, { why }) });
   const t0 = Date.now(), left = () => budgetMs - (Date.now() - t0);

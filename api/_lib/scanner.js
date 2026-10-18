@@ -69,10 +69,13 @@ async function runScan(caIn, selIn, opts) {
       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
     ]);
     if (EXPLORER_CHAINS.includes(chain)) {
-      ex = await explorerEvm(chain, low, pair && pair.pairAddress).catch(() => null);
+      ex = await Promise.race([explorerEvm(chain, low, pair && pair.pairAddress), new Promise((ok) => setTimeout(() => ok(null), 6000))]).catch(() => null);
       if (!opts.noDeep) {
         let err = null;
-        const L = await evmLaunch(chain, low, pair && pair.pairCreatedAt, ex && ex.supplyRaw, ex && ex.creationTx).catch((e) => { err = String(e && e.message || e); return null; });
+        const L = await Promise.race([
+          evmLaunch(chain, low, pair && pair.pairCreatedAt, ex && ex.supplyRaw, ex && ex.creationTx),
+          new Promise((ok) => setTimeout(() => ok({ traced: false, dbg: { why: "timeout" } }), 11000)),
+        ]).catch((e) => { err = String(e && e.message || e); return null; });
         const dbg = Object.assign({ explorer: !!ex, error: err, net: NET.slice(0, 6) }, (L && L.dbg) || {});
         deep = { supply: null, deployerAmt: null, deployer: ex && ex.creator, deployerPct: ex ? ex.creatorPct : null, traced: !!(L && L.traced), debug: dbg, holderCount: ex ? ex.holders : null, top10Wallets: ex ? ex.top10 : null, bundlers: (L && L.bundlers) || null, snipers: (L && L.snipers) || null, notes: [] };
       }
