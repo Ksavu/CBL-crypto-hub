@@ -23,6 +23,7 @@ module.exports = async (req, res) => {
     return res.status(200).json(out);
   } catch (e) {
     const status = e.status || 502;
-    return res.status(status).json({ ok: false, error: e.status ? e.message : "Scan failed. Try again." });
+    if (!e.status) console.error("scan error", e && e.stack || e);
+    return res.status(status).json({ ok: false, error: e.status ? e.message : "Scan failed. Try again.", detail: e.status ? undefined : String((e && e.stack) || e).split("\n").slice(0, 3).join(" | ").slice(0, 300) });
   }
 };

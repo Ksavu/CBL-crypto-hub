@@ -71,6 +71,7 @@ async function doScan(msg, ca, chain, explicit) {
       else await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c.text.replace("🧬 Deep scan running… (holders, snipers, bundlers)", "🧬 Deep scan unavailable"), parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
     }
   } catch (e) {
+    if (!e.status) console.error("scan error", e && e.stack || e);
     if (!group || explicit) await reply(msg, "⚠️ " + esc(e.status ? e.message : "Scan failed. Try again."));
   }
 }
