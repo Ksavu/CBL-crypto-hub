@@ -68,8 +68,9 @@ async function deepSol(mint, budgetMs = 14000) {
     // 3. Find the launch: oldest transactions of the mint
     let oldestList = null;
     try { // Helius ascending query (may need a paid plan)
-      const r = await rpc("getTransactionsForAddress", [mint, { transactionDetails: "signatures", sortOrder: "asc", limit: 100 }]);
+      const r = await rpc("getTransactionsForAddress", [mint, { transactionDetails: "signatures", sortOrder: "asc", limit: 200 }]);
       const arr = (r && (r.data || r)) || [];
+      if (Array.isArray(arr) && arr.length) D.path = "asc";
       if (Array.isArray(arr) && arr.length) oldestList = arr.map((x) => ({ signature: x.signature, blockTime: x.blockTime, slot: x.slot }));
     } catch (e) {}
     if (!oldestList) { // walk back page by page
@@ -80,7 +81,7 @@ async function deepSol(mint, budgetMs = 14000) {
         last = s; before = s[s.length - 1].signature;
         if (s.length < 1000) { reached = true; break; }
       }
-      if (reached && last.length) oldestList = last.slice(-100).reverse();
+      if (reached && last.length) { oldestList = last.slice(-200).reverse(); D.path = "paged"; }
     }
     if (!oldestList || !oldestList.length) { D.notes.push("Launch could not be traced (token too old or too active)"); return D; }
     D.traced = true;
@@ -107,7 +108,9 @@ async function deepSol(mint, budgetMs = 14000) {
 
     // 5. Bundlers (same block as first buy) and snipers (next few blocks)
     try {
-      const et = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: oldestList.map((x) => x.signature) });
+      const sg = oldestList.map((x) => x.signature), parts = [];
+      for (let i = 0; i < sg.length; i += 100) parts.push(sg.slice(i, i + 100));
+      const et = (await Promise.all(parts.map((p) => post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: p }).catch(() => [])))).flat();
       const list = (Array.isArray(et) ? et : []).filter((t) => t && t.slot).sort((a, b) => a.slot - b.slot);
       const pools = new Set(holders.filter((h) => h.kind === "program").map((h) => h.owner));
       const first = {};
@@ -116,12 +119,15 @@ async function deepSol(mint, budgetMs = 14000) {
         if (tr.mint !== mint || !tr.toUserAccount || tr.toUserAccount === D.deployer || pools.has(tr.toUserAccount)) continue;
         if (!(tr.tokenAmount > 0)) continue;
         if (s0 === null) s0 = t.slot;
-        if (t.slot - s0 <= 4 && !(tr.toUserAccount in first)) first[tr.toUserAccount] = t.slot - s0;
+        if (t.slot - s0 <= 30 && !(tr.toUserAccount in first)) first[tr.toUserAccount] = t.slot - s0;
       }
       const all = Object.keys(first);
-      const same = all.filter((o) => first[o] === 0);
+      const same = all.filter((o) => first[o] <= 1);
       const bundled = same.length >= 2 ? same : [];
-      const snipe = all.filter((o) => !bundled.includes(o));
+      const snipe = all.filter((o) => !bundled.includes(o) && first[o] <= 10);
+      const hist = {}; all.forEach((o) => { hist[first[o]] = (hist[first[o]] || 0) + 1; });
+      D.debug = { path: D.path, txsFetched: list.length, creationSlot: oldest.slot || null, firstBuySlotOffset: s0 === null ? null : s0 - (oldest.slot || s0),
+        buyersBySlotOffset: hist, bundlerWallets: bundled.map(short), sniperWallets: snipe.map(short), holdersComplete: complete };
       const held = async (o) => {
         if (complete || bal[o]) return bal[o] || 0;
         try { const r = await rpc("getTokenAccountsByOwner", [o, { mint }, { encoding: "jsonParsed" }]);
