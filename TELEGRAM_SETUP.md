@@ -32,3 +32,11 @@ Never paste the bot token in chat or commit it to Git. If it leaks, revoke it in
 5. In the bot: `/watch <address>`, the 👁 Watch button on a scan, `/unwatch <address>`, `/list`. Alerts arrive in the user's DM (they must have pressed Start once).
 
 Alerts: liquidity drop of 50%+ in an hour, price down 40%+ in an hour, deployer sells half or more (Solana, needs HELIUS_API_KEY), mint or freeze authority active (Solana), honeypot flag, sell tax jump of 10+ points, owner change, risk score down 20+ points. Each type repeats at most once per 3 hours per token. Limit: 10 tokens per user, 30 tokens checked per run.
+
+---
+## Solana swap (Jupiter) and swap links from the bot
+
+1. Get a free Jupiter API key: developers.jup.ag/portal, sign in, create a key.
+2. Vercel env var `JUP_API_KEY` = that key (Production), then redeploy. Without it the site says "Solana swaps are not switched on yet."
+3. The bot's 💱 Swap button now opens `/?swap=<token address>&chain=<network>` so the token and network are already set on the site. For taxed EVM tokens the link also carries the sell tax so slippage starts at 6%.
+4. Later, to earn a fee on Solana swaps: create a Jupiter referral account in the portal, then add `JUP_REFERRAL_ACCOUNT` (its address) and `JUP_REFERRAL_FEE` (50 to 255, in basis points). Nothing shows in the UI.

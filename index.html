@@ -264,8 +264,8 @@ $("tS").onclick=function(){tab(false)};$("tB").onclick=function(){tab(true)};
 })();
 
 (function(){
-var API="https://li.quest/v1",$=function(i){return document.getElementById(i)},CH=null,pend=null,A={},EP=null,SOLP=null,BTCP=null,lastF=null,pend2=null,slipDirty=false,lastTok=null;
-var WC_PROJECT_ID=""; /* paste your WalletConnect Cloud project ID here (same one as Nexustone swap) */
+var API="https://li.quest/v1",$=function(i){return document.getElementById(i)},CH=null,pend=null,A={},EP=null,SOLP=null,BTCP=null,lastF=null,pend2=null,slipDirty=false,lastTok=null,CUST=null,pend3=null;
+var WC_PROJECT_ID="e07d269576aa4aebfe1c7eaf2f6139cf"; /* paste your WalletConnect Cloud project ID here (same one as Nexustone swap) */
 var TRX="T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
 var AL={"Ethereum":["eth","ethereum"],"BNB Chain":["bsc","bnb chain","bnb smart chain","binance smart chain"],"Base":["bas","base"],"Polygon":["pol","polygon","matic"],"Arbitrum":["arb","arbitrum"],"Optimism":["opt","optimism"],"Avalanche":["ava","avalanche"],"Solana":["sol","solana"],"Bitcoin":["btc","bitcoin"],"Tron":["trn","trx","tron"]};
 var EV=["Ethereum","BNB Chain","Base","Polygon","Arbitrum","Optimism","Avalanche"];
@@ -354,7 +354,7 @@ function slipDef(p){return p&&p.tax?6:1}
 function slipVal(p){var v=parseFloat($("slip").value);return ((v>0&&v<50)?v:slipDef(p))/100}
 function uiSwap(){var p=lst()[$("tok").value];if(!p)return;if($("tok").value!==lastTok){lastTok=$("tok").value;slipDirty=false}
  if(!slipDirty)$("slip").value=slipDef(p);
- $("route").textContent=(p.dex==="pancake"?"Route: PancakeSwap V2 on "+p.c:"Route: best price via LI.FI on "+p.c)+(p.tax?" · Token tax "+(p.taxTxt||"applies")+". Keep slippage at 6% or higher.":"")}
+ $("route").textContent=(p.dex==="pancake"?"Route: PancakeSwap V2 on "+p.c:p.c==="Solana"?"Route: best price via Jupiter on Solana":"Route: best price via LI.FI on "+p.c)+(p.tax?" · Token tax "+(p.taxTxt||"applies")+". Keep slippage at 6% or higher.":"")}
 async function j(p){var r=await fetch(API+p),d=await r.json();if(!r.ok)throw new Error(d.message||"Request failed");return d}
 async function chains(){if(CH)return;var d;try{d=await j("/chains?chainTypes=EVM,SVM,UTXO,TVM")}catch(e){d=await j("/chains")}CH={};d.chains.forEach(function(c){for(var n in AL){if(AL[n].indexOf(String(c.key).toLowerCase())>-1||AL[n].indexOf(String(c.name).toLowerCase())>-1)CH[n]=c}})}
 function sv(f,n){try{localStorage.setItem("cbl_w_"+f,n)}catch(e){}}
@@ -421,7 +421,7 @@ function bind(btn,say,get,label){
  }catch(e){pend=null;btn.disabled=false;btn.textContent=label;fail(e,say)}}}
 function brgOn(){return $("brg").style.display!=="none"}
 function say1(m){(brgOn()?$("bmsg"):$("msg")).textContent=m}
-function lst(){return P.filter(function(p){return p.s!=="r"&&(!p.stage||p.stage==="live")})}
+function lst(){var b=P.filter(function(p){return p.s!=="r"&&(!p.stage||p.stage==="live")});return CUST?[CUST].concat(b):b}
 function curFn(){return brgOn()?$("bfn").value:(lst()[$("tok").value]||{}).c}
 bind($("bgo"),function(m){$("bmsg").textContent=m},function(){
  var fn=$("bfn").value,tn=$("btn").value,amt=$("bamt").value;
@@ -433,13 +433,68 @@ bind($("go"),function(m){$("msg").textContent=m},function(){
  if(!(amt>0))throw new Error("Enter an amount");if(!p.a)throw new Error(p.n+" has no contract address yet. Add it to enable trading.");
  if(p.c==="Tron"||p.c==="Bitcoin")throw new Error("Trading on "+p.c+" is not supported yet. Bridge in from another network instead.");
  var sl=side==="sell";return {fn:p.c,tn:p.c,fs:sl?p.a:$("pay").value,ts:sl?$("pay").value:p.a,amt:amt,slip:slipVal(p)}},"Get quote");
-var liGo=$("go").onclick;$("go").onclick=function(){var p=lst()[$("tok").value];return p&&p.dex==="pancake"?pancakeGo():liGo.call(this)};
+
+/* ---- Solana swap through Jupiter (server proxy /api/jup) ---- */
+var SOLM={SOL:"So11111111111111111111111111111111111111112",USDC:"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",USDT:"Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"},SOLD={SOL:9,USDC:6,USDT:6},DEC={};
+async function jget(qs){var r=await fetch("/api/jup?"+qs),d=await r.json().catch(function(){return {}});if(!r.ok||d.error)throw new Error(d.error||"Request failed");return d}
+async function jdec(m){if(DEC[m]!=null)return DEC[m];var d=await jget("action=token&mint="+m);DEC[m]=d.decimals;return d.decimals}
+function b64(u){var t="";for(var i=0;i<u.length;i+=8192)t+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(t)}
+async function jOrder(p,amt,pay,sd,taker){var tdc=await jdec(p.a),sell=sd==="sell",pm=SOLM[pay],pd=SOLD[pay];
+ if(!pm)throw new Error("Pick SOL, USDC or USDT");
+ var inM=sell?p.a:pm,outM=sell?pm:p.a,inD=sell?tdc:pd,outD=sell?pd:tdc,raw=units(String(amt),inD);
+ if(!raw||raw==="0")throw new Error("Enter an amount");
+ var o=await jget("action=order&inputMint="+inM+"&outputMint="+outM+"&amount="+raw+"&taker="+taker);
+ if(!o.transaction)throw new Error(o.errorMessage||"No route found for this token");
+ return {o:o,out:Number(o.outAmount)/Math.pow(10,outD),sym:sell?pay:p.n.split(" ")[0]}}
+async function jSign(x,say){await loadSol();var raw=atob(x.o.transaction),b=new Uint8Array(raw.length);for(var i=0;i<raw.length;i++)b[i]=raw.charCodeAt(i);
+ var tx=window.solanaWeb3.VersionedTransaction.deserialize(b);say("Confirm the swap in your Solana wallet...");
+ var w=SOLP||SP(),signed=await w.signTransaction(tx);say("Sending...");
+ var r=await fetch("/api/jup?action=execute",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({signedTransaction:b64(signed.serialize()),requestId:x.o.requestId,lastValidBlockHeight:x.o.lastValidBlockHeight})}),d=await r.json().catch(function(){return {}});
+ if(!r.ok||d.status!=="Success")throw new Error(d.error||(d.code===-1005?"The swap expired before it landed. Try again.":"Swap failed"+(d.code!=null?" (code "+d.code+")":"")));
+ say("Done. "+(side==="sell"?"Sold":"Bought")+" on Solana: solscan.io/tx/"+d.signature)}
+async function jupGo(){var btn=$("go"),say=function(m){$("msg").textContent=m};
+ try{var p=lst()[$("tok").value],amt=$("amt").value,pay=$("pay").value;
+  if(!p.a)throw new Error(p.n+" has no contract address yet. Add it to enable trading.");
+  if(pend3){var x0=pend3;pend3=null;btn.disabled=true;say("Refreshing price...");var x=await jOrder(p,x0.amt,x0.pay,x0.sd,x0.taker);
+   if(x.out<x0.out*0.99){pend3={amt:x0.amt,pay:x0.pay,sd:x0.sd,taker:x0.taker,out:x.out};$("out").value=x.out.toPrecision(6)+" "+x.sym;btn.disabled=false;say("Price moved. New estimate: "+x.out.toPrecision(6)+" "+x.sym+". Click again to confirm.");return}
+   await jSign(x,say);btn.textContent="Get quote";btn.disabled=false;return}
+  if(!(amt>0))throw new Error("Enter an amount");
+  say("Connecting wallet...");var taker=await connect("Solana");say("Getting price from Jupiter...");var q=await jOrder(p,amt,pay,side,taker);
+  pend3={amt:amt,pay:pay,sd:side,taker:taker,out:q.out};$("out").value=q.out.toPrecision(6)+" "+q.sym;
+  say("You get about "+q.out.toPrecision(6)+" "+q.sym+". Route: Jupiter ("+(q.o.router||"best price")+"). Click again to confirm.");btn.textContent="Confirm in wallet"
+ }catch(e){pend3=null;btn.disabled=false;btn.textContent="Get quote";fail(e,say)}}
+
+/* ---- Token opened from a link (bot or scanner): ?swap=<address>&chain=<ethereum|bsc|base|solana>&t=<sell tax %> ---- */
+var CHN2={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",solana:"Solana"},NATC={Solana:"SOL","BNB Chain":"BNB",Base:"ETH",Ethereum:"ETH"};
+function E(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
+function payOpts(p){var n=NATC[p&&p.c]||"ETH",l=p&&p.c==="Solana"?[n,"USDC","USDT"]:["USDT","USDC",n];$("pay").innerHTML=l.map(function(x){return '<option>'+x+'</option>'}).join("")}
+function rebuildTok(i){var L=lst();$("tok").innerHTML=L.map(function(p,k){return '<option value="'+k+'">'+E(p.n)+' ('+p.c+')</option>'}).join("");$("tok").value=i||0;payOpts(L[$("tok").value]||L[0])}
+$("tok").onchange=function(){payOpts(lst()[$("tok").value])};
+window.buyTok=function(n){var L=lst(),i=L.findIndex(function(p){return p.n===n});if(i>-1){$("tok").value=i;payOpts(L[i]);reset();$("swap").scrollIntoView({behavior:"smooth"})}};
+function banner(ck){var b=$("cbn");
+ if(!CUST){if(b)b.remove();return}
+ if(!b){b=document.createElement("div");b.id="cbn";b.className="nb";b.style.cssText="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;text-align:left";$("swp").parentNode.insertBefore(b,$("swp"))}
+ b.innerHTML='<span><b>Buying '+E(CUST.n)+'</b> on '+E(CUST.c)+' · <code>'+E(short(CUST.a))+'</code> <span id="crisk"></span></span><button class="chip" id="cclr" type="button">Clear</button>';
+ $("cclr").onclick=function(){CUST=null;rebuildTok(0);banner();try{history.replaceState(null,"",location.pathname+"#swap")}catch(e){}reset()};
+ fetch("/api/scan?deep=0&ca="+encodeURIComponent(CUST.a)+"&chain="+encodeURIComponent(ck)).then(function(r){return r.json()}).then(function(d){var el=$("crisk");if(el&&CUST&&d&&d.ok&&d.score!=null)el.innerHTML='<span class="tag">'+d.score+'/100 · '+E(d.verdict)+'</span>'}).catch(function(){})}
+async function openCustom(ca,chKey,tax){var sol=!/^0x/i.test(ca),low=ca.toLowerCase(),dx=null;
+ try{dx=await fetch("https://api.dexscreener.com/latest/dex/tokens/"+ca).then(function(r){return r.json()})}catch(e){}
+ var pairs=((dx&&dx.pairs)||[]).filter(function(p){return CHN2[p.chainId]&&(sol?p.chainId==="solana":(p.baseToken.address.toLowerCase()===low||p.quoteToken.address.toLowerCase()===low))}).sort(function(a,b){return ((b.liquidity&&b.liquidity.usd)||0)-((a.liquidity&&a.liquidity.usd)||0)});
+ var ck=sol?"solana":(CHN2[chKey]?chKey:(pairs[0]&&pairs[0].chainId));
+ if(!ck){say1("Could not find this token. Pick the network and check the address.");return}
+ var pr=pairs.filter(function(p){return p.chainId===ck})[0],t=pr?(pr.baseToken.address.toLowerCase()===low?pr.baseToken:pr.quoteToken):{};
+ CUST={n:t.symbol||"Token",c:CHN2[ck],a:ca,custom:1,dex:ck==="bsc"?"pancake":undefined,tax:tax>=3,taxTxt:tax?tax+"%":""};
+ if(sol)try{await jdec(ca)}catch(e){}
+ rebuildTok(0);setSide("buy");banner(ck);reset();setTimeout(function(){$("swap").scrollIntoView({behavior:"smooth"})},200)}
+setTimeout(function(){var q=new URLSearchParams(location.search),ca=(q.get("swap")||"").trim();
+ if(/^0x[a-fA-F0-9]{40}$/.test(ca)||/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca))openCustom(ca,(q.get("chain")||"").toLowerCase(),parseFloat(q.get("t"))||0).catch(function(e){say1("Could not open this token.")})},300);
+var liGo=$("go").onclick;$("go").onclick=function(){var p=lst()[$("tok").value];return p&&p.dex==="pancake"?pancakeGo():p&&p.c==="Solana"?jupGo():liGo.call(this)};
 $("slip").addEventListener("input",function(){slipDirty=true;pend=null;pend2=null;$("go").textContent="Get quote"});
 function setSide(s){side=s;var fa=$("amt").parentNode,fo=$("out").parentNode,sell=s==="sell";fa.appendChild(sell?$("tok"):$("pay"));fo.appendChild(sell?$("pay"):$("tok"));fa.parentNode.querySelector("label").htmlFor=sell?"tok":"pay";fo.parentNode.querySelector("label").htmlFor=sell?"pay":"tok";$("amt").value="";$("out").value="";$("sB").setAttribute("aria-pressed",!sell);$("sS").setAttribute("aria-pressed",sell);reset()}
 $("sB").onclick=function(){setSide("buy")};$("sS").onclick=function(){setSide("sell")};
 $("wc").onclick=async function(){try{var n=curFn(),a=await connect(n);reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
 $("rconn").onclick=async function(){try{var a=await connect($("btn").value);$("brecv").value=a;reset()}catch(e){fail(e,say1)}};
-function reset(){pend=null;pend2=null;$("bgo").textContent="Get quote";$("go").textContent="Get quote";
+function reset(){pend=null;pend2=null;pend3=null;$("bgo").textContent="Get quote";$("go").textContent="Get quote";
  var fn=$("bfn").value,tn=$("btn").value,r=$("rcv");r.style.display=fam(fn)===fam(tn)?"none":"block";$("rcvl").textContent="Receiving "+tn+" address";
  if(A[fam(tn)]&&!$("brecv").value)$("brecv").value=A[fam(tn)];
  var c=curFn(),f=c&&fam(c);$("wc").textContent=A[f]?FL[f]+": "+short(A[f]):"Connect "+(FL[f]||"")+" wallet";uiSwap();netCheck();updHW()}

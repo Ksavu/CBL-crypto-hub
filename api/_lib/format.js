@@ -56,7 +56,7 @@ function card(r, site, opt) {
   ], [
     { text: "🔄 Rescan", callback_data: "r:" + r.address },
     { text: "👁 Watch", callback_data: "w:" + r.address },
-    { text: "💱 Swap", url: `${site}/#swap` },
+    { text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` },
   ]];
   const so = [];
   if (r.links && r.links.web) so.push({ text: "🌐 Website", url: r.links.web });

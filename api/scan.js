@@ -19,7 +19,7 @@ module.exports = async (req, res) => {
   const url = new URL(req.url, "http://x");
   res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
   try {
-    const out = await runScan(url.searchParams.get("ca"), url.searchParams.get("chain"));
+    const out = await runScan(url.searchParams.get("ca"), url.searchParams.get("chain"), url.searchParams.get("deep") === "0" ? { noDeep: true } : undefined);
     return res.status(200).json(out);
   } catch (e) {
     const status = e.status || 502;
