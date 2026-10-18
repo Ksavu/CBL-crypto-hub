@@ -19,7 +19,7 @@ function onCurve(addr) {
 }
 const short = (a) => a.slice(0, 4) + "..." + a.slice(-4);
 
-async function deepSol(mint, budgetMs = 14000) {
+async function deepSol(mint, budgetMs = 25000) {
   const key = process.env.HELIUS_API_KEY;
   if (!key) return null;
   const t0 = Date.now(), left = () => budgetMs - (Date.now() - t0);
@@ -85,7 +85,7 @@ async function deepSol(mint, budgetMs = 14000) {
     // 3. Find the launch: oldest transactions of the mint
     let oldestList = null;
     try { // Helius ascending query (may need a paid plan)
-      const r = await rpc("getTransactionsForAddress", [mint, { transactionDetails: "signatures", sortOrder: "asc", limit: 600 }]);
+      const r = await rpc("getTransactionsForAddress", [mint, { transactionDetails: "signatures", sortOrder: "asc", limit: 300 }]);
       const arr = (r && (r.data || r)) || [];
       if (Array.isArray(arr) && arr.length) D.path = "asc";
       if (Array.isArray(arr) && arr.length) oldestList = arr.map((x) => ({ signature: x.signature, blockTime: x.blockTime, slot: x.slot }));
@@ -98,7 +98,7 @@ async function deepSol(mint, budgetMs = 14000) {
         last = s; before = s[s.length - 1].signature;
         if (s.length < 1000) { reached = true; break; }
       }
-      if (reached && last.length) { oldestList = last.slice(-600).reverse(); D.path = "paged"; }
+      if (reached && last.length) { oldestList = last.slice(-300).reverse(); D.path = "paged"; }
     }
     if (!oldestList || !oldestList.length) { D.notes.push("Launch could not be traced (token too old or too active)"); return D; }
     D.traced = true;
@@ -175,18 +175,20 @@ async function deepSol(mint, budgetMs = 14000) {
       // same-funder check: wallets first funded by the same source as the core bundle
       const funder = {};
       try {
-        const cand = Object.keys(bal).filter((o) => bal[o] > 0 && !pools.has(o) && o !== D.deployer).sort((a, b) => bal[b] - bal[a]).slice(0, 60);
-        const sigOf = {};
-        for (let i = 0; i < cand.length && left() > 2500; i += 8) await Promise.all(cand.slice(i, i + 8).map(async (o) => {
-          try { const r = await rpc("getTransactionsForAddress", [o, { transactionDetails: "signatures", sortOrder: "asc", limit: 1 }]);
-            const a = (r && (r.data || r)) || []; if (Array.isArray(a) && a[0] && a[0].signature) sigOf[o] = a[0].signature; } catch (e) {}
+        const cand = [...new Set([...bundledAll, ...Object.keys(bal).filter((o) => bal[o] > 0 && !pools.has(o) && o !== D.deployer).sort((a, b) => bal[b] - bal[a])])]
+          .filter((o) => !pools.has(o) && o !== D.deployer).slice(0, 45);
+        const sigsOf = {};
+        for (let i = 0; i < cand.length && left() > 3000; i += 8) await Promise.all(cand.slice(i, i + 8).map(async (o) => {
+          try { const r = await rpc("getTransactionsForAddress", [o, { transactionDetails: "signatures", sortOrder: "asc", limit: 3 }]);
+            const a = (r && (r.data || r)) || []; if (Array.isArray(a) && a.length) sigsOf[o] = a.map((x) => x.signature); } catch (e) {}
         }));
-        const owners = Object.keys(sigOf);
-        for (let i = 0; i < owners.length && left() > 1800; i += 100) {
-          const part = owners.slice(i, i + 100);
-          const r = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: part.map((o) => sigOf[o]) }).catch(() => []);
-          (Array.isArray(r) ? r : []).forEach((t) => { const o = part.find((x) => sigOf[x] === t.signature); if (!o) return;
-            const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === o && x.fromUserAccount !== o); if (nt) funder[o] = nt.fromUserAccount; });
+        const flat = []; Object.keys(sigsOf).forEach((o) => sigsOf[o].forEach((s) => flat.push([o, s])));
+        for (let i = 0; i < flat.length && left() > 1500; i += 100) {
+          const part = flat.slice(i, i + 100);
+          const r = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: part.map((x) => x[1]) }).catch(() => []);
+          const bySig = {}; (Array.isArray(r) ? r : []).forEach((t) => { bySig[t.signature] = t; });
+          part.forEach(([o, s]) => { if (funder[o]) return; const t = bySig[s]; if (!t) return;
+            const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === o && x.fromUserAccount !== o && x.amount > 0); if (nt) funder[o] = nt.fromUserAccount; });
         }
         const cnt = {}; bundledAll.filter((o) => funder[o]).forEach((o) => { cnt[funder[o]] = (cnt[funder[o]] || 0) + 1; });
         const shared = new Set(Object.keys(cnt).filter((f) => cnt[f] >= 2));
@@ -195,7 +197,7 @@ async function deepSol(mint, budgetMs = 14000) {
       } catch (e) {}
       const hist = {}; all.forEach((o) => { hist[first[o]] = (hist[first[o]] || 0) + 1; });
       D.debug = { path: D.path, txsFetched: list.length, creationSlot: oldest.slot || null, firstBuySlotOffset: s0 === null ? null : s0 - (oldest.slot || s0),
-        buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, funderKnown: Object.keys(funder).length, sharedFunders: D.sharedFunders || 0, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
+        buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, funderKnown: Object.keys(funder).length, funderGroups: Object.entries(Object.values(funder).reduce((m, f) => (m[f] = (m[f] || 0) + 1, m), {})).filter((x) => x[1] >= 2).map((x) => short(x[0]) + " x" + x[1]), sharedFunders: D.sharedFunders || 0, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
         holderList: Object.keys(bal).filter((o) => !pools.has(o) && bal[o] > 0).sort((a, b) => bal[b] - bal[a]).slice(0, 60).map((o) => o.slice(0, 3) + "..." + o.slice(-4) + " " + (bal[o] / supply * 100).toFixed(2) + "% slot+" + (slotOf[o] && cs ? slotOf[o] - cs : "?") + (bundledAll.includes(o) ? " B" : snipeAll.includes(o) ? " S" : "")) };
       const held = async (o) => {
         if (complete || bal[o]) return bal[o] || 0;
