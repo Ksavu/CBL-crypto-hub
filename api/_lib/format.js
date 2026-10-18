@@ -53,7 +53,8 @@ function card(r, site) {
     { text: "🔎 Explorer", url: EXPLORER[r.chain] + r.address },
   ], [
     { text: "🔄 Rescan", callback_data: "r:" + r.address },
-    { text: "💱 CBL Swap", url: `${site}/#swap` },
+    { text: "👁 Watch", callback_data: "w:" + r.address },
+    { text: "💱 Swap", url: `${site}/#swap` },
   ]];
   const so = [];
   if (r.links && r.links.web) so.push({ text: "🌐 Website", url: r.links.web });
@@ -72,10 +73,24 @@ const HELP = [
   "",
   "<b>Commands</b>",
   "/scan &lt;address&gt; [eth|bsc|base|sol]",
+  "/watch &lt;address&gt; – get alerts in DM (rug signals)",
+  "/unwatch &lt;address&gt;",
+  "/list – your watchlist",
   "/help",
   "",
   "In groups I also scan any contract address posted in chat.",
   "<i>I never ask for keys or seed phrases and I never DM first.</i>",
 ].join("\n");
 
-module.exports = { card, HELP, esc };
+const SEV = { critical: "🚨", high: "🔴", medium: "🟠" };
+function alertMsg(r, alerts, site) {
+  const L = [`🚨 <b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${NAMES[r.chain]}`, ""];
+  alerts.forEach((a) => L.push(`${SEV[a.sev] || "⚠️"} ${esc(a.text)}`));
+  L.push("", `<code>${esc(r.address)}</code>`, "<i>Automated check, can be delayed by a few minutes. Not financial advice.</i>");
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[
+    ...(r.market && r.market.url ? [{ text: "📈 Chart", url: r.market.url }] : []),
+    { text: "🔄 Rescan", callback_data: "r:" + r.address },
+    { text: "🔕 Unwatch", callback_data: "u:" + r.address },
+  ]] } };
+}
+module.exports = { card, alertMsg, HELP, esc };

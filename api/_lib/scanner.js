@@ -36,7 +36,8 @@ function detect(ca) {
   return /^0x[a-fA-F0-9]{40}$/.test(ca) ? "evm" : /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca) ? "sol" : "";
 }
 
-async function runScan(caIn, selIn) {
+async function runScan(caIn, selIn, opts) {
+  opts = opts || {};
   const ca = String(caIn || "").trim(), sel = String(selIn || "auto").toLowerCase();
   const kind = detect(ca);
   if (!kind) throw fail(400, "Invalid contract address");
@@ -44,8 +45,8 @@ async function runScan(caIn, selIn) {
   if (kind === "sol" && sel !== "auto" && sel !== "solana") throw fail(400, "That is a Solana address");
   if (kind === "evm" && sel === "solana") throw fail(400, "That is an EVM address");
 
-  const now = Date.now(), key = ca.toLowerCase() + "|" + sel, hit = cache.get(key);
-  if (hit && now - hit.t < 60000) return hit.v;
+  const now = Date.now(), key = ca.toLowerCase() + "|" + sel + (opts.noDeep ? "|nd" : ""), hit = cache.get(key);
+  if (hit && !opts.fresh && now - hit.t < 60000) return hit.v;
 
   const low = ca.toLowerCase(), sources = {};
   const dx = await j("https://api.dexscreener.com/latest/dex/tokens/" + ca).catch(() => null);
@@ -70,7 +71,7 @@ async function runScan(caIn, selIn) {
     [gp, rc, deep] = await Promise.all([
       j(`https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=${ca}`).then((r) => r.result && (r.result[ca] || r.result[Object.keys(r.result)[0]])).catch(() => null),
       j(`https://api.rugcheck.xyz/v1/tokens/${ca}/report/summary`).catch(() => null),
-      deepSol(ca).catch(() => null),
+      opts.noDeep ? null : deepSol(ca).catch(() => null),
     ]);
   }
   sources.goplus = !!(gp && Object.keys(gp).length);
@@ -79,6 +80,13 @@ async function runScan(caIn, selIn) {
   sources.helius = !!deep;
   if (!pair && !sources.goplus && !sources.honeypot && !sources.rugcheck) throw fail(404, "No data found for this address on " + chain);
 
+  const stv = (x) => (x && typeof x === "object" && "status" in x ? x.status : x);
+  const hasGp = !!(gp && Object.keys(gp).length), sim = hp && hp.simulationResult;
+  const flags = kind === "sol"
+    ? { mint: hasGp ? stv(gp.mintable) === "1" : null, freeze: hasGp ? stv(gp.freezable) === "1" : null }
+    : { honeypot: hasGp || hp ? !!((hp && hp.honeypotResult && hp.honeypotResult.isHoneypot) || (gp && (gp.is_honeypot === "1" || gp.cannot_sell_all === "1"))) : null,
+        sellTax: sim && Number.isFinite(parseFloat(sim.sellTax)) ? parseFloat(sim.sellTax) : hasGp && Number.isFinite(parseFloat(gp.sell_tax)) ? parseFloat(gp.sell_tax) * 100 : null,
+        owner: hasGp && gp.owner_address ? String(gp.owner_address).toLowerCase() : null };
   const links = extractLinks(pair);
   const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, sources, links, deep });
   const tok = pair ? (pair.baseToken.address.toLowerCase() === low ? pair.baseToken : pair.quoteToken) : {};
@@ -90,7 +98,7 @@ async function runScan(caIn, selIn) {
     market: pair ? { price: pair.priceUsd, liquidity: liq(pair), fdv: pair.fdv, marketCap: pair.marketCap,
              volume24h: pair.volume && pair.volume.h24, change24h: pair.priceChange && pair.priceChange.h24,
              pairCreatedAt: pair.pairCreatedAt, dex: pair.dexId, url: pair.url } : null,
-    links, deep: deep ? { deployer: deep.deployer || null, deployerPct: deep.deployerPct, traced: deep.traced, debug: deep.debug || null, holders: deep.holderCount, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, notes: deep.notes } : null,
+    links, flags, deep: deep ? { supply: deep.supply || null, deployerAmt: deep.deployerAmt != null ? deep.deployerAmt : null, deployer: deep.deployer || null, deployerPct: deep.deployerPct, traced: deep.traced, debug: deep.debug || null, holders: deep.holderCount, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, notes: deep.notes } : null,
     score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };
   cache.set(key, { t: now, v: out });

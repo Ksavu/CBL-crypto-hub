@@ -51,6 +51,7 @@ async function deepSol(mint, budgetMs = 25000) {
     const info = mi && mi.value && mi.value.data && mi.value.data.parsed && mi.value.data.parsed.info;
     if (!info) return null;
     const supply = Number(info.supply) || 0;
+    D.supply = String(info.supply || "");
     D.mintAuthority = info.mintAuthority || null;
     D.freezeAuthority = info.freezeAuthority || null;
 
@@ -118,6 +119,7 @@ async function deepSol(mint, budgetMs = 25000) {
       D.deployer = dep;
       D.deployerPct = supply && bal[dep] ? bal[dep] / supply * 100 : 0;
       D.deployerInTop = !!bal[dep];
+      D.deployerAmt = bal[dep] || 0;
       D.launchTs = oldest.blockTime || null;
       try {
         const ds = await rpc("getSignaturesForAddress", [dep, { limit: 1000 }]);
@@ -259,4 +261,17 @@ function deepChecks(D, add) {
   grp(D.snipers, "sniper wallets still hold tokens (bought in the first seconds or received from those buyers)");
   (D.notes || []).forEach((n) => add("info", n));
 }
-module.exports = { deepSol, deepChecks };
+// Current raw token balance of a wallet for a mint (one RPC call). Used by the alert checker.
+async function deployerBalance(mint, owner) {
+  const key = process.env.HELIUS_API_KEY;
+  if (!key) return null;
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 5000);
+  try {
+    const r = await fetch("https://mainnet.helius-rpc.com/?api-key=" + key, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getTokenAccountsByOwner", params: [owner, { mint }, { encoding: "jsonParsed" }] }) });
+    const j = await r.json();
+    if (!j.result) return null;
+    return (j.result.value || []).reduce((a, v) => a + Number(v.account.data.parsed.info.tokenAmount.amount || 0), 0);
+  } catch (e) { return null; } finally { clearTimeout(t); }
+}
+module.exports = { deepSol, deepChecks, deployerBalance };

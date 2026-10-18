@@ -2,6 +2,8 @@
 const crypto = require("crypto");
 const { runScan, detect } = require("./_lib/scanner");
 const { card, HELP, esc } = require("./_lib/format");
+const db = require("./_lib/db");
+const W = require("./_lib/watch");
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
 const SITE = () => (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
@@ -32,6 +34,22 @@ function safeEq(a, b) {
 async function reply(msg, text, extra) {
   return tg("sendMessage", { chat_id: msg.chat.id, text, parse_mode: "HTML", disable_web_page_preview: true,
     reply_parameters: { message_id: msg.message_id, allow_sending_without_reply: true }, ...extra });
+}
+
+// Add a token to a user's watchlist. Alerts go to the user's DM, so the bot must be able to message them first.
+async function watchFlow(user, ca, chain, say) {
+  if (!db.on()) return say("Alerts are not set up yet.");
+  if (limited(user.id)) return say("Slow down a little.");
+  const ok = await tg("sendMessage", { chat_id: user.id, text: "👁 Setting up your alert..." });
+  if (!ok || !ok.ok) return say("I can't message you privately yet. Open the bot, press Start, then try again.");
+  try {
+    const r = await W.addWatch(user.id, ca, chain);
+    if (r.dup) return void (await tg("sendMessage", { chat_id: user.id, text: "Already on your watchlist." }));
+    if (r.full) return void (await tg("sendMessage", { chat_id: user.id, text: `Your watchlist is full (${r.max}). Use /list to remove one.` }));
+    const t = r.res.token;
+    await tg("sendMessage", { chat_id: user.id, parse_mode: "HTML", text: `✅ Watching <b>${esc(t.name)}</b>${t.symbol ? ` (${esc(t.symbol)})` : ""}.\nI'll message you here if liquidity is pulled, the price crashes, the deployer sells, the token turns into a honeypot, the tax jumps or the risk score drops.` });
+    return say("Added. Alerts will arrive in your DM.");
+  } catch (e) { return say(e.status ? e.message : "Could not add it. Try again."); }
 }
 
 async function doScan(msg, ca, chain, explicit) {
@@ -66,6 +84,26 @@ async function onMessage(msg) {
       const ch = args.map((a) => CHAIN[a.toLowerCase()]).find(Boolean) || "auto";
       return void (await doScan(msg, ca, ch, true));
     }
+    if (name === "watch") {
+      let ca = args.map(findCA).find(Boolean);
+      if (!ca && msg.reply_to_message) ca = findCA(msg.reply_to_message.text || msg.reply_to_message.caption);
+      if (!ca) return void (await reply(msg, "Usage: <code>/watch &lt;address&gt;</code>"));
+      const ch = args.map((a) => CHAIN[a.toLowerCase()]).find(Boolean) || "auto";
+      return void (await watchFlow(msg.from, ca, ch, (m) => reply(msg, esc(m))));
+    }
+    if (name === "unwatch") {
+      const ca = args.map(findCA).find(Boolean);
+      if (!ca || !db.on()) return void (await reply(msg, "Usage: <code>/unwatch &lt;address&gt;</code>"));
+      await W.removeWatch(msg.from.id, ca);
+      return void (await reply(msg, "Removed from your watchlist."));
+    }
+    if (name === "list" || name === "watchlist") {
+      if (!db.on()) return void (await reply(msg, "Alerts are not set up yet."));
+      const ws = await W.listWatches(msg.from.id);
+      if (!ws.length) return void (await reply(msg, "Your watchlist is empty. Use <code>/watch &lt;address&gt;</code> or tap 👁 Watch on a scan."));
+      return void (await reply(msg, `<b>Your watchlist</b> (${ws.length}/${W.MAX_WATCH})\nTap to stop watching:`, { reply_markup: { inline_keyboard:
+        ws.map((w) => [{ text: `❌ ${(w.symbol || w.name || w.address).slice(0, 20)} · ${w.chain}`, callback_data: "u:" + w.address }]) } }));
+    }
     return;
   }
   const ca = findCA(text);
@@ -74,6 +112,16 @@ async function onMessage(msg) {
 
 async function onCallback(q) {
   const data = q.data || "";
+  if (data.startsWith("w:") || data.startsWith("u:")) {
+    const ca = data.slice(2);
+    if (!detect(ca)) return void (await tg("answerCallbackQuery", { callback_query_id: q.id }));
+    if (data[0] === "u") {
+      if (db.on()) await W.removeWatch(q.from.id, ca).catch(() => {});
+      return void (await tg("answerCallbackQuery", { callback_query_id: q.id, text: "Removed from your watchlist." }));
+    }
+    await tg("answerCallbackQuery", { callback_query_id: q.id, text: "Setting up alerts..." });
+    return void (await watchFlow(q.from, ca, "auto", (m) => tg("answerCallbackQuery", { callback_query_id: q.id, text: m.slice(0, 190), show_alert: true })));
+  }
   if (!data.startsWith("r:") || !q.message) return void (await tg("answerCallbackQuery", { callback_query_id: q.id }));
   const ca = data.slice(2);
   if (!detect(ca)) return void (await tg("answerCallbackQuery", { callback_query_id: q.id }));
