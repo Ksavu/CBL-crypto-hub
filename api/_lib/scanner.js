@@ -1,7 +1,7 @@
 // Shared scan engine used by /api/scan (website) and /api/telegram (bot).
 const { analyze } = require("./score");
 const { deepSol } = require("./deep");
-const { explorerEvm, EXPLORER_CHAINS } = require("./explorer");
+const { explorerEvm, evmLaunch, EXPLORER_CHAINS } = require("./explorer");
 
 const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663 };
 const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"];
@@ -68,7 +68,13 @@ async function runScan(caIn, selIn, opts) {
       j(`https://api.gopluslabs.io/api/v1/token_security/${id}?contract_addresses=${low}`).then((r) => r.result && r.result[low]).catch(() => null),
       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
     ]);
-    if (EXPLORER_CHAINS.includes(chain)) ex = await explorerEvm(chain, low, pair && pair.pairAddress).catch(() => null);
+    if (EXPLORER_CHAINS.includes(chain)) {
+      ex = await explorerEvm(chain, low, pair && pair.pairAddress).catch(() => null);
+      if (ex && !opts.noDeep) {
+        const L = await evmLaunch(chain, low, pair && pair.pairAddress, pair && pair.pairCreatedAt, ex.supplyRaw).catch(() => null);
+        if (L) deep = { supply: null, deployerAmt: null, deployer: ex.creator, deployerPct: ex.creatorPct, traced: L.traced, debug: null, holderCount: ex.holders, top10Wallets: ex.top10, bundlers: L.bundlers || null, snipers: L.snipers || null, notes: [] };
+      }
+    }
   } else {
     [gp, rc, deep] = await Promise.all([
       j(`https://api.gopluslabs.io/api/v1/solana/token_security?contract_addresses=${ca}`).then((r) => r.result && (r.result[ca] || r.result[Object.keys(r.result)[0]])).catch(() => null),
@@ -80,7 +86,7 @@ async function runScan(caIn, selIn, opts) {
   sources.honeypot = !!hp;
   sources.rugcheck = !!rc;
   sources.explorer = !!ex;
-  sources.helius = !!deep;
+  sources.helius = !!deep && kind === "sol";
   if (!pair && !sources.goplus && !sources.honeypot && !sources.rugcheck && !sources.explorer) throw fail(404, "No data found for this address on " + chain);
 
   const stv = (x) => (x && typeof x === "object" && "status" in x ? x.status : x);

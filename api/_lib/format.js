@@ -30,7 +30,7 @@ function card(r, site, opt) {
       `📊 Vol 24h ${usd(m.volume24h)}   🕒 Age ${age(m.pairCreatedAt)}`,
       `💲 $${esc(Number(m.price).toPrecision(4))}${ch}`);
   }
-  if (r.chain === "solana") {
+  if (r.chain === "solana" || r.deep) {
     const d = r.deep;
     if (!d && opt.pending) L.push("", "🧬 Deep scan running… (holders, snipers, bundlers)");
     else if (!d) L.push("", "🧬 Deep scan unavailable");
