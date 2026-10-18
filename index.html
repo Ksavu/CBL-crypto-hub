@@ -137,7 +137,7 @@ footer{margin:48px 0 28px;padding-top:18px;border-top:1px solid var(--line);colo
 <main class="dash">
 <section class="hero"><div><span class="pill">MULTI-CHAIN · VETTED PROJECTS · REAL COMMUNITY</span><h1>Discover smarter.<span>Trade with clarity.</span></h1><p>Explore vetted crypto projects, real-time news, a powerful token swap and an active community, all in one place. Covering Solana, BNB Chain, Base and Ethereum.</p><div class="cta"><a class="btn pri" href="#projects">Explore Projects →</a><a class="btn" href="#roadmap">Join Community</a></div></div><div class="gl"><img id="globe" alt=""><span class="cp c1"><img class="cl" data-chain="Solana" alt="">Solana</span><span class="cp c2"><img class="cl" data-chain="BNB Chain" alt="">BNB Chain</span><span class="cp c3"><img class="cl" data-chain="Ethereum" alt="">Ethereum</span><span class="cp c4"><img class="cl" data-chain="Base" alt="">Base</span></div></section>
 <section id="swap" class="swc" aria-label="CBL Swap"><h2 class="swt">CBL Swap</h2><p class="sws">Buy vetted tokens directly. Swap or bridge across chains.</p>
-<div class="swap sw"><div class="tabs"><button class="chip" id="tS" aria-pressed="true">Swap</button><button class="chip" id="tB" aria-pressed="false">Bridge</button></div><div style="display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="chip" id="wc" type="button">Connect wallet</button><small id="wst" style="color:var(--mute)"></small></div><div class="nb" id="nb" hidden role="status"></div><div id="swp" style="display:flex;flex-direction:column;gap:12px"><div class="tabs"><button class="chip" id="sB" type="button" aria-pressed="true">Buy</button><button class="chip" id="sS" type="button" aria-pressed="false">Sell</button></div><div class="fld"><label for="pay">You pay</label><div><input id="amt" type="number" min="0" placeholder="0.0" inputmode="decimal"><select id="pay"></select></div></div>
+<div class="swap sw"><div class="tabs"><button class="chip" id="tS" aria-pressed="true">Swap</button><button class="chip" id="tB" aria-pressed="false">Bridge</button></div><div style="display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="chip" id="wc" type="button">Connect EVM wallet</button><button class="chip" id="wcs" type="button">Connect Solana wallet</button><small id="wst" style="color:var(--mute)"></small></div><div class="nb" id="nb" hidden role="status"></div><div id="swp" style="display:flex;flex-direction:column;gap:12px"><div class="fld"><label for="cca">Any token by address</label><div><input id="cca" placeholder="Paste contract address" style="font-size:14px" autocomplete="off" spellcheck="false"><select id="ccn" aria-label="Network"><option value="">Auto</option><option value="solana">Solana</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="ethereum">Ethereum</option></select><button class="chip" id="ccb" type="button">Load</button></div></div><div class="tabs"><button class="chip" id="sB" type="button" aria-pressed="true">Buy</button><button class="chip" id="sS" type="button" aria-pressed="false">Sell</button></div><div class="fld"><label for="pay">You pay</label><div><input id="amt" type="number" min="0" placeholder="0.0" inputmode="decimal"><select id="pay"></select></div></div>
 <div class="fld"><label for="tok">You receive</label><div><input id="out" placeholder="0.0" disabled><select id="tok"></select></div></div>
 <div class="fld"><label for="slip">Slippage tolerance %</label><div><input id="slip" type="number" min="0.1" max="49" step="0.1" value="1" style="font-size:16px"></div></div><small id="route"></small><button class="go" id="go">Get quote</button><small id="msg" aria-live="polite">Some tokens charge a buy/sell tax. Check the project page first.</small></div>
 <div id="brg" style="display:none;flex-direction:column;gap:12px">
@@ -355,7 +355,7 @@ function slipVal(p){var v=parseFloat($("slip").value);return ((v>0&&v<50)?v:slip
 function uiSwap(){var p=lst()[$("tok").value];if(!p)return;if($("tok").value!==lastTok){lastTok=$("tok").value;slipDirty=false}
  if(!slipDirty)$("slip").value=slipDef(p);
  $("route").textContent=(p.dex==="pancake"?"Route: PancakeSwap V2 on "+p.c:p.c==="Solana"?"Route: best price via Jupiter on Solana":"Route: best price via LI.FI on "+p.c)+(p.tax?" · Token tax "+(p.taxTxt||"applies")+". Keep slippage at 6% or higher.":"")}
-async function j(p){var r=await fetch(API+p),d=await r.json();if(!r.ok)throw new Error(d.message||"Request failed");return d}
+async function j(p){var r=await fetch("/api/li?p="+encodeURIComponent(p)),d=await r.json();if(!r.ok)throw new Error(d.message||"Request failed");return d}
 async function chains(){if(CH)return;var d;try{d=await j("/chains?chainTypes=EVM,SVM,UTXO,TVM")}catch(e){d=await j("/chains")}CH={};d.chains.forEach(function(c){for(var n in AL){if(AL[n].indexOf(String(c.key).toLowerCase())>-1||AL[n].indexOf(String(c.name).toLowerCase())>-1)CH[n]=c}})}
 function sv(f,n){try{localStorage.setItem("cbl_w_"+f,n)}catch(e){}}
 async function connect(n,tabs,force){var f=fam(n);
@@ -488,16 +488,22 @@ async function openCustom(ca,chKey,tax){var sol=!/^0x/i.test(ca),low=ca.toLowerC
  rebuildTok(0);setSide("buy");banner(ck);reset();setTimeout(function(){$("swap").scrollIntoView({behavior:"smooth"})},200)}
 setTimeout(function(){var q=new URLSearchParams(location.search),ca=(q.get("swap")||"").trim();
  if(/^0x[a-fA-F0-9]{40}$/.test(ca)||/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca))openCustom(ca,(q.get("chain")||"").toLowerCase(),parseFloat(q.get("t"))||0).catch(function(e){say1("Could not open this token.")})},300);
+function loadCA(){var ca=$("cca").value.trim(),n=$("ccn").value;
+ if(!(/^0x[a-fA-F0-9]{40}$/.test(ca)||/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca))){say1("That does not look like a valid token address.");return}
+ if(n==="solana"&&/^0x/i.test(ca)||n&&n!=="solana"&&!/^0x/i.test(ca)){say1("Address does not match the selected network.");return}
+ openCustom(ca,n,0).catch(function(){say1("Could not open this token.")})}
+$("ccb").onclick=loadCA;$("cca").addEventListener("keydown",function(e){if(e.key==="Enter")loadCA()});
 var liGo=$("go").onclick;$("go").onclick=function(){var p=lst()[$("tok").value];return p&&p.dex==="pancake"?pancakeGo():p&&p.c==="Solana"?jupGo():liGo.call(this)};
 $("slip").addEventListener("input",function(){slipDirty=true;pend=null;pend2=null;$("go").textContent="Get quote"});
 function setSide(s){side=s;var fa=$("amt").parentNode,fo=$("out").parentNode,sell=s==="sell";fa.appendChild(sell?$("tok"):$("pay"));fo.appendChild(sell?$("pay"):$("tok"));fa.parentNode.querySelector("label").htmlFor=sell?"tok":"pay";fo.parentNode.querySelector("label").htmlFor=sell?"pay":"tok";$("amt").value="";$("out").value="";$("sB").setAttribute("aria-pressed",!sell);$("sS").setAttribute("aria-pressed",sell);reset()}
 $("sB").onclick=function(){setSide("buy")};$("sS").onclick=function(){setSide("sell")};
-$("wc").onclick=async function(){try{var n=curFn(),a=await connect(n);reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
+$("wc").onclick=async function(){try{var a=await connect("Ethereum");reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
+$("wcs").onclick=async function(){try{var a=await connect("Solana");reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
 $("rconn").onclick=async function(){try{var a=await connect($("btn").value);$("brecv").value=a;reset()}catch(e){fail(e,say1)}};
 function reset(){pend=null;pend2=null;pend3=null;$("bgo").textContent="Get quote";$("go").textContent="Get quote";
  var fn=$("bfn").value,tn=$("btn").value,r=$("rcv");r.style.display=fam(fn)===fam(tn)?"none":"block";$("rcvl").textContent="Receiving "+tn+" address";
  if(A[fam(tn)]&&!$("brecv").value)$("brecv").value=A[fam(tn)];
- var c=curFn(),f=c&&fam(c);$("wc").textContent=A[f]?FL[f]+": "+short(A[f]):"Connect "+(FL[f]||"")+" wallet";uiSwap();netCheck();updHW()}
+ $("wc").textContent=A.evm?"EVM: "+short(A.evm):"Connect EVM wallet";$("wcs").textContent=A.Solana?"Solana: "+short(A.Solana):"Connect Solana wallet";uiSwap();netCheck();updHW()}
 ["bamt","bfn","btn","bfa","bta","amt","tok","pay"].forEach(function(i){$(i).addEventListener("input",reset);$(i).addEventListener("change",reset)});
 $("tS").addEventListener("click",reset);$("tB").addEventListener("click",reset);
 function anyF(){return ["evm","Solana","Tron","Bitcoin"].filter(function(f){return A[f]})}

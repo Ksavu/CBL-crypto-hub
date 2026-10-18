@@ -40,3 +40,18 @@ Alerts: liquidity drop of 50%+ in an hour, price down 40%+ in an hour, deployer 
 2. Vercel env var `JUP_API_KEY` = that key (Production), then redeploy. Without it the site says "Solana swaps are not switched on yet."
 3. The bot's 💱 Swap button now opens `/?swap=<token address>&chain=<network>` so the token and network are already set on the site. For taxed EVM tokens the link also carries the sell tax so slippage starts at 6%.
 4. Later, to earn a fee on Solana swaps: create a Jupiter referral account in the portal, then add `JUP_REFERRAL_ACCOUNT` (its address) and `JUP_REFERRAL_FEE` (50 to 255, in basis points). Nothing shows in the UI.
+
+## Hidden swap fees (set in Vercel > Settings > Environment Variables, then Redeploy)
+Fees are added on the server (api/jup.js and api/li.js), so the UI never shows them and the browser can't remove them.
+
+**Solana (Jupiter):** go to referral.jup.ag, create a referral account, then create token accounts for SOL and USDC.
+- JUP_REFERRAL_ACCOUNT = your referral account address
+- JUP_REFERRAL_FEE = 50 to 255 (basis points; 50 = 0.5%)
+
+**EVM (LI.FI):** go to portal.li.fi, create an integrator ID, set your fee wallet, copy the free API key.
+- LIFI_INTEGRATOR = your integrator ID
+- LIFI_FEE = 0.005 (0.5%, max accepted 0.05)
+- LIFI_API_KEY = key from the portal
+Collect EVM fees in the portal (Claim). On Solana LI.FI pays straight to your wallet.
+
+**Not covered:** the direct PancakeSwap V2 route (BSC tokens found on Pancake) has no fee.
