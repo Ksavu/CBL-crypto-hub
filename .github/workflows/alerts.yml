@@ -7,4 +7,8 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - run: curl -fsS -m 40 -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://cryptobarlounge.space/api/cron
+      - name: Call alert checker
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS -m 40 -H "Authorization: Bearer $CRON_SECRET" https://cryptobarlounge.space/api/cron
