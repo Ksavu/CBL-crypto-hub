@@ -90,7 +90,7 @@ async function runScan(caIn, selIn) {
     market: pair ? { price: pair.priceUsd, liquidity: liq(pair), fdv: pair.fdv, marketCap: pair.marketCap,
              volume24h: pair.volume && pair.volume.h24, change24h: pair.priceChange && pair.priceChange.h24,
              pairCreatedAt: pair.pairCreatedAt, dex: pair.dexId, url: pair.url } : null,
-    links, deep: deep ? { deployer: deep.deployer || null, deployerPct: deep.deployerPct, top10: deep.top10Wallets, early: deep.early || null, notes: deep.notes } : null,
+    links, deep: deep ? { deployer: deep.deployer || null, deployerPct: deep.deployerPct, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, notes: deep.notes } : null,
     score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };
   cache.set(key, { t: now, v: out });

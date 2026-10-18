@@ -97,17 +97,21 @@ async function deepSol(mint, budgetMs = 6500) {
         if (s0 === null) s0 = t.slot;
         if (t.slot - s0 <= 4 && !(tr.toUserAccount in first)) first[tr.toUserAccount] = t.slot - s0;
       }
-      const w = Object.keys(first).slice(0, 15);
-      if (w.length) {
-        const held = await Promise.all(w.map((o) => rpc("getTokenAccountsByOwner", [o, { mint }, { encoding: "jsonParsed" }])
+      const all = Object.keys(first);
+      const same = all.filter((o) => first[o] === 0);
+      const bundled = same.length >= 2 ? same : [];
+      const snipe = all.filter((o) => !bundled.includes(o));
+      const grp = async (ws) => {
+        ws = ws.slice(0, 15);
+        const held = await Promise.all(ws.map((o) => rpc("getTokenAccountsByOwner", [o, { mint }, { encoding: "jsonParsed" }])
           .then((r) => (r.value || []).reduce((a, v) => a + Number(v.account.data.parsed.info.tokenAmount.amount || 0), 0)).catch(() => null)));
         const ok = held.filter((x) => x !== null);
-        D.early = {
-          wallets: w.length, sameSlot: w.filter((o) => first[o] === 0).length,
-          heldPct: supply ? ok.reduce((a, b) => a + b, 0) / supply * 100 : 0,
-          stillHolding: held.filter((x) => x && x > 0).length,
-        };
-      }
+        return { wallets: ws.length, heldPct: supply ? ok.reduce((a, b) => a + b, 0) / supply * 100 : 0, stillHolding: held.filter((x) => x && x > 0).length };
+      };
+      const [bu, sn] = await Promise.all([grp(bundled), grp(snipe)]);
+      D.bundlers = bundled.length ? bu : null;
+      D.snipers = snipe.length ? sn : null;
+      D.earlyTotal = all.length;
     } catch (e) { D.notes.push("Early buyer check unavailable"); }
   } catch (e) {
     D.notes.push("Deep scan incomplete");
@@ -131,13 +135,13 @@ function deepChecks(D, add) {
     if (typeof D.deployerAgeDays === "number" && D.deployerAgeDays < 2)
       add("medium", "Deployer wallet was created right before launch", `Wallet age ${D.deployerAgeDays.toFixed(1)} days, ${D.deployerTxCount} transactions`);
   }
-  const e = D.early;
-  if (e) {
-    const bundle = e.sameSlot >= 3;
-    const sev = (bundle || e.wallets >= 6) && e.heldPct >= 10 ? "high" : e.heldPct >= 5 ? "medium" : "info";
-    add(sev, bundle ? `Possible bundle: ${e.sameSlot} wallets bought in the launch block` : `${e.wallets} wallets bought in the first seconds`,
-      `They still hold ${f(e.heldPct)} of supply (${e.stillHolding} of ${e.wallets} still holding)`);
-  }
+  const grp = (g, label, sev) => {
+    if (!g) return;
+    add(g.heldPct >= 10 ? "high" : g.heldPct >= 5 ? "medium" : "info", `${g.wallets} ${label}`,
+      `They hold ${f(g.heldPct)} of supply (${g.stillHolding} of ${g.wallets} still holding)`);
+  };
+  grp(D.bundlers, "bundled wallets bought in the launch block");
+  grp(D.snipers, "sniper wallets bought in the first seconds");
   (D.notes || []).forEach((n) => add("info", n));
 }
 module.exports = { deepSol, deepChecks };

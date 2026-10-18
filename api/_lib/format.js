@@ -34,7 +34,9 @@ function card(r, site) {
     if (!d) L.push("", "🧬 Deep scan unavailable");
     else {
       const p = (n) => (typeof n === "number" ? n.toFixed(1) + "%" : "n/a");
-      L.push("", `🧬 Deployer ${p(d.deployerPct)} · Top 10 wallets ${p(d.top10)}` + (d.early ? ` · Early buyers ${d.early.wallets} (${p(d.early.heldPct)} held)` : ""));
+      L.push("", `🧬 Deployer ${p(d.deployerPct)} · Top 10 wallets ${p(d.top10)}`);
+      const g = (x) => `${x.wallets} wallets · hold ${p(x.heldPct)}`;
+      L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
     }
   }
   const flags = r.reasons.filter((x) => ICON[x.sev]).slice(0, 6);
