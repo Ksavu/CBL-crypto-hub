@@ -34,9 +34,10 @@ function card(r, site) {
     if (!d) L.push("", "🧬 Deep scan unavailable");
     else {
       const p = (n) => (typeof n === "number" ? n.toFixed(1) + "%" : "n/a");
-      L.push("", `🧬 Deployer ${p(d.deployerPct)} · Top 10 wallets ${p(d.top10)}`);
+      L.push("", `🧬 Deployer ${d.traced ? p(d.deployerPct) : "n/a"} · Top 10 wallets ${p(d.top10)}${d.holders ? " · " + d.holders + " holders" : ""}`);
       const g = (x) => `${x.wallets} wallets · hold ${p(x.heldPct)}`;
-      L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
+      if (d.traced) L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
+      else L.push("🎯 Snipers / 📦 Bundlers: n/a (launch too old to trace)");
     }
   }
   const flags = r.reasons.filter((x) => ICON[x.sev]).slice(0, 6);

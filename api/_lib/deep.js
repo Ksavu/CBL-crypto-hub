@@ -2,7 +2,7 @@
 const SYS = "11111111111111111111111111111111";
 const short = (a) => a.slice(0, 4) + "..." + a.slice(-4);
 
-async function deepSol(mint, budgetMs = 6500) {
+async function deepSol(mint, budgetMs = 14000) {
   const key = process.env.HELIUS_API_KEY;
   if (!key) return null;
   const t0 = Date.now(), left = () => budgetMs - (Date.now() - t0);
@@ -21,7 +21,7 @@ async function deepSol(mint, budgetMs = 6500) {
     if (r.error) throw new Error(r.error.message || "rpc");
     return r.result;
   };
-  const D = { notes: [] };
+  const D = { notes: [], traced: false };
   try {
     // 1. Mint basics
     const mi = await rpc("getAccountInfo", [mint, { encoding: "jsonParsed" }]);
@@ -31,20 +31,33 @@ async function deepSol(mint, budgetMs = 6500) {
     D.mintAuthority = info.mintAuthority || null;
     D.freezeAuthority = info.freezeAuthority || null;
 
-    // 2. Holders by owner wallet; separate pools/programs from real wallets
-    const lg = await rpc("getTokenLargestAccounts", [mint]);
-    const accs = ((lg && lg.value) || []).slice(0, 20);
+    // 2. All holders by owner (DAS), fallback to the 20 largest accounts
+    const bal = {}; let complete = false;
+    try {
+      for (let p = 1; p <= 4; p++) {
+        const r = await rpc("getTokenAccounts", { mint, page: p, limit: 1000 });
+        const ta = (r && r.token_accounts) || [];
+        for (const a of ta) if (a.owner) bal[a.owner] = (bal[a.owner] || 0) + Number(a.amount || 0);
+        if (ta.length < 1000) { complete = true; break; }
+      }
+    } catch (e) {}
+    if (!Object.keys(bal).length) {
+      try {
+        const lg = await rpc("getTokenLargestAccounts", [mint]);
+        const accs = ((lg && lg.value) || []).slice(0, 20);
+        if (accs.length) {
+          const ta = await rpc("getMultipleAccounts", [accs.map((a) => a.address), { encoding: "jsonParsed" }]);
+          accs.forEach((a, i) => { const v = ta.value && ta.value[i]; const o = v && v.data && v.data.parsed && v.data.parsed.info && v.data.parsed.info.owner; if (o) bal[o] = (bal[o] || 0) + Number(a.amount); });
+        }
+      } catch (e) {}
+    }
     let holders = [];
-    if (accs.length && supply) {
-      const ta = await rpc("getMultipleAccounts", [accs.map((a) => a.address), { encoding: "jsonParsed" }]);
-      const owners = (ta.value || []).map((v) => v && v.data && v.data.parsed && v.data.parsed.info && v.data.parsed.info.owner);
-      const uniq = [...new Set(owners.filter(Boolean))];
-      const oa = await rpc("getMultipleAccounts", [uniq, { encoding: "base64", dataSlice: { offset: 0, length: 0 } }]);
-      const kind = {};
-      uniq.forEach((o, i) => { const v = oa.value && oa.value[i]; kind[o] = !v || v.owner !== SYS ? "program" : "wallet"; });
-      const by = {};
-      accs.forEach((a, i) => { const o = owners[i]; if (o) by[o] = (by[o] || 0) + Number(a.amount); });
-      holders = Object.entries(by).map(([owner, amt]) => ({ owner, pct: amt / supply * 100, kind: kind[owner] || "wallet" })).sort((a, b) => b.pct - a.pct);
+    const ranked = Object.entries(bal).sort((a, b) => b[1] - a[1]);
+    D.holderCount = complete ? ranked.length : null;
+    if (ranked.length && supply) {
+      const topO = ranked.slice(0, 20).map((x) => x[0]);
+      const oa = await rpc("getMultipleAccounts", [topO, { encoding: "base64", dataSlice: { offset: 0, length: 0 } }]);
+      holders = topO.map((o, i) => { const v = oa.value && oa.value[i]; return { owner: o, pct: bal[o] / supply * 100, kind: !v || v.owner !== SYS ? "program" : "wallet" }; });
     }
     D.holders = holders;
     const real = holders.filter((h) => h.kind === "wallet");
@@ -52,16 +65,26 @@ async function deepSol(mint, budgetMs = 6500) {
     D.topWallet = real[0] || null;
     D.poolPct = holders.filter((h) => h.kind === "program").reduce((a, h) => a + h.pct, 0);
 
-    // 3. Walk back to the creation of the mint (max 3 pages)
-    let before, last = [], reached = false;
-    for (let p = 0; p < 3; p++) {
-      const s = await rpc("getSignaturesForAddress", [mint, before ? { limit: 1000, before } : { limit: 1000 }]);
-      if (!s || !s.length) { reached = p > 0; break; }
-      last = s; before = s[s.length - 1].signature;
-      if (s.length < 1000) { reached = true; break; }
+    // 3. Find the launch: oldest transactions of the mint
+    let oldestList = null;
+    try { // Helius ascending query (may need a paid plan)
+      const r = await rpc("getTransactionsForAddress", [mint, { transactionDetails: "signatures", sortOrder: "asc", limit: 100 }]);
+      const arr = (r && (r.data || r)) || [];
+      if (Array.isArray(arr) && arr.length) oldestList = arr.map((x) => ({ signature: x.signature, blockTime: x.blockTime, slot: x.slot }));
+    } catch (e) {}
+    if (!oldestList) { // walk back page by page
+      let before, last = [], reached = false;
+      for (let p = 0; p < 30 && left() > 3500; p++) {
+        const s = await rpc("getSignaturesForAddress", [mint, before ? { limit: 1000, before } : { limit: 1000 }]);
+        if (!s || !s.length) { reached = p > 0; break; }
+        last = s; before = s[s.length - 1].signature;
+        if (s.length < 1000) { reached = true; break; }
+      }
+      if (reached && last.length) oldestList = last.slice(-100).reverse();
     }
-    if (!reached || !last.length) { D.notes.push("Token is too old or too active to trace the launch"); return D; }
-    const oldest = last[last.length - 1];
+    if (!oldestList || !oldestList.length) { D.notes.push("Launch could not be traced (token too old or too active)"); return D; }
+    D.traced = true;
+    const oldest = oldestList[0];
 
     // 4. Deployer = fee payer of the first transaction
     const tx = await rpc("getTransaction", [oldest.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }]);
@@ -69,11 +92,10 @@ async function deepSol(mint, budgetMs = 6500) {
     const dep = keys && keys[0] && (keys[0].pubkey || keys[0]);
     if (typeof dep === "string") {
       D.deployer = dep;
-      const dh = holders.find((h) => h.owner === dep);
-      D.deployerPct = dh ? dh.pct : 0;
-      D.deployerInTop = !!dh;
+      D.deployerPct = supply && bal[dep] ? bal[dep] / supply * 100 : 0;
+      D.deployerInTop = !!bal[dep];
       D.launchTs = oldest.blockTime || null;
-      try { // deployer wallet age
+      try {
         const ds = await rpc("getSignaturesForAddress", [dep, { limit: 1000 }]);
         if (ds && ds.length) {
           D.deployerTxCount = ds.length >= 1000 ? "1000+" : ds.length;
@@ -83,10 +105,9 @@ async function deepSol(mint, budgetMs = 6500) {
       } catch (e) {}
     }
 
-    // 5. Early buyers: who received the token in the first slots
+    // 5. Bundlers (same block as first buy) and snipers (next few blocks)
     try {
-      const sigs = last.slice(-100).map((x) => x.signature);
-      const et = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: sigs });
+      const et = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: oldestList.map((x) => x.signature) });
       const list = (Array.isArray(et) ? et : []).filter((t) => t && t.slot).sort((a, b) => a.slot - b.slot);
       const pools = new Set(holders.filter((h) => h.kind === "program").map((h) => h.owner));
       const first = {};
@@ -101,18 +122,18 @@ async function deepSol(mint, budgetMs = 6500) {
       const same = all.filter((o) => first[o] === 0);
       const bundled = same.length >= 2 ? same : [];
       const snipe = all.filter((o) => !bundled.includes(o));
-      const grp = async (ws) => {
-        ws = ws.slice(0, 15);
-        const held = await Promise.all(ws.map((o) => rpc("getTokenAccountsByOwner", [o, { mint }, { encoding: "jsonParsed" }])
-          .then((r) => (r.value || []).reduce((a, v) => a + Number(v.account.data.parsed.info.tokenAmount.amount || 0), 0)).catch(() => null)));
-        const ok = held.filter((x) => x !== null);
-        return { wallets: ws.length, heldPct: supply ? ok.reduce((a, b) => a + b, 0) / supply * 100 : 0, stillHolding: held.filter((x) => x && x > 0).length };
+      const held = async (o) => {
+        if (complete || bal[o]) return bal[o] || 0;
+        try { const r = await rpc("getTokenAccountsByOwner", [o, { mint }, { encoding: "jsonParsed" }]);
+          return (r.value || []).reduce((a, v) => a + Number(v.account.data.parsed.info.tokenAmount.amount || 0), 0); } catch (e) { return 0; }
       };
-      const [bu, sn] = await Promise.all([grp(bundled), grp(snipe)]);
-      D.bundlers = bundled.length ? bu : null;
-      D.snipers = snipe.length ? sn : null;
-      D.earlyTotal = all.length;
-    } catch (e) { D.notes.push("Early buyer check unavailable"); }
+      const grp = async (ws) => {
+        const amts = []; for (const o of ws.slice(0, complete ? 200 : 8)) amts.push(await held(o));
+        return { wallets: ws.length, heldPct: supply ? amts.reduce((a, b) => a + b, 0) / supply * 100 : 0, stillHolding: amts.filter((x) => x > 0).length };
+      };
+      D.bundlers = bundled.length ? await grp(bundled) : null;
+      D.snipers = snipe.length ? await grp(snipe) : null;
+    } catch (e) { D.notes.push("Early buyer check unavailable"); D.earlyFailed = true; }
   } catch (e) {
     D.notes.push("Deep scan incomplete");
   }
@@ -135,7 +156,7 @@ function deepChecks(D, add) {
     if (typeof D.deployerAgeDays === "number" && D.deployerAgeDays < 2)
       add("medium", "Deployer wallet was created right before launch", `Wallet age ${D.deployerAgeDays.toFixed(1)} days, ${D.deployerTxCount} transactions`);
   }
-  const grp = (g, label, sev) => {
+  const grp = (g, label) => {
     if (!g) return;
     add(g.heldPct >= 10 ? "high" : g.heldPct >= 5 ? "medium" : "info", `${g.wallets} ${label}`,
       `They hold ${f(g.heldPct)} of supply (${g.stillHolding} of ${g.wallets} still holding)`);
