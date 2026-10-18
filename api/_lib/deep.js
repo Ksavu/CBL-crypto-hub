@@ -17,6 +17,9 @@ function onCurve(addr) {
     return modpow(r, (P - 1n) / 2n, P) === 1n;
   } catch (e) { return true; }
 }
+const JITO = new Set(["96gYZGLnJYVFmbjzopPSU6QiEV5fGqZNyN9nmNhvrZU5", "HFqU5x63VTqvQss8hp11i4wVV8bD44PvwucfZ4Wr9SMA", "Cw8CFyM9FkoMi7K7Crf6HNQqf4uEMzpKw6QNghXLvLkY",
+  "ADaUMid9yfUytqMBgopwjb2DTLSokTSzL1zt6iGPaS49", "DfXygSm4jCyNCybVYYK6DwvWqjKee8pbDmJGcLWNDXjh", "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+  "DttWaMuVvTiduZRnguLF7jNxTgiMBZ1hyAumKUiL2KRL", "3AVi9Tg9Uo68tJfuvoKvqKNWKkC5wPdSSdeBnizKZ6jT"]);
 const short = (a) => a.slice(0, 4) + "..." + a.slice(-4);
 
 async function deepSol(mint, budgetMs = 25000) {
@@ -157,7 +160,7 @@ async function deepSol(mint, budgetMs = 25000) {
       const bundledAll = spread(bundled);
       const snipeAll = spread(snipe).filter((o) => !bundledAll.includes(o));
       // holder-side check: when did each current holder first receive the token? Same-block groups = bundles
-      const slotOf = {};
+      const slotOf = {}, sigFirst = {};
       try {
         const hs = Object.keys(bal).filter((o) => bal[o] > 0 && !pools.has(o) && o !== D.deployer && taddr[o])
           .sort((a, b) => bal[b] - bal[a]).slice(0, 80);
@@ -165,7 +168,7 @@ async function deepSol(mint, budgetMs = 25000) {
           try {
             const r = await rpc("getTransactionsForAddress", [taddr[o], { transactionDetails: "signatures", sortOrder: "asc", limit: 1 }]);
             const a = (r && (r.data || r)) || [];
-            if (Array.isArray(a) && a[0] && a[0].slot) slotOf[o] = a[0].slot; else bad("slot-empty", "no tx");
+            if (Array.isArray(a) && a[0] && a[0].slot) { slotOf[o] = a[0].slot; sigFirst[o] = a[0].signature; } else bad("slot-empty", "no tx");
           } catch (e) { bad("slot", e); }
         }));
       } catch (e) { bad("slotstep", e); }
@@ -199,10 +202,20 @@ async function deepSol(mint, budgetMs = 25000) {
         D.sharedFunders = shared.size;
         Object.keys(funder).forEach((o) => { if (shared.has(funder[o]) && !bundledAll.includes(o)) { bundledAll.push(o); const k = snipeAll.indexOf(o); if (k >= 0) snipeAll.splice(k, 1); } });
       } catch (e) { bad("funderstep", e); }
+      // did the wallet get its tokens through a Jito bundle (tip paid to a Jito tip account)?
+      const jito = {};
+      try {
+        const js = Object.keys(sigFirst).filter((o) => sigFirst[o]).slice(0, 100);
+        if (js.length && left() > 1500) {
+          const r = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: js.map((o) => sigFirst[o]) });
+          const bySig = {}; (Array.isArray(r) ? r : []).forEach((t) => { bySig[t.signature] = t; });
+          js.forEach((o) => { const t = bySig[sigFirst[o]]; if (t) jito[o] = (t.nativeTransfers || []).some((x) => JITO.has(x.toUserAccount)); });
+        }
+      } catch (e) { bad("jito", e); }
       const hist = {}; all.forEach((o) => { hist[first[o]] = (hist[first[o]] || 0) + 1; });
       D.debug = { path: D.path, txsFetched: list.length, creationSlot: oldest.slot || null, firstBuySlotOffset: s0 === null ? null : s0 - (oldest.slot || s0),
-        buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, ms: Date.now() - t0, errs: D.errs, retries: D.retries || 0, funderKnown: Object.keys(funder).length, funderGroups: Object.entries(Object.values(funder).reduce((m, f) => (m[f] = (m[f] || 0) + 1, m), {})).filter((x) => x[1] >= 2).map((x) => short(x[0]) + " x" + x[1]), sharedFunders: D.sharedFunders || 0, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
-        holderList: Object.keys(bal).filter((o) => !pools.has(o) && bal[o] > 0).sort((a, b) => bal[b] - bal[a]).slice(0, 60).map((o) => o.slice(0, 3) + "..." + o.slice(-4) + " " + (bal[o] / supply * 100).toFixed(2) + "% slot+" + (slotOf[o] && cs ? slotOf[o] - cs : "?") + (funder[o] ? " f:" + funder[o].slice(0, 4) : "") + (bundledAll.includes(o) ? " B" : snipeAll.includes(o) ? " S" : "")) };
+        buyersBySlotOffset: hist, txsParsed: list.length, holderSlots: Object.keys(slotOf).length, ms: Date.now() - t0, jitoWallets: Object.values(jito).filter(Boolean).length, jitoChecked: Object.keys(jito).length, errs: D.errs, retries: D.retries || 0, funderKnown: Object.keys(funder).length, funderGroups: Object.entries(Object.values(funder).reduce((m, f) => (m[f] = (m[f] || 0) + 1, m), {})).filter((x) => x[1] >= 2).map((x) => short(x[0]) + " x" + x[1]), sharedFunders: D.sharedFunders || 0, sameSlotGroups: Object.values(bySlot).map((g) => g.length).filter((n) => n >= 2).sort((a, b) => b - a), seeds: { bundlers: bundled.length, snipers: snipe.length }, bundlerWallets: bundledAll.length, sniperWallets: snipeAll.length, holdersComplete: complete,
+        holderList: Object.keys(bal).filter((o) => !pools.has(o) && bal[o] > 0).sort((a, b) => bal[b] - bal[a]).slice(0, 60).map((o) => o.slice(0, 3) + "..." + o.slice(-4) + " " + (bal[o] / supply * 100).toFixed(2) + "% slot+" + (slotOf[o] && cs ? slotOf[o] - cs : "?") + (jito[o] ? " J" : "") + (funder[o] ? " f:" + funder[o].slice(0, 4) : "") + (bundledAll.includes(o) ? " B" : snipeAll.includes(o) ? " S" : "")) };
       const held = async (o) => {
         if (complete || bal[o]) return bal[o] || 0;
         try { const r = await rpc("getTokenAccountsByOwner", [o, { mint }, { encoding: "jsonParsed" }]);
