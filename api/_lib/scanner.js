@@ -3,8 +3,8 @@ const { analyze } = require("./score");
 const { deepSol } = require("./deep");
 const { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS } = require("./explorer");
 
-const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663 };
-const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"];
+const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663, xrplevm: 1440000 };
+const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "xrplevm", "solana"];
 const cache = new Map(); // best-effort, per warm instance
 
 async function j(url, ms = 4000) {
@@ -33,7 +33,9 @@ function extractLinks(pair) {
 }
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
+const { runXrpl, isXrplId } = require("./xrpl");
 function detect(ca) {
+  if (isXrplId(ca)) return "xrpl";
   return /^0x[a-fA-F0-9]{40}$/.test(ca) ? "evm" : /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca) ? "sol" : "";
 }
 
@@ -42,6 +44,11 @@ async function runScan(caIn, selIn, opts) {
   const ca = String(caIn || "").trim(), sel = String(selIn || "auto").toLowerCase();
   const kind = detect(ca);
   if (!kind) throw fail(400, "Invalid contract address");
+  if (kind === "xrpl") {
+    const k = "x|" + ca, h = cache.get(k);
+    if (h && !opts.fresh && Date.now() - h.t < 60000) return h.v;
+    const v = await runXrpl(ca); cache.set(k, { t: Date.now(), v }); return v;
+  }
   if (sel !== "auto" && !OK_CHAINS.includes(sel)) throw fail(400, "Unsupported network");
   if (kind === "sol" && sel !== "auto" && sel !== "solana") throw fail(400, "That is a Solana address");
   if (kind === "evm" && sel === "solana") throw fail(400, "That is an EVM address");

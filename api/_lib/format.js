@@ -1,7 +1,7 @@
 // Telegram message formatting (HTML parse mode).
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", solana: "Solana" };
-const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", solana: "https://solscan.io/token/" };
+const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", xrplevm: "XRPL EVM", solana: "Solana", xrpl: "XRP Ledger" };
+const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", xrplevm: "https://explorer.xrplevm.org/token/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/" };
 const ICON = { critical: "🚨", high: "🔴", medium: "🟠", low: "🟡" };
 
 function usd(n) {
@@ -52,11 +52,11 @@ function card(r, site, opt) {
   const rows = [[
     { text: "📋 Full report", url: `${site}/?ca=${r.address}#scanner` },
     ...(r.market && r.market.url ? [{ text: "📈 Chart", url: r.market.url }] : []),
-    { text: "🔎 Explorer", url: EXPLORER[r.chain] + r.address },
+    { text: "🔎 Explorer", url: EXPLORER[r.chain] + (r.chain === "xrpl" ? r.issuer : r.address) },
   ], [
     { text: "🔄 Rescan", callback_data: "r:" + r.address },
     { text: "👁 Watch", callback_data: "w:" + r.address },
-    { text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` },
+    ...(r.chain === "xrpl" ? [] : [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }]),
   ]];
   const so = [];
   if (r.links && r.links.web) so.push({ text: "🌐 Website", url: r.links.web });
@@ -74,7 +74,7 @@ const HELP = [
   "Works on <b>Ethereum, BNB Chain, Base and Solana</b>.",
   "",
   "<b>Commands</b>",
-  "/scan &lt;address&gt; [eth|bsc|base|rh|sol]",
+  "/scan &lt;address&gt; [eth|bsc|base|rh|xrpl|sol]",
   "/watch &lt;address&gt; – get alerts in DM (rug signals)",
   "/unwatch &lt;address&gt;",
   "/list – your watchlist",

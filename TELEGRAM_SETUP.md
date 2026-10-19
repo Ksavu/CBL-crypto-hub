@@ -55,3 +55,7 @@ Fees are added on the server (api/jup.js and api/li.js), so the UI never shows t
 Collect EVM fees in the portal (Claim). On Solana LI.FI pays straight to your wallet.
 
 **Not covered:** the direct PancakeSwap V2 route (BSC tokens found on Pancake) has no fee.
+
+## XRP tokens
+- XRPL native tokens: send `CODE.rIssuerAddress` (e.g. `SOLO.rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz`) to the bot or the website scanner. No keys needed (public XRPL RPC + DexScreener). Scan only, no swap.
+- XRPL EVM sidechain (chain 1440000): works like the other EVM chains, use `/scan xrplevm 0x...`.

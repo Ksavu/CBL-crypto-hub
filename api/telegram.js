@@ -7,8 +7,8 @@ const W = require("./_lib/watch");
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
 const SITE = () => (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
-const CHAIN = { eth: "ethereum", ethereum: "ethereum", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", sol: "solana", solana: "solana" };
-const EVM_RE = /\b0x[a-fA-F0-9]{40}\b/, SOL_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
+const CHAIN = { eth: "ethereum", ethereum: "ethereum", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", xrpl: "xrplevm", xrplevm: "xrplevm", sol: "solana", solana: "solana" };
+const XRPL_RE = /\b(?:[A-Za-z0-9]{1,20}\.)?r[1-9A-HJ-NP-Za-km-z]{24,34}\b/, EVM_RE = /\b0x[a-fA-F0-9]{40}\b/, SOL_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
 const seen = new Map(), users = new Map(); // per warm instance
 
 function tg(method, body) {
@@ -17,7 +17,7 @@ function tg(method, body) {
   }).then((r) => r.json()).catch(() => null);
 }
 function findCA(text) {
-  const m = (text || "").match(EVM_RE) || (text || "").match(SOL_RE);
+  const m = (text || "").match(XRPL_RE) || (text || "").match(EVM_RE) || (text || "").match(SOL_RE);
   return m && detect(m[0]) ? m[0] : null;
 }
 function limited(uid) {
