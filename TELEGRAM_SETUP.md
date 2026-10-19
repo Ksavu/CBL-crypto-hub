@@ -58,4 +58,3 @@ Collect EVM fees in the portal (Claim). On Solana LI.FI pays straight to your wa
 
 ## XRP tokens
 - XRPL native tokens: send `CODE.rIssuerAddress` (e.g. `SOLO.rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz`) to the bot or the website scanner. No keys needed (public XRPL RPC + DexScreener). Scan only, no swap.
-- XRPL EVM sidechain (chain 1440000): works like the other EVM chains, use `/scan xrplevm 0x...`.

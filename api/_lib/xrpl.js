@@ -115,14 +115,15 @@ async function runXrpl(input) {
   if (d.Domain) { try { web = "https://" + Buffer.from(d.Domain, "hex").toString("utf8").replace(/^https?:\/\//, ""); } catch (e) { /* ignore */ } }
 
   // holders: lines seen from the issuer, negative balance = the holder owns tokens
-  let holders = null, top = [], poolPct = 0;
+  let holders = null, top = [], poolPct = 0, topAcc = null;
   if (lines && supply > 0) {
     const hs = lines.map((l) => ({ a: l.account, v: -parseFloat(l.balance) })).filter((x) => x.v > 0);
     holders = hs.length;
     hs.sort((x, y) => y.v - x.v);
     const pool = ammAcc ? hs.find((x) => x.a === ammAcc) : null;
     poolPct = pool ? (pool.v / supply) * 100 : 0;
-    top = hs.filter((x) => x.a !== ammAcc).slice(0, 10).map((x) => (x.v / supply) * 100);
+    const th = hs.filter((x) => x.a !== ammAcc).slice(0, 10);
+    top = th.map((x) => (x.v / supply) * 100); topAcc = th[0] && th[0].a;
   }
 
   // market: DexScreener first, AMM reserves as fallback
@@ -152,7 +153,7 @@ async function runXrpl(input) {
   if (holders !== null) {
     add(holders < 50 ? "medium" : holders < 200 ? "low" : "ok", `${holders.toLocaleString("en-US")} holders`);
     if (top.length) {
-      add(top[0] >= 30 ? "high" : top[0] >= 15 ? "medium" : "ok", `Largest wallet holds ${pc(top[0])}`, `Top 10 wallets ${pc(top.reduce((a, b) => a + b, 0))}. The liquidity pool is excluded.`);
+      add(top[0] >= 30 ? "high" : top[0] >= 15 ? "medium" : "ok", `Largest wallet holds ${pc(top[0])}`, `Top 10 wallets ${pc(top.reduce((a, b) => a + b, 0))}. Pool excluded. Check https://xrpscan.com/account/${topAcc}`);
       const t10 = top.reduce((a, b) => a + b, 0);
       if (t10 >= 70) add("high", `Top 10 wallets hold ${pc(t10)}`);
       else if (t10 >= 50) add("medium", `Top 10 wallets hold ${pc(t10)}`);

@@ -1,7 +1,7 @@
 // Telegram message formatting (HTML parse mode).
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", xrplevm: "XRPL EVM", solana: "Solana", xrpl: "XRP Ledger" };
-const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", xrplevm: "https://explorer.xrplevm.org/token/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/" };
+const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", solana: "Solana", xrpl: "XRP Ledger" };
+const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/" };
 const ICON = { critical: "🚨", high: "🔴", medium: "🟠", low: "🟡" };
 
 function usd(n) {

@@ -1,6 +1,5 @@
 // On-chain fallback for EVM chains where GoPlus has no coverage (e.g. Robinhood Chain): Blockscout API + RPC.
 const CFG = {
-  xrplevm: { api: "https://explorer.xrplevm.org/api/v2", rpc: "https://rpc.xrplevm.org", win: 12, bwin: 1, fan: 600, chunk: 5000 },
   robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 50, bwin: 20, fan: 20000, chunk: 20000 },
 };
 const DEAD = /^0x(0{40}|0{39}1|[0d]*dead[0-9a-f]*)$/i;

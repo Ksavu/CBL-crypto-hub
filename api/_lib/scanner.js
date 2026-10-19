@@ -3,8 +3,8 @@ const { analyze } = require("./score");
 const { deepSol } = require("./deep");
 const { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS } = require("./explorer");
 
-const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663, xrplevm: 1440000 };
-const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "xrplevm", "solana"];
+const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663 };
+const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"];
 const cache = new Map(); // best-effort, per warm instance
 
 async function j(url, ms = 4000) {
