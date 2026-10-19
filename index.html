@@ -250,7 +250,7 @@ window.buyTok=function(n){var i=L.findIndex(function(p){return p.n===n});if(i>-1
 })();
 
 (function(){
-var NW={"Solana":"SOL","Ethereum":"ETH","Bitcoin":"BTC","Tron":"TRX","BNB Chain":"BNB","Base":"ETH","Robinhood Chain":"ETH","XRPL EVM":"XRP","Polygon":"POL","Arbitrum":"ETH","Optimism":"ETH","Avalanche":"AVAX"};
+var NW={"Solana":"SOL","Ethereum":"ETH","Bitcoin":"BTC","Tron":"TRX","BNB Chain":"BNB","Base":"ETH","Robinhood Chain":"ETH","Polygon":"POL","Arbitrum":"ETH","Optimism":"ETH","Avalanche":"AVAX"};
 var names=Object.keys(NW),$=function(i){return document.getElementById(i)};
 function opts(sel,list,v){sel.innerHTML=list.map(function(x){return '<option'+(x===v?' selected':'')+'>'+x+'</option>'}).join("")}
 function assets(n){return n==="Bitcoin"?["BTC"]:[NW[n],"USDT","USDC"]}
@@ -267,8 +267,8 @@ $("tS").onclick=function(){tab(false)};$("tB").onclick=function(){tab(true)};
 var API="https://li.quest/v1",$=function(i){return document.getElementById(i)},CH=null,pend=null,A={},EP=null,SOLP=null,BTCP=null,lastF=null,pend2=null,slipDirty=false,lastTok=null,CUST=null,pend3=null;
 var WC_PROJECT_ID="e07d269576aa4aebfe1c7eaf2f6139cf"; /* paste your WalletConnect Cloud project ID here (same one as Nexustone swap) */
 var TRX="T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
-var AL={"Ethereum":["eth","ethereum"],"BNB Chain":["bsc","bnb chain","bnb smart chain","binance smart chain"],"Base":["bas","base"],"Robinhood Chain":["robinhood","robinhood chain","rhc","rch"],"XRPL EVM":["xrplevm","xrpl evm","xrpl evm sidechain","xrp evm","xev"],"Polygon":["pol","polygon","matic"],"Arbitrum":["arb","arbitrum"],"Optimism":["opt","optimism"],"Avalanche":["ava","avalanche"],"Solana":["sol","solana"],"Bitcoin":["btc","bitcoin"],"Tron":["trn","trx","tron"]};
-var EV=["Ethereum","BNB Chain","Base","Robinhood Chain","XRPL EVM","Polygon","Arbitrum","Optimism","Avalanche"];
+var AL={"Ethereum":["eth","ethereum"],"BNB Chain":["bsc","bnb chain","bnb smart chain","binance smart chain"],"Base":["bas","base"],"Robinhood Chain":["robinhood","robinhood chain","rhc","rch"],"Polygon":["pol","polygon","matic"],"Arbitrum":["arb","arbitrum"],"Optimism":["opt","optimism"],"Avalanche":["ava","avalanche"],"Solana":["sol","solana"],"Bitcoin":["btc","bitcoin"],"Tron":["trn","trx","tron"]};
+var EV=["Ethereum","BNB Chain","Base","Robinhood Chain","Polygon","Arbitrum","Optimism","Avalanche"];
 function isEv(n){return EV.indexOf(n)>-1}
 function fam(n){return isEv(n)?"evm":n}
 var FL={evm:"EVM",Solana:"Solana",Tron:"Tron",Bitcoin:"Bitcoin"};
@@ -308,9 +308,9 @@ function evmItems(){var f=Object.keys(W6).map(function(k){return {n:W6[k].info.n
 function solItems(){return [{n:"Phantom",p:(window.phantom&&window.phantom.solana)||(window.solana&&window.solana.isPhantom?window.solana:null),web:"https://phantom.app/download",deep:function(u){return "https://phantom.app/ul/browse/"+enc(u)+"?ref="+enc(location.origin)}},{n:"Solflare",p:window.solflare||null,web:"https://solflare.com/download",deep:function(u){return "https://solflare.com/ul/v1/browse/"+enc(u)+"?ref="+enc(location.origin)}}]}
 function btcItems(){return [{n:"Unisat",p:window.unisat||null,web:"https://unisat.io/download"},{n:"OKX Wallet",p:(window.okxwallet&&window.okxwallet.bitcoin)||null,web:"https://www.okx.com/download"}]}
 function hook(){if(EP._cbl||!EP.on)return;EP._cbl=1;EP.on("chainChanged",netCheck);EP.on("accountsChanged",function(a){A.evm=(a&&a[0])||null;reset()});EP.on("disconnect",function(){A.evm=null;EP=null;reset()})}
-var CID={"Ethereum":1,"BNB Chain":56,"Base":8453,"Robinhood Chain":4663,"XRPL EVM":1440000,"Polygon":137,"Arbitrum":42161,"Optimism":10,"Avalanche":43114};
+var CID={"Ethereum":1,"BNB Chain":56,"Base":8453,"Robinhood Chain":4663,"Polygon":137,"Arbitrum":42161,"Optimism":10,"Avalanche":43114};
 function nat(n,s){return {name:n,symbol:s,decimals:18}}
-var ADD={1440000:{chainName:"XRPL EVM",nativeCurrency:nat("XRP","XRP"),rpcUrls:["https://rpc.xrplevm.org"],blockExplorerUrls:["https://explorer.xrplevm.org"]},4663:{chainName:"Robinhood Chain",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://rpc.mainnet.chain.robinhood.com"],blockExplorerUrls:["https://robinhoodchain.blockscout.com"]},56:{chainName:"BNB Smart Chain",nativeCurrency:nat("BNB","BNB"),rpcUrls:["https://bsc-dataseed.binance.org"],blockExplorerUrls:["https://bscscan.com"]},8453:{chainName:"Base",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://mainnet.base.org"],blockExplorerUrls:["https://basescan.org"]},137:{chainName:"Polygon",nativeCurrency:nat("POL","POL"),rpcUrls:["https://polygon-rpc.com"],blockExplorerUrls:["https://polygonscan.com"]},42161:{chainName:"Arbitrum One",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://arb1.arbitrum.io/rpc"],blockExplorerUrls:["https://arbiscan.io"]},10:{chainName:"OP Mainnet",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://mainnet.optimism.io"],blockExplorerUrls:["https://optimistic.etherscan.io"]},43114:{chainName:"Avalanche C-Chain",nativeCurrency:nat("AVAX","AVAX"),rpcUrls:["https://api.avax.network/ext/bc/C/rpc"],blockExplorerUrls:["https://snowtrace.io"]}};
+var ADD={4663:{chainName:"Robinhood Chain",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://rpc.mainnet.chain.robinhood.com"],blockExplorerUrls:["https://robinhoodchain.blockscout.com"]},56:{chainName:"BNB Smart Chain",nativeCurrency:nat("BNB","BNB"),rpcUrls:["https://bsc-dataseed.binance.org"],blockExplorerUrls:["https://bscscan.com"]},8453:{chainName:"Base",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://mainnet.base.org"],blockExplorerUrls:["https://basescan.org"]},137:{chainName:"Polygon",nativeCurrency:nat("POL","POL"),rpcUrls:["https://polygon-rpc.com"],blockExplorerUrls:["https://polygonscan.com"]},42161:{chainName:"Arbitrum One",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://arb1.arbitrum.io/rpc"],blockExplorerUrls:["https://arbiscan.io"]},10:{chainName:"OP Mainnet",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://mainnet.optimism.io"],blockExplorerUrls:["https://optimistic.etherscan.io"]},43114:{chainName:"Avalanche C-Chain",nativeCurrency:nat("AVAX","AVAX"),rpcUrls:["https://api.avax.network/ext/bc/C/rpc"],blockExplorerUrls:["https://snowtrace.io"]}};
 async function switchNet(id){var h="0x"+id.toString(16);try{await EP.request({method:"wallet_switchEthereumChain",params:[{chainId:h}]})}catch(e){if((e.code===4902||/unrecognized|not added|Unrecognized/i.test(e.message||""))&&ADD[id])await EP.request({method:"wallet_addEthereumChain",params:[Object.assign({chainId:h},ADD[id])]});else throw e}}
 function needId(){var n=brgOn()?$("bfn").value:(lst()[$("tok").value]||{}).c;return CID[n]||0}
 function nameOf(id){for(var k in CID)if(CID[k]===id)return k;return "chain "+id}
@@ -465,7 +465,7 @@ async function jupGo(){var btn=$("go"),say=function(m){$("msg").textContent=m};
  }catch(e){pend3=null;btn.disabled=false;btn.textContent="Get quote";fail(e,say)}}
 
 /* ---- Token opened from a link (bot or scanner): ?swap=<address>&chain=<ethereum|bsc|base|solana>&t=<sell tax %> ---- */
-var CHN2={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood Chain",solana:"Solana"},NATC={Solana:"SOL","BNB Chain":"BNB",Base:"ETH","Robinhood Chain":"ETH","XRPL EVM":"XRP",Ethereum:"ETH"};
+var CHN2={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood Chain",solana:"Solana"},NATC={Solana:"SOL","BNB Chain":"BNB",Base:"ETH","Robinhood Chain":"ETH",Ethereum:"ETH"};
 function E(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function payOpts(p){var n=NATC[p&&p.c]||"ETH",l=p&&p.c==="Solana"?[n,"USDC","USDT"]:["USDT","USDC",n];$("pay").innerHTML=l.map(function(x){return '<option>'+x+'</option>'}).join("")}
 function rebuildTok(i){var L=lst();$("tok").innerHTML=L.map(function(p,k){return '<option value="'+k+'">'+E(p.n)+' ('+p.c+')</option>'}).join("");$("tok").value=i||0;payOpts(L[$("tok").value]||L[0])}
@@ -539,7 +539,7 @@ document.getElementById("fgrid").innerHTML=W.map(function(n){var p=P.filter(func
 <script>
 (function(){
 var $=function(i){return document.getElementById(i)};
-var GP={ethereum:1,bsc:56,base:8453,robinhood:4663},EXP={xrpl:"https://xrpscan.com/account/",ethereum:"https://etherscan.io/token/",bsc:"https://bscscan.com/token/",base:"https://basescan.org/token/",robinhood:"https://robinhoodchain.blockscout.com/token/",xrplevm:"https://explorer.xrplevm.org/token/",solana:"https://solscan.io/token/"},NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood Chain",xrplevm:"XRPL EVM",solana:"Solana"},OKC=["ethereum","bsc","base","robinhood","xrplevm","solana"];
+var GP={ethereum:1,bsc:56,base:8453,robinhood:4663},EXP={xrpl:"https://xrpscan.com/account/",ethereum:"https://etherscan.io/token/",bsc:"https://bscscan.com/token/",base:"https://basescan.org/token/",robinhood:"https://robinhoodchain.blockscout.com/token/",solana:"https://solscan.io/token/"},NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood Chain",solana:"Solana"},OKC=["ethereum","bsc","base","robinhood","solana"];
 function j(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()})}
 function pc(x){var n=parseFloat(x);return isNaN(n)?null:n*100}
 function usd(n){n=Number(n);if(!isFinite(n)||!n)return "n/a";if(n>=1e9)return "$"+(n/1e9).toFixed(2)+"B";if(n>=1e6)return "$"+(n/1e6).toFixed(2)+"M";if(n>=1e3)return "$"+(n/1e3).toFixed(1)+"K";return "$"+n.toPrecision(3)}
