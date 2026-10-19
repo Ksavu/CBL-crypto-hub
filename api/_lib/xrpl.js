@@ -193,7 +193,7 @@ async function runXrpl(input) {
   if (web) links.web = web;
   if (pair && pair.info) { (pair.info.websites || []).slice(0, 1).forEach((w) => { links.web = links.web || w.url; }); (pair.info.socials || []).forEach((s) => { if (s.type === "twitter") links.x = s.url; if (s.type === "telegram") links.tg = s.url; }); }
   return {
-    ok: true, chain: "xrpl", address: `${label}.${issuer}`, issuer, ts: Date.now(),
+    ok: true, chain: "xrpl", address: `${label}.${issuer}`, issuer, hex, ts: Date.now(),
     token: { name: label, symbol: label, logo: (pair && pair.info && pair.info.imageUrl) || null },
     market, links, flags: {}, deep: null,
     score, verdict, confidence: pair ? "high" : "medium", reasons: R,
