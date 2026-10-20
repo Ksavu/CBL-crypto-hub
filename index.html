@@ -311,7 +311,13 @@ function hook(){if(EP._cbl||!EP.on)return;EP._cbl=1;EP.on("chainChanged",netChec
 var CID={"Ethereum":1,"BNB Chain":56,"Base":8453,"Robinhood Chain":4663,"Polygon":137,"Arbitrum":42161,"Optimism":10,"Avalanche":43114};
 function nat(n,s){return {name:n,symbol:s,decimals:18}}
 var ADD={4663:{chainName:"Robinhood Chain",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://rpc.mainnet.chain.robinhood.com"],blockExplorerUrls:["https://robinhoodchain.blockscout.com"]},56:{chainName:"BNB Smart Chain",nativeCurrency:nat("BNB","BNB"),rpcUrls:["https://bsc-dataseed.binance.org"],blockExplorerUrls:["https://bscscan.com"]},8453:{chainName:"Base",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://mainnet.base.org"],blockExplorerUrls:["https://basescan.org"]},137:{chainName:"Polygon",nativeCurrency:nat("POL","POL"),rpcUrls:["https://polygon-rpc.com"],blockExplorerUrls:["https://polygonscan.com"]},42161:{chainName:"Arbitrum One",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://arb1.arbitrum.io/rpc"],blockExplorerUrls:["https://arbiscan.io"]},10:{chainName:"OP Mainnet",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://mainnet.optimism.io"],blockExplorerUrls:["https://optimistic.etherscan.io"]},43114:{chainName:"Avalanche C-Chain",nativeCurrency:nat("AVAX","AVAX"),rpcUrls:["https://api.avax.network/ext/bc/C/rpc"],blockExplorerUrls:["https://snowtrace.io"]}};
-async function switchNet(id){var h="0x"+id.toString(16);try{await EP.request({method:"wallet_switchEthereumChain",params:[{chainId:h}]})}catch(e){if((e.code===4902||/unrecognized|not added|Unrecognized/i.test(e.message||""))&&ADD[id])await EP.request({method:"wallet_addEthereumChain",params:[Object.assign({chainId:h},ADD[id])]});else throw e}}
+async function switchNet(id){var h="0x"+id.toString(16);
+ try{await EP.request({method:"wallet_switchEthereumChain",params:[{chainId:h}]})}
+ catch(e){
+  if(EP.isWalletConnect||EP.signer){
+   try{if(EP.setDefaultChain){await EP.setDefaultChain(String(id));var c=parseInt(await EP.request({method:"eth_chainId"}),16);if(c===id)return}}catch(e2){}
+   throw new Error("Open your wallet app and switch to "+nameOf(id)+", or reconnect and approve that network.")}
+  if((e.code===4902||/unrecognized|not added|Unrecognized/i.test(e.message||""))&&ADD[id])await EP.request({method:"wallet_addEthereumChain",params:[Object.assign({chainId:h},ADD[id])]});else throw e}}
 function needId(){var n=brgOn()?$("bfn").value:(lst()[$("tok").value]||{}).c;return CID[n]||0}
 function nameOf(id){for(var k in CID)if(CID[k]===id)return k;return "chain "+id}
 async function netCheck(){var b=$("nb"),need=needId();if(!EP||!A.evm||!need){b.hidden=true;return}
@@ -390,7 +396,7 @@ async function finish(ch){var f=ch.fam,ac,r;
    if(!window.process)window.process={env:{},browser:true,version:"",versions:{},argv:[],platform:"browser",nextTick:function(f){var r=[].slice.call(arguments,1);Promise.resolve().then(function(){f.apply(null,r)})},emitWarning:function(){},cwd:function(){return "/"}};
    await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.17.0/dist/index.umd.js",function(){return window["@walletconnect/ethereum-provider"]});
    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js",function(){return window.qrcode});
-   var wcp=await window["@walletconnect/ethereum-provider"].EthereumProvider.init({projectId:WC_PROJECT_ID,chains:[56],optionalChains:[1,8453,137,42161,10,43114],showQrModal:false,metadata:{name:"CBL",description:"CBL Swap",url:location.origin,icons:[]}});
+   var wcp=await window["@walletconnect/ethereum-provider"].EthereumProvider.init({projectId:WC_PROJECT_ID,chains:[56],optionalChains:[1,8453,4663,137,42161,10,43114],showQrModal:false,metadata:{name:"CBL",description:"CBL Swap",url:location.origin,icons:[]}});
    var qm=null,qclose=function(){if(qm){qm.remove();qm=null}};
    wcp.on("display_uri",function(uri){qclose();qm=wcQR(uri,function(){qclose();try{wcp.disconnect()}catch(e){}})});
    try{if(!wcp.session)await wcp.connect();else if(!wcp.accounts||!wcp.accounts.length)await wcp.connect()}catch(e){qclose();throw new Error(/reject|denied|closed/i.test(String(e&&e.message))?"Connection cancelled in your wallet.":"WalletConnect did not connect. Try again.")}
