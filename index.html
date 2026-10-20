@@ -312,6 +312,12 @@ var CID={"Ethereum":1,"BNB Chain":56,"Base":8453,"Robinhood Chain":4663,"Polygon
 function nat(n,s){return {name:n,symbol:s,decimals:18}}
 var ADD={4663:{chainName:"Robinhood Chain",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://rpc.mainnet.chain.robinhood.com"],blockExplorerUrls:["https://robinhoodchain.blockscout.com"]},56:{chainName:"BNB Smart Chain",nativeCurrency:nat("BNB","BNB"),rpcUrls:["https://bsc-dataseed.binance.org"],blockExplorerUrls:["https://bscscan.com"]},8453:{chainName:"Base",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://mainnet.base.org"],blockExplorerUrls:["https://basescan.org"]},137:{chainName:"Polygon",nativeCurrency:nat("POL","POL"),rpcUrls:["https://polygon-rpc.com"],blockExplorerUrls:["https://polygonscan.com"]},42161:{chainName:"Arbitrum One",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://arb1.arbitrum.io/rpc"],blockExplorerUrls:["https://arbiscan.io"]},10:{chainName:"OP Mainnet",nativeCurrency:nat("Ether","ETH"),rpcUrls:["https://mainnet.optimism.io"],blockExplorerUrls:["https://optimistic.etherscan.io"]},43114:{chainName:"Avalanche C-Chain",nativeCurrency:nat("AVAX","AVAX"),rpcUrls:["https://api.avax.network/ext/bc/C/rpc"],blockExplorerUrls:["https://snowtrace.io"]}};
 async function switchNet(id){var h="0x"+id.toString(16);
+ if(EP.isWalletConnect||EP.signer){
+  var ap=[];try{ap=((EP.session&&EP.session.namespaces&&EP.session.namespaces.eip155&&EP.session.namespaces.eip155.accounts)||[]).map(function(x){return parseInt(x.split(":")[1],10)}).filter(function(v,i,a){return a.indexOf(v)===i})}catch(e){}
+  if(ap.length&&ap.indexOf(id)<0)throw new Error("Your wallet did not approve "+nameOf(id)+" (it approved: "+ap.map(nameOf).join(", ")+"). Disconnect, reconnect and tick "+nameOf(id)+" in the approval list.");
+  if(ap.indexOf(id)>-1){try{if(EP.setDefaultChain)await EP.setDefaultChain(String(id))}catch(e1){}
+   try{if(parseInt(await EP.request({method:"eth_chainId"}),16)!==id){EP.chainId=id;if(EP.events&&EP.events.emit)EP.events.emit("chainChanged","0x"+id.toString(16))}}catch(e1){}
+   return}}
  if((EP.isWalletConnect||EP.signer)&&EP.setDefaultChain){try{await EP.setDefaultChain(String(id));var c0=parseInt(await EP.request({method:"eth_chainId"}),16);if(c0===id)return}catch(e0){}}
  try{await EP.request({method:"wallet_switchEthereumChain",params:[{chainId:h}]})}
  catch(e){
