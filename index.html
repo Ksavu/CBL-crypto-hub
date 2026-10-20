@@ -316,19 +316,20 @@ async function switchNet(id){var h="0x"+id.toString(16);
   var ap=[];try{ap=((EP.session&&EP.session.namespaces&&EP.session.namespaces.eip155&&EP.session.namespaces.eip155.accounts)||[]).map(function(x){return parseInt(x.split(":")[1],10)}).filter(function(v,i,a){return a.indexOf(v)===i})}catch(e){}
   if(ap.length&&ap.indexOf(id)<0)throw new Error("Your wallet did not approve "+nameOf(id)+" (it approved: "+ap.map(nameOf).join(", ")+"). Disconnect, reconnect and tick "+nameOf(id)+" in the approval list.");
   if(ap.indexOf(id)>-1){try{if(EP.setDefaultChain)await EP.setDefaultChain(String(id))}catch(e1){}
-   try{if(parseInt(await EP.request({method:"eth_chainId"}),16)!==id){EP.chainId=id;if(EP.events&&EP.events.emit)EP.events.emit("chainChanged","0x"+id.toString(16))}}catch(e1){}
+   try{if(cidNum(await EP.request({method:"eth_chainId"}))!==id){EP.chainId=id;if(EP.events&&EP.events.emit)EP.events.emit("chainChanged","0x"+id.toString(16))}}catch(e1){}
    return}}
- if((EP.isWalletConnect||EP.signer)&&EP.setDefaultChain){try{await EP.setDefaultChain(String(id));var c0=parseInt(await EP.request({method:"eth_chainId"}),16);if(c0===id)return}catch(e0){}}
+ if((EP.isWalletConnect||EP.signer)&&EP.setDefaultChain){try{await EP.setDefaultChain(String(id));var c0=cidNum(await EP.request({method:"eth_chainId"}));if(c0===id)return}catch(e0){}}
  try{await EP.request({method:"wallet_switchEthereumChain",params:[{chainId:h}]})}
  catch(e){
   if(EP.isWalletConnect||EP.signer){
-   try{if(EP.setDefaultChain){await EP.setDefaultChain(String(id));var c=parseInt(await EP.request({method:"eth_chainId"}),16);if(c===id)return}}catch(e2){}
+   try{if(EP.setDefaultChain){await EP.setDefaultChain(String(id));var c=cidNum(await EP.request({method:"eth_chainId"}));if(c===id)return}}catch(e2){}
    throw new Error("Open your wallet app and switch to "+nameOf(id)+", or reconnect and approve that network.")}
   if((e.code===4902||/unrecognized|not added|Unrecognized/i.test(e.message||""))&&ADD[id])await EP.request({method:"wallet_addEthereumChain",params:[Object.assign({chainId:h},ADD[id])]});else throw e}}
 function needId(){var n=brgOn()?$("bfn").value:(lst()[$("tok").value]||{}).c;return CID[n]||0}
+function cidNum(v){return typeof v==="number"?v:/^0x/i.test(String(v))?parseInt(v,16):parseInt(v,10)}
 function nameOf(id){for(var k in CID)if(CID[k]===id)return k;return "chain "+id}
 async function netCheck(){var b=$("nb"),need=needId();if(!EP||!A.evm||!need){b.hidden=true;return}
- try{var cur=parseInt(await EP.request({method:"eth_chainId"}),16);if(cur===need){b.hidden=true;return}
+ try{var cur=cidNum(await EP.request({method:"eth_chainId"}));if(cur===need){b.hidden=true;return}
  b.hidden=false;b.textContent="";var s=document.createElement("span");s.textContent="Your wallet is on "+nameOf(cur)+". Switch to "+nameOf(need)+" to continue.";var bt=document.createElement("button");bt.className="chip";bt.type="button";bt.textContent="Switch network";bt.onclick=function(){switchNet(need).then(netCheck).catch(function(e){say1(e.message||"Switch failed")})};b.appendChild(s);b.appendChild(bt)}catch(e){b.hidden=true}}
 var ROUTER="0x10ED43C718714eb63d5aA57B78B54704E256024E",WBNB="0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c",BSCT={USDT:"0x55d398326f99059fF775485246999027B3197955",USDC:"0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d"};
 var RABI=["function getAmountsOut(uint256,address[]) view returns (uint256[])","function swapExactETHForTokensSupportingFeeOnTransferTokens(uint256,address[],address,uint256) payable","function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint256,uint256,address[],address,uint256)","function swapExactTokensForETHSupportingFeeOnTransferTokens(uint256,uint256,address[],address,uint256)"];
@@ -338,7 +339,7 @@ var FEE_ROUTER="0x395997F883054aBBDbF26Ab352b51FA450D82997";/* paste your deploy
 var FABI=["function feeBps() view returns (uint256)","function buyWithBNB(address[],uint256,address,uint256) payable","function buyWithToken(address[],uint256,uint256,address,uint256)","function sellForBNB(address[],uint256,uint256,address,uint256)","function sellForToken(address[],uint256,uint256,address,uint256)"];
 var side="buy";
 async function pQuote(p,amt,pay,slip,sd){await loadEth();await switchNet(56);
- var cid0=parseInt(await EP.request({method:"eth_chainId"}),16);if(cid0!==56)throw new Error("Switch your wallet to BNB Chain, then try again.");
+ var cid0=cidNum(await EP.request({method:"eth_chainId"}));if(cid0!==56)throw new Error("Switch your wallet to BNB Chain, then try again.");
  var rpc=new ethers.JsonRpcProvider("https://bsc-dataseed.binance.org",56,{staticNetwork:true}),bp=new ethers.BrowserProvider(EP),s=await bp.getSigner(),R=new ethers.Contract(ROUTER,RABI,s),tok=p.a.toLowerCase(),T=new ethers.Contract(tok,TABI,rpc);
  var dc;try{dc=Number(await T.decimals())}catch(e){try{dc=Number(await new ethers.Contract(tok,TABI,s).decimals())}catch(e2){throw new Error("Could not read the token contract on BNB Chain. Check the contract address and that your wallet is on BNB Chain.")}}
  var sell=sd==="sell",other=pay==="BNB"?WBNB:BSCT[pay],a0=sell?tok:other,a1=sell?other:tok;
