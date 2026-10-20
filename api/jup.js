@@ -58,7 +58,12 @@ module.exports = async (req, res) => {
       q.set("amount", amt);
       const ra = process.env.JUP_REFERRAL_ACCOUNT, rf = parseInt(process.env.JUP_REFERRAL_FEE, 10);
       if (ra && B58.test(ra) && rf >= 50 && rf <= 255) { q.set("referralAccount", ra); q.set("referralFee", String(rf)); }
-      const r = await jfetch(BASE + "/order?" + q, { headers: H });
+      let r = await jfetch(BASE + "/order?" + q, { headers: H });
+      if (r.d && !r.ok && q.has("referralAccount")) {
+        console.error("jup order failed with referral, retrying without:", JSON.stringify(r.d).slice(0, 300));
+        q.delete("referralAccount"); q.delete("referralFee");
+        r = await jfetch(BASE + "/order?" + q, { headers: H });
+      }
       if (!r.d) return res.status(502).json({ error: "Jupiter did not answer. Try again." });
       if (!r.ok) return res.status(502).json({ error: String(r.d.error || r.d.message || "Jupiter error").slice(0, 160) });
       const d = r.d;
