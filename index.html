@@ -387,6 +387,7 @@ async function finish(ch){var f=ch.fam,ac,r;
  if(f==="evm"){
   if(ch.wc){if(!WC_PROJECT_ID){try{var cf=await fetch("/api/config").then(function(r){return r.json()});WC_PROJECT_ID=(cf&&cf.wc)||""}catch(e){}}
    if(!WC_PROJECT_ID)throw new Error("WalletConnect is not set up yet. Add WC_PROJECT_ID in Vercel (or in index.html) and redeploy.");
+   if(!window.process)window.process={env:{},browser:true,version:"",versions:{},argv:[],platform:"browser",nextTick:function(f){var r=[].slice.call(arguments,1);Promise.resolve().then(function(){f.apply(null,r)})},emitWarning:function(){},cwd:function(){return "/"}};
    await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.17.0/dist/index.umd.js",function(){return window["@walletconnect/ethereum-provider"]});
    await loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js",function(){return window.qrcode});
    var wcp=await window["@walletconnect/ethereum-provider"].EthereumProvider.init({projectId:WC_PROJECT_ID,chains:[56],optionalChains:[1,8453,137,42161,10,43114],showQrModal:false,metadata:{name:"CBL",description:"CBL Swap",url:location.origin,icons:[]}});
