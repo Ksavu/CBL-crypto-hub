@@ -373,11 +373,27 @@ async function connect(n,tabs,force){var f=fam(n);
   else if(f==="Tron"&&A.Tron)return A.Tron;
   else if(f==="Bitcoin"&&BTCP&&A.Bitcoin)return A.Bitcoin}
  var ch=await picker(tabs?"Connect wallet":null,f,tabs);return finish(ch)}
+function wcQR(uri,onClose){var o=document.createElement("div");o.style.cssText="position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px";
+ var c=document.createElement("div");c.style.cssText="background:#fff;color:#111;border-radius:16px;padding:20px;max-width:340px;width:100%;text-align:center;font:14px system-ui,sans-serif";
+ var q=qrcode(0,"M");q.addData(uri);q.make();
+ c.innerHTML='<b style="font-size:16px">Scan with your wallet</b><div style="margin:12px auto;width:240px;height:240px">'+q.createSvgTag({cellSize:4,margin:0,scalable:true})+'</div><div style="color:#555;margin-bottom:12px">Open your wallet app, choose WalletConnect or Scan, and scan this code.</div>';
+ var svg=c.querySelector("svg");if(svg){svg.style.width="240px";svg.style.height="240px"}
+ var btn=function(t,fn){var b=document.createElement("button");b.type="button";b.textContent=t;b.style.cssText="display:block;width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1px solid #ccc;background:#f4f4f4;color:#111;font-size:14px;cursor:pointer";b.onclick=fn;c.appendChild(b);return b};
+ btn("Open wallet app",function(){location.href=uri});
+ btn("Copy link",function(){var b=this;try{navigator.clipboard.writeText(uri);b.textContent="Copied"}catch(e){b.textContent="Copy failed"}});
+ btn("Cancel",onClose);
+ o.appendChild(c);o.addEventListener("click",function(e){if(e.target===o)onClose()});document.body.appendChild(o);return o}
 async function finish(ch){var f=ch.fam,ac,r;
  if(f==="evm"){
-  if(ch.wc){if(!WC_PROJECT_ID)throw new Error("WalletConnect needs a project ID. Set WC_PROJECT_ID at the top of the script.");
+  if(ch.wc){if(!WC_PROJECT_ID){try{var cf=await fetch("/api/config").then(function(r){return r.json()});WC_PROJECT_ID=(cf&&cf.wc)||""}catch(e){}}
+   if(!WC_PROJECT_ID)throw new Error("WalletConnect is not set up yet. Add WC_PROJECT_ID in Vercel (or in index.html) and redeploy.");
    await loadScript("https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.17.0/dist/index.umd.js",function(){return window["@walletconnect/ethereum-provider"]});
-   EP=await window["@walletconnect/ethereum-provider"].EthereumProvider.init({projectId:WC_PROJECT_ID,chains:[56],optionalChains:[1,8453,137,42161,10,43114],showQrModal:true,metadata:{name:"CBL",description:"CBL Swap",url:location.origin,icons:[]}});await EP.connect();ac=EP.accounts}
+   await loadScript("https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js",function(){return window.qrcode});
+   var wcp=await window["@walletconnect/ethereum-provider"].EthereumProvider.init({projectId:WC_PROJECT_ID,chains:[56],optionalChains:[1,8453,137,42161,10,43114],showQrModal:false,metadata:{name:"CBL",description:"CBL Swap",url:location.origin,icons:[]}});
+   var qm=null,qclose=function(){if(qm){qm.remove();qm=null}};
+   wcp.on("display_uri",function(uri){qclose();qm=wcQR(uri,function(){qclose();try{wcp.disconnect()}catch(e){}})});
+   try{if(!wcp.session)await wcp.connect();else if(!wcp.accounts||!wcp.accounts.length)await wcp.connect()}catch(e){qclose();throw new Error(/reject|denied|closed/i.test(String(e&&e.message))?"Connection cancelled in your wallet.":"WalletConnect did not connect. Try again.")}
+   qclose();EP=wcp;ac=EP.accounts}
   else{EP=ch.provider;ac=await EP.request({method:"eth_requestAccounts"});sv("evm",ch.name)}
   hook();A.evm=ac[0];lastF="evm";netCheck();updHW();return A.evm}
  if(f==="Solana"){SOLP=ch.provider;r=await SOLP.connect();A.Solana=String((r&&r.publicKey)||SOLP.publicKey);sv("Solana",ch.name);lastF=f;updHW();return A.Solana}

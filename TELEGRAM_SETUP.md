@@ -58,3 +58,6 @@ Collect EVM fees in the portal (Claim). On Solana LI.FI pays straight to your wa
 
 ## XRP tokens
 - XRPL native tokens: send `CODE.rIssuerAddress` (e.g. `SOLO.rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz`) to the bot or the website scanner. No keys needed (public XRPL RPC + DexScreener). Scan only, no swap.
+
+## WalletConnect project ID
+Set `WC_PROJECT_ID` in Vercel (Settings, Environment Variables) and redeploy. The site reads it from `/api/config`, so pushing a new zip no longer wipes it. The value in `index.html` stays empty.
