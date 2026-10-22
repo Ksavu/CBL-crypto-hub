@@ -61,3 +61,9 @@ Collect EVM fees in the portal (Claim). On Solana LI.FI pays straight to your wa
 
 ## WalletConnect project ID
 Set `WC_PROJECT_ID` in Vercel (Settings, Environment Variables) and redeploy. The site reads it from `/api/config`, so pushing a new zip no longer wipes it. The value in `index.html` stays empty.
+
+## Contract audit
+- Bot: `/audit 0x... [network]` (eth, bsc, base, poly, arb, op, avax, linea, scroll, zksync, blast, mantle, and more; leave it out to auto-detect) or the 🛡 Audit button on EVM scan cards. Website: Scanner section, "Contract audit" tab (address, or paste code that is not published yet).
+- Source comes from Sourcify (free, no key). Add `ETHERSCAN_API_KEY` in Vercel (free key at etherscan.io, works for Ethereum, BNB Chain and Base) to find more verified contracts.
+- The checks are offline pattern rules (mint, blacklist, uncapped fees, trading switch, router/pair changes, upgradeable code, selfdestruct, tx.origin, old compilers and more). Not a manual audit.
+- AI review can be added later: the result already carries an `audit.ai` slot, and `api/audit.js` is the single place to call it from.

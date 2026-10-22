@@ -2,6 +2,8 @@
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
 const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", solana: "Solana", xrpl: "XRP Ledger" };
 const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/" };
+const { CHAINS } = require("./source");
+const chainName = (c) => (c && (NAMES[c] || (CHAINS[c] && CHAINS[c][1]))) || c;
 const ICON = { critical: "🚨", high: "🔴", medium: "🟠", low: "🟡" };
 
 function usd(n) {
@@ -58,6 +60,7 @@ function card(r, site, opt) {
     { text: "👁 Watch", callback_data: "w:" + r.address },
     ...(r.chain === "xrpl" ? [{ text: "💱 Swap", url: `https://xrpl.to/token/${r.issuer}-${r.hex}` }] : [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }]),
   ]];
+  if (r.chain !== "solana" && r.chain !== "xrpl") rows.push([{ text: "🛡 Audit contract", callback_data: "a:" + r.address }]);
   const so = [];
   if (r.links && r.links.web) so.push({ text: "🌐 Website", url: r.links.web });
   if (r.links && r.links.x) so.push({ text: "𝕏", url: r.links.x });
@@ -75,6 +78,7 @@ const HELP = [
   "",
   "<b>Commands</b>",
   "/scan &lt;address&gt; [eth|bsc|base|rh|xrpl|sol]",
+  "/audit &lt;0x address&gt; [network] – check the contract code on any EVM chain (eth, bsc, base, poly, arb, op, avax, ...)",
   "/watch &lt;address&gt; – get alerts in DM (rug signals)",
   "/unwatch &lt;address&gt;",
   "/list – your watchlist",
@@ -95,4 +99,20 @@ function alertMsg(r, alerts, site) {
     { text: "🔕 Unwatch", callback_data: "u:" + r.address },
   ]] } };
 }
-module.exports = { card, alertMsg, HELP, esc };
+
+function auditCard(r, site) {
+  const dot = r.score >= 80 ? "🟢" : r.score >= 60 ? "🟡" : r.score >= 40 ? "🟠" : "🔴";
+  const L = [`🛡 <b>Contract audit</b> · ${esc(r.token.name)}${r.chain ? " · " + chainName(r.chain) : ""}`, `${dot} <b>${r.score}/100</b> · ${esc(r.verdict)}`, ""];
+  const flags = r.reasons.filter((x) => ICON[x.sev]);
+  flags.slice(0, 10).forEach((x) => L.push(`${ICON[x.sev]} ${esc(x.title)}${x.line ? ` <i>(line ${x.line})</i>` : ""}`));
+  if (flags.length > 10) L.push(`… and ${flags.length - 10} more on the website`);
+  const ok = r.reasons.filter((x) => x.sev === "ok").length;
+  if (ok) L.push(`✅ ${ok} good sign${ok === 1 ? "" : "s"}`);
+  if (r.audit && r.audit.lines) L.push("", `<i>${r.audit.lines} lines · ${r.audit.functions} functions · source: ${esc(r.audit.source)}</i>`);
+  L.push("", `<code>${esc(r.address || "")}</code>`, "<i>Automated pattern checks, not a manual audit. A clean result does not mean the contract is safe. DYOR.</i>");
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[
+    { text: "📋 Full audit", url: `${site}/?audit=${r.address}#scanner` },
+    ...(r.chain && CHAINS[r.chain] ? [{ text: "🔎 Explorer", url: CHAINS[r.chain][2] + r.address + "#code" }] : []),
+  ]] } };
+}
+module.exports = { card, alertMsg, auditCard, HELP, esc };
