@@ -58,7 +58,7 @@ function card(r, site, opt) {
   ], [
     { text: "🔄 Rescan", callback_data: "r:" + r.address },
     { text: "👁 Watch", callback_data: "w:" + r.address },
-    ...(r.chain === "xrpl" ? [{ text: "💱 Swap", url: `https://xrpl.to/token/${r.issuer}-${r.hex}` }] : [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }]),
+    ...(r.chain === "xrpl" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.hex || r.address.split(".")[0]}.${r.issuer}&chain=xrpl#swap` }] : [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }]),
   ]];
   if (r.chain !== "solana" && r.chain !== "xrpl") rows.push([{ text: "🛡 Audit contract", callback_data: "a:" + r.address }]);
   const so = [];
