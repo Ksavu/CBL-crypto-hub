@@ -110,7 +110,7 @@ footer{margin:48px 0 28px;padding-top:18px;border-top:1px solid var(--line);colo
 .cm{display:flex;gap:10px;margin:10px 0}.cm .av{width:32px;height:32px;font-size:15.6px}.cm b{font-size:16.2px;font-weight:500}.cm small{color:var(--mute);margin-left:6px;font-size:13.8px}.cm p{margin:0;color:var(--mute);font-size:16.2px}
 .cin{display:flex;gap:8px;margin-top:12px}.cin input{flex:1;font:inherit;background:rgba(255,255,255,.04);color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}.cin button{border:0;border-radius:10px;background:#2563eb;color:#fff;width:42px;opacity:.5}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:30px 0 0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}.stats b{display:block;font-family:Sora,sans-serif}.stats small{color:var(--mute)}
-@media (max-width:1000px){.dash{grid-template-columns:minmax(0,1fr);grid-template-areas:"hero" "swap" "fx" "fp" "chat"}.hero{grid-template-columns:minmax(0,1fr)}.gl{min-height:260px}}
+@media (max-width:1000px){.dash{grid-template-columns:minmax(0,1fr);grid-template-areas:"hero" "swap" "fx" "scn" "fp" "chat"}.hero{grid-template-columns:minmax(0,1fr)}.gl{min-height:260px}}
 @media (max-width:860px){.tbar nav{display:none}.hw{margin-left:auto}}
 
 .scn{margin:44px 0 0}.scn h2{font-size:28.8px}.scn>p{color:var(--mute);margin:4px 0 14px}
@@ -206,7 +206,7 @@ footer{background:transparent}
 /* ===== v2 layout: concept structure ===== */
 .eyebrow{font-size:13px;text-transform:uppercase;font-weight:800;letter-spacing:2.1px;color:#5B1B9F}.eyebrow span{display:inline-block;width:7px;height:7px;background:#E917E0;box-shadow:0 0 14px rgba(233,23,224,.45);border-radius:50%;margin-right:9px;vertical-align:1px}
 .gtx{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
-.dash{grid-template-columns:minmax(0,1fr) 350px;grid-template-areas:"hero swap" "fx fx" "fp fp";gap:26px 34px;align-items:start}
+.dash{grid-template-columns:minmax(0,1fr) 350px;grid-template-areas:"hero swap" "fx fx" "scn scn" "fp fp";gap:26px 34px;align-items:start}
 .swc{zoom:.9}
 .fx{grid-template-columns:repeat(4,minmax(0,1fr));gap:15px;margin-top:6px}
 .fx a{flex-direction:column;align-items:flex-start;gap:16px;padding:23px;border-radius:19px}
@@ -230,7 +230,7 @@ footer{background:transparent}
 #projects{margin-top:70px}
 .road{margin-top:60px}.road>div{background:#fff;border:1px solid var(--line);border-top:2px solid var(--pink);border-radius:18px;padding:20px 22px;box-shadow:var(--shadow)}.road h2{font-size:21px}
 footer{background:#fff;border-top:1px solid var(--line);margin:60px calc(50% - 50vw) 0;padding:28px calc(50vw - 50% + 20px);font-size:14px}
-@media (max-width:1000px){.dash{grid-template-columns:minmax(0,1fr);grid-template-areas:"hero" "swap" "fx" "fp"}.swc{zoom:1;width:100%;max-width:460px;min-width:0;margin:0 auto}.fx{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:1000px){.dash{grid-template-columns:minmax(0,1fr);grid-template-areas:"hero" "swap" "fx" "scn" "fp"}.swc{zoom:1;width:100%;max-width:460px;min-width:0;margin:0 auto}.fx{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .scn-in>*,.bgrid>*{min-width:0}.hw{white-space:nowrap}
 @media (max-width:900px){.scn-in,.bgrid{grid-template-columns:minmax(0,1fr)}.scn-in{gap:26px}.scn-intro h2{font-size:36px}}
 @media (max-width:560px){.hw{padding:9px 12px;font-size:15px}.logo small{display:none}.fx{grid-template-columns:1fr}.news .feat h3{font-size:20px}.scn{padding:28px 18px}.scan-box{padding:16px}.fph h2{font-size:30px}}
@@ -250,6 +250,7 @@ footer{background:#fff;border-top:1px solid var(--line);margin:60px calc(50% - 5
 .scn .tabs{margin:0 0 12px!important}.scn .sct{margin-top:10px}
 @media (max-width:900px){.scn-in{grid-template-columns:minmax(0,1fr)}.scn{padding:24px 18px}.scn-intro h2{font-size:30px}}
 @media (max-width:560px){.scn{padding:22px 14px}.scan-box{padding:12px}.scn .scb input{font-size:11.5px;padding:13px 8px;letter-spacing:0}}
+.dash>.scn{grid-area:scn;margin-top:24px}.dash>.fp{margin-top:24px}
 </style>
 </head>
 <body>
@@ -268,9 +269,6 @@ footer{background:#fff;border-top:1px solid var(--line);margin:60px calc(50% - 5
 <div class="fld"><label for="btn">To</label><div><input id="bout" placeholder="0.0" disabled><select id="btn" aria-label="To network"></select><select id="bta" aria-label="To asset"></select></div></div>
 <div class="fld" id="rcv" style="display:none"><label for="brecv" id="rcvl">Receiving address</label><div><input id="brecv" style="font-size:16.8px" placeholder="Paste address"><button class="chip" id="rconn" type="button">Use wallet</button></div></div><small id="broute"></small><button class="go" id="bgo">Get quote</button><small id="bmsg" aria-live="polite">Bridge any supported coin or stablecoin between networks, then swap straight into a CBL-listed token.</small><div class="sc-note" style="margin-top:10px">Want XRPL tokens? You need XRP in an XRPL wallet such as <a href="https://xaman.app" target="_blank" rel="noopener">Xaman</a>. Buy XRP on an exchange (Kraken, Coinbase, Binance), withdraw it to your Xaman address, then scan and buy XRPL tokens with our Telegram bot.</div></div></div></section>
 <section class="fx" aria-label="Highlights"><a href="#projects"><span class="ic">⌕</span><span><b>Vetted Projects</b><small>Carefully reviewed for transparency</small></span></a><a href="#news"><span class="ic">▤</span><span><b>Crypto News</b><small>Stay informed with the latest</small></span></a><a href="#swap"><span class="ic">⇄</span><span><b>Token Swap</b><small>Swap and bridge across chains</small></span></a><a href="#roadmap"><span class="ic">☺</span><span><b>Active Community</b><small>Real discussions, real people</small></span></a></section>
-<section class="fp" id="featured"><div class="fph"><div><div class="eyebrow"><span></span>THE DISCOVERY LOUNGE</div><h2>Featured <span class="gtx">projects.</span></h2><p>Handpicked and reviewed by the CBL team</p></div><a href="#projects">View All Projects →</a></div><div class="fgrid" id="fgrid"></div></section>
-
-</main>
 <section class="scn" id="scanner" aria-label="CA Scanner"><div class="scn-in"><div class="scn-intro"><div class="eyebrow"><span></span>CONTRACT INTELLIGENCE</div><h2>Know more.<br><span class="gtx">Risk less.</span></h2><p>Scan token contracts for common warning signs before you make your next move. Tokens on Ethereum, BNB Chain, Base, Solana, Robinhood Chain and XRP Ledger, and a code audit for any EVM chain.</p><a class="btn outline" href="#vetting">How our vetting works ↗</a></div><div class="scan-box"><div class="tabs" style="justify-content:flex-start;margin:6px 0 12px"><button class="chip" id="sc-t1" type="button" aria-pressed="true">Token scan</button><button class="chip" id="sc-t2" type="button" aria-pressed="false">Contract audit</button></div>
 <div id="au-box" hidden><p class="sc-note" style="margin:0 0 10px">Works on all major EVM chains. Checks the Solidity code for owner powers, hidden fees, blacklists, minting and other red flags. Enter a contract address (verified source is fetched), or paste your own code if it is not published yet.</p>
 <div class="scb"><select id="au-chain" aria-label="Network"><option value="auto">Auto-detect (all EVM chains)</option><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="polygon">Polygon</option><option value="arbitrum">Arbitrum</option><option value="optimism">Optimism</option><option value="avalanche">Avalanche</option><option value="robinhood">Robinhood Chain</option><option value="linea">Linea</option><option value="scroll">Scroll</option><option value="zksync">zkSync Era</option><option value="blast">Blast</option><option value="mantle">Mantle</option><option value="gnosis">Gnosis</option><option value="celo">Celo</option><option value="fantom">Fantom</option><option value="sonic">Sonic</option><option value="opbnb">opBNB</option><option value="cronos">Cronos</option><option value="mode">Mode</option><option value="unichain">Unichain</option><option value="berachain">Berachain</option><option value="abstract">Abstract</option><option value="ink">Ink</option><option value="taiko">Taiko</option><option value="moonbeam">Moonbeam</option><option value="kaia">Kaia</option><option value="hyperevm">HyperEVM</option><option value="polygonzkevm">Polygon zkEVM</option></select><input id="au-ca" placeholder="Contract address (0x...)" autocomplete="off" spellcheck="false" aria-label="Contract address"><button class="go" id="au-go" type="button">Audit address</button></div>
@@ -279,6 +277,10 @@ footer{background:#fff;border-top:1px solid var(--line);margin:60px calc(50% - 5
 <div style="margin-top:10px"><button class="go" id="au-gocode" type="button">Audit pasted code</button></div></div>
 <div class="scb" id="sc-bar"><select id="sc-chain" aria-label="Network"><option value="auto">Auto-detect</option><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="robinhood">Robinhood Chain</option><option value="solana">Solana</option></select><input id="sc-ca" placeholder="Token contract address (0x... or Solana mint)" autocomplete="off" spellcheck="false" aria-label="Contract address"><button class="go" id="sc-go" type="button">Scan</button></div>
 <div class="sct" id="sc-tryrow"><span>Try:</span><button class="chip" id="sc-try" type="button">Nexustone (NXS)</button></div></div></div><div class="sres" id="sc-res" aria-live="polite"></div></section>
+<section class="fp" id="featured"><div class="fph"><div><div class="eyebrow"><span></span>THE DISCOVERY LOUNGE</div><h2>Featured <span class="gtx">projects.</span></h2><p>Handpicked and reviewed by the CBL team</p></div><a href="#projects">View All Projects →</a></div><div class="fgrid" id="fgrid"></div></section>
+
+</main>
+
 <div class="stats"><div><b>4</b><small>Supported chains</small></div><div><b>10</b><small>Bridge networks</small></div><div><b>Mod-led</b><small>Community groups</small></div><div><b>Transparent</b><small>Vetting process</small></div></div>
 
 
@@ -394,7 +396,7 @@ $("tS").onclick=function(){tab(false)};$("tB").onclick=function(){tab(true)};
 
 (function(){
 var API="https://li.quest/v1",$=function(i){return document.getElementById(i)},CH=null,pend=null,A={},EP=null,SOLP=null,BTCP=null,lastF=null,pend2=null,slipDirty=false,lastTok=null,CUST=null,pend3=null;
-var WC_PROJECT_ID=""; /* paste your WalletConnect Cloud project ID here (same one as Nexustone swap) */
+var WC_PROJECT_ID="e07d269576aa4aebfe1c7eaf2f6139cf"; /* paste your WalletConnect Cloud project ID here (same one as Nexustone swap) */
 var TRX="T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
 var AL={"Ethereum":["eth","ethereum"],"BNB Chain":["bsc","bnb chain","bnb smart chain","binance smart chain"],"Base":["bas","base"],"Robinhood Chain":["robinhood","robinhood chain","rhc","rch"],"Polygon":["pol","polygon","matic"],"Arbitrum":["arb","arbitrum"],"Optimism":["opt","optimism"],"Avalanche":["ava","avalanche"],"Solana":["sol","solana"],"Bitcoin":["btc","bitcoin"],"Tron":["trn","trx","tron"]};
 var EV=["Ethereum","BNB Chain","Base","Robinhood Chain","Polygon","Arbitrum","Optimism","Avalanche"];
