@@ -240,6 +240,16 @@ footer{background:#fff;border-top:1px solid var(--line);margin:60px calc(50% - 5
 .logo small{display:block;font:700 10.8px "DM Sans",sans-serif;color:#6c73a0;letter-spacing:.3em;margin:1px 0 0 3px}
 .hero{grid-template-columns:minmax(0,1fr);padding:34px 0 0;align-self:center}.hero h1{max-width:12em}.hero p{max-width:34em;font-size:20px}
 @media (max-width:560px){.logo{font-size:25px}.logo small{display:block}}
+/* v4: compact scanner band, long address field */
+.scn{padding:28px 34px;margin-top:56px}
+.scn-in{grid-template-columns:.75fr 1.6fr;gap:36px}
+.scn-intro h2{font-size:36px;margin:10px 0}.scn-intro p{font-size:16px;margin:0 0 16px}.scn-intro .btn{padding:10px 16px}
+.scan-box{padding:16px 18px}
+.scn .scb{gap:10px}.scn .scb input{order:-1;flex:1 1 100%;min-width:100%;font-size:18px;padding:14px 16px;letter-spacing:.01em}
+.scn .scb select{flex:1 1 0;min-width:0}.scn .scb .go{flex:0 0 auto;padding:12px 26px}
+.scn .tabs{margin:0 0 12px!important}.scn .sct{margin-top:10px}
+@media (max-width:900px){.scn-in{grid-template-columns:minmax(0,1fr)}.scn{padding:24px 18px}.scn-intro h2{font-size:30px}}
+@media (max-width:560px){.scn{padding:22px 14px}.scan-box{padding:12px}.scn .scb input{font-size:11.5px;padding:13px 8px;letter-spacing:0}}
 </style>
 </head>
 <body>
@@ -384,7 +394,7 @@ $("tS").onclick=function(){tab(false)};$("tB").onclick=function(){tab(true)};
 
 (function(){
 var API="https://li.quest/v1",$=function(i){return document.getElementById(i)},CH=null,pend=null,A={},EP=null,SOLP=null,BTCP=null,lastF=null,pend2=null,slipDirty=false,lastTok=null,CUST=null,pend3=null;
-var WC_PROJECT_ID="e07d269576aa4aebfe1c7eaf2f6139cf"; /* paste your WalletConnect Cloud project ID here (same one as Nexustone swap) */
+var WC_PROJECT_ID=""; /* paste your WalletConnect Cloud project ID here (same one as Nexustone swap) */
 var TRX="T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb";
 var AL={"Ethereum":["eth","ethereum"],"BNB Chain":["bsc","bnb chain","bnb smart chain","binance smart chain"],"Base":["bas","base"],"Robinhood Chain":["robinhood","robinhood chain","rhc","rch"],"Polygon":["pol","polygon","matic"],"Arbitrum":["arb","arbitrum"],"Optimism":["opt","optimism"],"Avalanche":["ava","avalanche"],"Solana":["sol","solana"],"Bitcoin":["btc","bitcoin"],"Tron":["trn","trx","tron"]};
 var EV=["Ethereum","BNB Chain","Base","Robinhood Chain","Polygon","Arbitrum","Optimism","Avalanche"];
