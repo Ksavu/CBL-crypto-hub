@@ -1,4 +1,4 @@
-/* CBL Launch — fair-launch XRPL tokens with no custody.
+/* XRPLaunch (by CBL) — fair-launch XRPL tokens with no custody.
  *
  * The browser creates two fresh XRPL accounts and keeps their keys locally:
  *   I = issuer        (mints the supply, then is blackholed: supply fixed forever)
@@ -110,7 +110,7 @@
       done: async function () { return !!(await acct(L)) },
       run: async function (say) {
         await creatorWallet(cr);
-        var r = await C().send({ TransactionType: "Payment", Account: cr, Destination: L, Amount: C().drops(p.lpFund), Memos: [{ Memo: { MemoData: hex("CBL Launch " + f.ticker) } }] }, say);
+        var r = await C().send({ TransactionType: "Payment", Account: cr, Destination: L, Amount: C().drops(p.lpFund), Memos: [{ Memo: { MemoData: hex("XRPLaunch " + f.ticker) } }] }, say);
         if (r.code !== "tesSUCCESS") throw new Error(C().why(r.code));
         await wait(async function () { return !!(await acct(L)) });
       }
