@@ -70,6 +70,15 @@ async function dexPair(code, hex, issuer) {
   return null;
 }
 
+/** Can this account still sign anything? Blackholed = master key off, no usable regular key, no signer list. */
+function acctState(ai) {
+  const d = ai && ai.account_data;
+  if (!d) return null;
+  const F = d.Flags || 0, master = (F & 0x00100000) === 0;
+  const sl = (d.signer_lists || ai.signer_lists || []).length > 0;
+  const key = d.RegularKey && !BLACKHOLE.has(d.RegularKey) ? d.RegularKey : null;
+  return { blackholed: !master && !key && !sl, master, key, signers: sl };
+}
 const PTS = { critical: 100, high: 25, medium: 10, low: 4, info: 0, ok: 0 };
 const num = (x) => { const n = parseFloat(x); return Number.isFinite(n) ? n : null; };
 
@@ -159,15 +168,37 @@ async function runXrpl(input) {
       else if (t10 >= 50) add("medium", `Top 10 wallets hold ${pc(t10)}`);
     }
   } else add("info", "Holder list unavailable");
+  let lpInfo = null;
   if (A && lpLines) {
     const lpSupply = num(A.lp_token && A.lp_token.value);
     const hs = lpLines.map((l) => ({ a: l.account, v: -parseFloat(l.balance) })).filter((x) => x.v > 0).sort((x, y) => y.v - x.v);
     if (lpSupply > 0 && hs.length) {
-      const burned = hs.filter((x) => BLACKHOLE.has(x.a)).reduce((a, b) => a + b.v, 0) / lpSupply * 100;
-      const t = (hs[0].v / lpSupply) * 100;
-      if (burned >= 90) add("ok", `${burned.toFixed(0)}% of liquidity burned`);
-      else if (t >= 50) add("medium", `One wallet controls ${t.toFixed(0)}% of the liquidity`, "That wallet can withdraw the pool.");
-      else add("ok", `Liquidity is spread across ${hs.length} providers`);
+      // Burned = LP tokens sitting on a blackhole address. Locked = LP held by a blackholed wallet that can never sign a withdrawal.
+      const pctOf = (x) => (x.v / lpSupply) * 100, f0 = (n) => (n >= 99.5 && n < 99.95 ? n.toFixed(1) : n.toFixed(0)) + "%";
+      const burned = hs.filter((x) => BLACKHOLE.has(x.a)).reduce((a, b) => a + pctOf(b), 0);
+      const look = hs.filter((x) => !BLACKHOLE.has(x.a) && pctOf(x) >= 2).slice(0, 5);
+      const st = await Promise.all(look.map((x) => x.a === issuer ? Promise.resolve({ blackholed, master: !has(0x00100000), key: null, signers: sl }) : rpc("account_info", { account: x.a, ledger_index: "validated", signer_lists: true }).then(acctState)));
+      const S = new Map(look.map((x, i) => [x.a, st[i]]));
+      const locked = look.filter((x) => S.get(x.a) && S.get(x.a).blackholed).reduce((a, b) => a + pctOf(b), 0);
+      const safe = Math.min(100, burned + locked), top = hs[0], t = pctOf(top), ts = S.get(top.a);
+      const topSafe = BLACKHOLE.has(top.a) || (ts && ts.blackholed);
+      lpInfo = { burned: +burned.toFixed(1), locked: +locked.toFixed(1), safe: +safe.toFixed(1), topPct: +t.toFixed(1), topSafe: !!topSafe, top: top.a, checked: !!ts || BLACKHOLE.has(top.a), providers: hs.length };
+      const how = [burned > 0.5 ? `${f0(burned)} burned (sent to a blackhole address)` : "", locked > 0.5 ? `${f0(locked)} held by blackholed wallet${look.filter((x) => S.get(x.a) && S.get(x.a).blackholed).length > 1 ? "s" : ""} that can never sign a withdrawal` : ""].filter(Boolean).join(", ");
+      const link = `Check https://xrpscan.com/account/${top.a}`, cap = (x) => (x ? x[0].toUpperCase() + x.slice(1) : "");
+      if (safe >= 90) add("ok", `${f0(safe)} of liquidity is burned or locked forever`, cap(how) + ". It cannot be pulled.");
+      else if (t >= 50 && !topSafe) {
+        const why = !ts ? "Could not check this wallet's keys, so assume it can withdraw the pool."
+          : ts.key ? "Master key is off, but a regular key can still sign, so it is NOT blackholed and can withdraw the pool."
+          : ts.signers ? "Controlled by a multisig signer list, so it is NOT blackholed and can withdraw the pool."
+          : "Not blackholed and not burned. That wallet can withdraw the pool at any time.";
+        add(t >= 80 ? "high" : "medium", `One wallet controls ${t.toFixed(0)}% of the liquidity`, `${why} ${link}`);
+      } else if (topSafe && t >= 50) {
+        add("ok", `Largest LP wallet (${t.toFixed(0)}%) is ${BLACKHOLE.has(top.a) ? "a blackhole address (burned)" : "blackholed"}`, `That share can never be withdrawn. ${f0(safe)} of liquidity is burned or locked in total.`);
+      } else {
+        add("ok", `Liquidity is spread across ${hs.length} providers`);
+        if (safe > 0.5) add("info", `${f0(safe)} of liquidity is burned or locked`, cap(how) + ".");
+      }
+      if (safe < 0.5 && !(t >= 50)) add("info", "Liquidity is not burned or locked", "No LP tokens are burned or held by blackholed wallets.");
     }
   } else if (!A) add("info", "No AMM pool found", "The token may trade only on the order book. Liquidity numbers can be misleading.");
   if (market) {
@@ -195,7 +226,7 @@ async function runXrpl(input) {
   return {
     ok: true, chain: "xrpl", address: `${label}.${issuer}`, issuer, hex, ts: Date.now(),
     token: { name: label, symbol: label, logo: (pair && pair.info && pair.info.imageUrl) || null },
-    market, links, flags: {}, deep: null,
+    market, links, flags: {}, deep: null, lp: lpInfo,
     score, verdict, confidence: pair ? "high" : "medium", reasons: R,
     sources: { dexscreener: !!pair, xrpl: true },
   };

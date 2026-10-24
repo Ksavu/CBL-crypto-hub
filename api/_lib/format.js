@@ -44,6 +44,13 @@ function card(r, site, opt) {
       else L.push("🎯 Snipers / 📦 Bundlers: n/a (launch too old to trace)");
     }
   }
+  if (r.chain === "xrpl" && r.lp) {
+    const q = r.lp, pc = (n) => (n >= 99.95 ? "100" : n >= 10 ? n.toFixed(0) : n.toFixed(1)) + "%";
+    L.push("", q.safe >= 90 ? `🔥 LP ${pc(q.safe)} burned/locked forever${q.burned > 0.5 ? " · " + pc(q.burned) + " burned" : ""}${q.locked > 0.5 ? " · " + pc(q.locked) + " in blackholed wallet" : ""}`
+      : q.topPct >= 50 && q.topSafe ? `🔒 LP: top wallet (${pc(q.topPct)}) is ${q.burned >= q.topPct - 0.1 ? "burned" : "blackholed"}`
+      : q.topPct >= 50 ? `🔓 LP: one wallet holds ${pc(q.topPct)} and is NOT blackholed${q.checked ? "" : " (unverified)"}, can pull liquidity`
+      : `💧 LP spread over ${q.providers} wallets${q.safe > 0.5 ? " · " + pc(q.safe) + " burned/locked" : " · not burned"}`);
+  }
   const flags = r.reasons.filter((x) => ICON[x.sev]).slice(0, 6);
   if (flags.length) L.push("", ...flags.map((x) => `${ICON[x.sev]} ${esc(x.title)}`));
   const ok = r.reasons.filter((x) => x.sev === "ok").length;
