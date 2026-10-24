@@ -586,6 +586,8 @@
   }
 
   window.CBLXRPL = {
+    /* Low-level helpers shared with launch.js */
+    core: { getClient: getClient, req: req, send: send, why: why, spendableXrp: spendableXrp, drops: drops, iou: iou, cfg: cfg },
     payMemo: payMemo,
     go: go, connect: connect, connectWith: connectWith, items: items, disconnect: disconnect, restore: restore,
     reset: function () { pend = null },

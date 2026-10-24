@@ -59,3 +59,23 @@ The XRP Ledger chain filter chip is already added.
 - `api/config.js` — exposes the Xaman key, XRPL fee and bridge fee rate to the page
 - `api/thor.js` — THORChain proxy (adds your affiliate fee server-side)
 - `api/_lib/format.js` — bot swap button points to CBL Swap for XRPL tokens
+
+## CBL Launch (fair launch on XRPL)
+
+The "Launch" section creates an XRPL token together with its XRP/token AMM pool in one flow. No custody: the browser generates two fresh XRPL accounts and signs with their keys locally.
+
+1. The creator signs **one payment** that funds the launch. A dev allocation adds one trust line signature.
+2. The issuer account enables trading, gives up freeze powers and mints the supply.
+3. The launch wallet creates the AMM pool and pays the CBL fee.
+4. Both accounts are **blackholed**: supply is fixed forever, and the LP tokens can never be withdrawn.
+5. The token is verified on-ledger by `/api/launch` and listed under "New on CBL Launch".
+
+If the tab closes mid-way, progress is saved in that browser. Reopen the page and choose **Resume**, or **Cancel & refund** if the pool wasn't created yet.
+
+**Costs for the creator:** starting liquidity, plus the CBL fee, plus about 2.7 XRP of network reserves that stay locked or burned.
+
+### Setup
+- **Vercel:**
+  - `LAUNCH_FEE_XRP`: launch fee, default `5`. Set `0` for free.
+  - `LAUNCH_FEE_ACCOUNT`: wallet that receives the fee. Defaults to `XRPL_FEE_ACCOUNT`.
+- **Supabase:** run the `launches` table part of `supabase.sql`. It uses the same `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` as the bot. Without it, launches still work but aren't listed.
