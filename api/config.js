@@ -9,5 +9,6 @@ module.exports = (req, res) => {
     xaman: clean(process.env.XAMAN_API_KEY),
     xrplFee: clean(process.env.XRPL_FEE_ACCOUNT),
     xrplFeeBps: Number.isFinite(bps) ? Math.min(Math.max(bps, 0), 300) : 50,
+    thorBps: clean(process.env.THOR_AFFILIATE) ? Math.min(Math.max(parseInt(clean(process.env.THOR_AFFILIATE_BPS) || "50", 10) || 0, 0), 300) : 0,
   });
 };

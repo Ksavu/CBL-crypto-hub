@@ -1,6 +1,6 @@
 /* CBL Swap — XRP Ledger module.
  * Native XRPL swaps against the ledger's built-in AMM + order book.
- * Wallets: Xaman (QR / deeplink / xApp), Crossmark, GemWallet.
+ * Wallets: Xaman (QR / deeplink / xApp), Joey (extension, or app via WalletConnect), Crossmark, GemWallet.
  * Fee: paid in XRP to XRPL_FEE_ACCOUNT. Swap + fee go in one atomic Batch
  * transaction (one signature); if the wallet or network can't do Batch, it
  * falls back to the swap followed by a separate fee payment.
@@ -13,8 +13,14 @@
     xrpl: "https://cdn.jsdelivr.net/npm/xrpl@5.3.0/build/xrpl-latest-min.js",
     xumm: "https://cdn.jsdelivr.net/npm/xumm@1.8.1/dist/browser.min.js",
     crossmark: "https://cdn.jsdelivr.net/npm/@crossmarkio/sdk@0.4.0/pack/umd/index.js",
-    gem: "https://cdn.jsdelivr.net/npm/@gemwallet/api@3.8.0/umd/gemwallet-api.js"
+    gem: "https://cdn.jsdelivr.net/npm/@gemwallet/api@3.8.0/umd/gemwallet-api.js",
+    joey: "https://cdn.jsdelivr.net/npm/@joeywallet/wallet-sdk@0.5.0/+esm",
+    wcSign: "https://cdn.jsdelivr.net/npm/@walletconnect/sign-client@2.17.0/dist/index.umd.js",
+    qr: "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"
   };
+  /* Same public WalletConnect project ID as the EVM connect in index.html; WC_PROJECT_ID in Vercel overrides it. */
+  var WC_ID = "e07d269576aa4aebfe1c7eaf2f6139cf", XRPL_CHAIN = "xrpl:0",
+      JOEY_WC = ["xrpl_signTransaction", "xrpl_signTransactionFor", "xrpl_signTransactionBatch", "xrpl_signTransactionFee"];
   var EXPLORER = "https://livenet.xrpl.org/transactions/";
   var tfSell = 0x00080000, tfFillOrKill = 0x00040000, tfSetNoRipple = 0x00020000,
       tfAllOrNothing = 0x00010000, tfInnerBatchTxn = 0x40000000;
@@ -180,7 +186,43 @@
   function why(c) { return WHY[c] || ("Transaction failed (" + c + ")") }
 
   /* ---------- wallets ---------- */
-  var xumm = null, cm = null;
+  var xumm = null, cm = null, joeySdk = null, wcc = null, wcTopic = null, joeyMode = null;
+  function joeyExt() { return window.joey || (window.xrpl && window.xrpl.joey) || null }
+  async function joeyApi() {
+    if (!joeySdk) joeySdk = await import(LIB.joey);
+    var j = joeySdk.getJoey();
+    if (!j && joeyExt() === null) { try { j = await joeySdk.waitForJoey({ timeoutMs: 1200 }) } catch (e) { j = null } }
+    return j;
+  }
+  async function wcClient() {
+    if (wcc) return wcc;
+    var id = (await cfg()).wc || WC_ID;
+    await loadScript(LIB.wcSign, function () { return window["@walletconnect/sign-client"] });
+    var SC = window["@walletconnect/sign-client"].SignClient || window["@walletconnect/sign-client"].default;
+    wcc = await SC.init({ projectId: id, metadata: { name: "CBL", description: "CBL Swap", url: location.origin, icons: [] } });
+    wcc.on("session_delete", function (e) { if (e && e.topic === wcTopic) { wcTopic = null; if (wallet === "Joey") disconnect() } });
+    wcc.on("session_expire", function (e) { if (e && e.topic === wcTopic) wcTopic = null });
+    return wcc;
+  }
+  function wcAddr(sess) {
+    var a = ((sess.namespaces.xrpl || {}).accounts || []).filter(function (x) { return x.indexOf(XRPL_CHAIN + ":") === 0 })[0];
+    return a ? a.split(":")[2] : null;
+  }
+  function wcSession(c) {
+    var all = c.session.getAll().filter(function (x) { return x.namespaces && x.namespaces.xrpl && x.expiry * 1000 > Date.now() + 60000 && wcAddr(x) });
+    return all[all.length - 1] || null;
+  }
+  async function qrModal(uri, title, appLink) {
+    await loadScript(LIB.qr, function () { return window.qrcode });
+    var q = window.qrcode(0, "M"); q.addData(uri); q.make();
+    var o = document.createElement("div");
+    o.style.cssText = "position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:16px";
+    o.innerHTML = '<div style="background:#fff;color:#111;border-radius:16px;padding:20px;max-width:320px;width:100%;text-align:center;font:16px system-ui,sans-serif"><b style="font-size:19px"></b><div class="jq" style="margin:12px auto;width:240px;height:240px"></div><div style="color:#555;margin-bottom:12px">Open Joey, tap WalletConnect / Scan, and scan this code.</div><a target="_blank" rel="noopener" style="display:block;padding:10px;border-radius:10px;border:1px solid #ccc;background:#f4f4f4;color:#111;text-decoration:none">Open Joey</a></div>';
+    o.querySelector("b").textContent = title;
+    o.querySelector(".jq").innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    o.querySelector("a").href = appLink;
+    document.body.appendChild(o); return o;
+  }
   var W = {
     Xaman: {
       ok: async function () { return !!(await cfg()).xaman },
@@ -225,6 +267,80 @@
           if (!p || !p.response || !p.response.txid) throw new Error("Xaman returned no transaction hash");
           return { hash: p.response.txid, er: p.response.dispatched_result || "" };
         } finally { if (qr) qr.remove() }
+      }
+    },
+    Joey: {
+      web: "https://joeywallet.xyz",
+      ok: async function () { return true },
+      label: function () { return joeyExt() ? "Detected" : ISM ? "Opens Joey" : "Scan QR with phone" },
+      connect: async function () {
+        if (joeyExt()) {
+          var j = await joeyApi();
+          if (j) {
+            var icon = /^https:/.test(location.origin) ? location.origin + "/favicon.ico" : undefined;
+            var r = await j.connect({ chain: XRPL_CHAIN, name: "CBL Swap", icon: icon });
+            var a = r && r.accounts && r.accounts[0] && r.accounts[0].address;
+            if (!a) throw new Error("Wallet connection cancelled");
+            joeyMode = "ext"; return a;
+          }
+        }
+        var c = await wcClient(), old = wcSession(c);
+        if (old) { wcTopic = old.topic; joeyMode = "wc"; return wcAddr(old) }
+        var p = await c.connect({ requiredNamespaces: { xrpl: { chains: [XRPL_CHAIN], methods: JOEY_WC, events: [] } } });
+        var link = "joey://settings/wc?uri=" + encodeURIComponent(p.uri), modal = null, closed = false;
+        if (ISM) location.href = link;
+        else {
+          modal = await qrModal(p.uri, "Connect Joey Wallet", link);
+          modal.addEventListener("click", function (e) { if (e.target === modal) { closed = true; modal.remove() } });
+        }
+        try {
+          var sess = await Promise.race([p.approval(), new Promise(function (ok, no) {
+            var t = setInterval(function () { if (closed) { clearInterval(t); no(new Error("Wallet connection cancelled")) } }, 400);
+          })]);
+          wcTopic = sess.topic; joeyMode = "wc";
+          var a2 = wcAddr(sess); if (!a2) throw new Error("Joey shared no XRPL mainnet account");
+          return a2;
+        } catch (e) {
+          throw new Error(/reject|denied|cancel/i.test(String(e && e.message)) ? "Wallet connection cancelled" : "Joey did not connect. Try again.");
+        } finally { if (modal && !closed) modal.remove() }
+      },
+      restore: async function () {
+        if (joeyExt()) {
+          var j = await joeyApi();
+          if (j) { var r = await j.connect({ silent: true }); var a = r && r.accounts && r.accounts[0] && r.accounts[0].address; if (a) { joeyMode = "ext"; return a } }
+        }
+        var c = await wcClient(), s0 = wcSession(c);
+        if (!s0) return null;
+        wcTopic = s0.topic; joeyMode = "wc"; return wcAddr(s0);
+      },
+      disconnect: async function () {
+        try {
+          if (joeyMode === "ext") { var j = await joeyApi(); if (j) await j.disconnect() }
+          else if (wcc && wcTopic) await wcc.disconnect({ topic: wcTopic, reason: { code: 6000, message: "User disconnected" } });
+        } catch (e) {}
+        wcTopic = null; joeyMode = null;
+      },
+      sign: async function (tx, say) {
+        var pre = tx.TransactionType === "Batch";
+        if (joeyMode === "ext") {
+          var j = await joeyApi(); if (!j) throw new Error("Joey extension not found. Connect again.");
+          say("Confirm in Joey...");
+          var r = await j.signAndSubmitTransaction({ account: tx.Account, chain: XRPL_CHAIN, tx_json: tx, autofill: !pre });
+          if (!r || !r.hash) throw new Error("Joey returned no transaction hash");
+          return { hash: r.hash, er: r.engine_result || "" };
+        }
+        var c = await wcClient();
+        if (!wcTopic) { var s1 = wcSession(c); if (!s1) throw new Error("Joey session expired. Connect again."); wcTopic = s1.topic }
+        say(ISM ? "Confirm in Joey..." : "Confirm in the Joey app on your phone...");
+        var pr = c.request({ topic: wcTopic, chainId: XRPL_CHAIN, request: { method: "xrpl_signTransaction", params: { tx_json: tx, options: { autofill: !pre, submit: true } } } });
+        if (ISM) setTimeout(function () { location.href = "joey://settings" }, 300);
+        var res = await pr, out = (res && res.tx_json) || res || {}, blob = (res && res.tx_blob) || out.tx_blob, h = out.hash || (res && res.hash);
+        var xl = window.xrpl;
+        if (!h && blob && xl && xl.hashes) h = xl.hashes.hashSignedTx(blob);
+        if (!h) throw new Error("Joey returned no transaction hash");
+        var er = (out.meta && out.meta.TransactionResult) || (res && res.engine_result) || "";
+        if (blob && !er) { try { er = (await req({ command: "submit", tx_blob: blob })).engine_result || "" } catch (e) {} if (/^tef(PAST_SEQ|ALREADY)/.test(er)) er = "" }
+        return { hash: h, er: er };
       }
     },
     Crossmark: {
@@ -294,7 +410,7 @@
         var u = document.createElement("small"); u.textContent = "Checking..."; b.appendChild(u);
         b.onclick = function () { m.hidden = true; ok(n) };
         W[n].ok().then(function (yes) {
-          if (yes) { u.textContent = n === "Xaman" ? (ISM ? "Opens Xaman" : "Scan QR with phone") : "Detected"; return }
+          if (yes) { u.textContent = W[n].label ? W[n].label() : n === "Xaman" ? (ISM ? "Opens Xaman" : "Scan QR with phone") : "Detected"; return }
           u.textContent = "Install";
           b.onclick = function () { window.open(W[n].web, "_blank", "noopener") };
         });
@@ -446,7 +562,18 @@
     }
   }
 
+  /** Payment with a memo (used for THORChain bridge deposits). Returns the tx hash once validated. */
+  async function payMemo(dest, xrp, memo, say) {
+    if (!account) await connect();
+    if (xrp > (await spendableXrp(account)) - 0.01) throw new Error("Not enough XRP (part of your balance is locked as reserve).");
+    var hex = Array.prototype.map.call(new TextEncoder().encode(memo), function (b) { return b.toString(16).padStart(2, "0") }).join("").toUpperCase();
+    var r = await send({ TransactionType: "Payment", Account: account, Destination: dest, Amount: drops(xrp), Memos: [{ Memo: { MemoData: hex } }] }, say);
+    if (r.code !== "tesSUCCESS") throw new Error(why(r.code));
+    return r.hash;
+  }
+
   window.CBLXRPL = {
+    payMemo: payMemo,
     go: go, connect: connect, disconnect: disconnect, restore: restore,
     reset: function () { pend = null },
     isId: isId, parseId: parseId, label: label,

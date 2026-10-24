@@ -353,7 +353,7 @@ html{scroll-padding-top:84px}.plat{display:grid;grid-template-columns:minmax(0,1
 <div id="brg" style="display:none;flex-direction:column;gap:12px">
 <div class="fld"><label for="bfn">From</label><div><input id="bamt" type="number" min="0" placeholder="0.0" inputmode="decimal"><select id="bfn" aria-label="From network"></select><select id="bfa" aria-label="From asset"></select></div></div>
 <div class="fld"><label for="btn">To</label><div><input id="bout" placeholder="0.0" disabled><select id="btn" aria-label="To network"></select><select id="bta" aria-label="To asset"></select></div></div>
-<div class="fld" id="rcv" style="display:none"><label for="brecv" id="rcvl">Receiving address</label><div><input id="brecv" style="font-size:16.8px" placeholder="Paste address"><button class="chip" id="rconn" type="button">Use wallet</button></div></div><small id="broute"></small><button class="go" id="bgo">Get quote</button><small id="bmsg" aria-live="polite">Bridge any supported coin or stablecoin between networks, then swap straight into a CBL-listed token.</small><div class="sc-note" style="margin-top:10px">Want XRPL tokens? You need XRP in an XRPL wallet such as <a href="https://xaman.app" target="_blank" rel="noopener">Xaman</a>. Buy XRP on an exchange (Kraken, Coinbase, Binance), withdraw it to your Xaman address, then scan and buy XRPL tokens with our Telegram bot.</div></div></div></section>
+<div class="fld" id="rcv" style="display:none"><label for="brecv" id="rcvl">Receiving address</label><div><input id="brecv" style="font-size:16.8px" placeholder="Paste address"><button class="chip" id="rconn" type="button">Use wallet</button></div></div><small id="broute"></small><button class="go" id="bgo">Get quote</button><small id="bmsg" aria-live="polite">Bridge any supported coin or stablecoin between networks, then swap straight into a CBL-listed token.</small><div class="sc-note" style="margin-top:10px">Want XRPL tokens? You need XRP in an XRPL wallet such as <a href="https://xaman.app" target="_blank" rel="noopener">Xaman</a> or <a href="https://joeywallet.xyz" target="_blank" rel="noopener">Joey</a>. Buy XRP on an exchange (Kraken, Coinbase, Binance), withdraw it to your Xaman address, then scan and buy XRPL tokens with our Telegram bot.</div></div></div></section>
 <section class="scn" id="scanner" aria-label="CA Scanner"><div class="scn-in"><div class="scn-intro"><div class="eyebrow"><span></span>CONTRACT INTELLIGENCE</div><h2>Know more.<br><span class="gtx">Risk less.</span></h2><p>Scan token contracts for common warning signs before you make your next move. Tokens on Ethereum, BNB Chain, Base, Solana, Robinhood Chain and XRP Ledger, and a code audit for any EVM chain.</p><a class="btn outline" href="#vetting">How our vetting works ↗</a></div><div class="scan-box"><div class="tabs" style="justify-content:flex-start;margin:6px 0 12px"><button class="chip" id="sc-t1" type="button" aria-pressed="true">Token scan</button><button class="chip" id="sc-t2" type="button" aria-pressed="false">Contract audit</button></div>
 <div id="au-box" hidden><p class="sc-note" style="margin:0 0 10px">Works on all major EVM chains. Checks the Solidity code for owner powers, hidden fees, blacklists, minting and other red flags. Enter a contract address (verified source is fetched), or paste your own code if it is not published yet.</p>
 <div class="scb"><select id="au-chain" aria-label="Network"><option value="auto">Auto-detect (all EVM chains)</option><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="polygon">Polygon</option><option value="arbitrum">Arbitrum</option><option value="optimism">Optimism</option><option value="avalanche">Avalanche</option><option value="robinhood">Robinhood Chain</option><option value="linea">Linea</option><option value="scroll">Scroll</option><option value="zksync">zkSync Era</option><option value="blast">Blast</option><option value="mantle">Mantle</option><option value="gnosis">Gnosis</option><option value="celo">Celo</option><option value="fantom">Fantom</option><option value="sonic">Sonic</option><option value="opbnb">opBNB</option><option value="cronos">Cronos</option><option value="mode">Mode</option><option value="unichain">Unichain</option><option value="berachain">Berachain</option><option value="abstract">Abstract</option><option value="ink">Ink</option><option value="taiko">Taiko</option><option value="moonbeam">Moonbeam</option><option value="kaia">Kaia</option><option value="hyperevm">HyperEVM</option><option value="polygonzkevm">Polygon zkEVM</option></select><input id="au-ca" placeholder="Contract address (0x...)" autocomplete="off" spellcheck="false" aria-label="Contract address"><button class="go" id="au-go" type="button">Audit address</button></div>
@@ -464,12 +464,12 @@ window.buyTok=function(n){var i=L.findIndex(function(p){return p.n===n});if(i>-1
 })();
 
 (function(){
-var NW={"Solana":"SOL","Ethereum":"ETH","Bitcoin":"BTC","Tron":"TRX","BNB Chain":"BNB","Base":"ETH","Robinhood Chain":"ETH","Polygon":"POL","Arbitrum":"ETH","Optimism":"ETH","Avalanche":"AVAX"};
+var NW={"Solana":"SOL","Ethereum":"ETH","Bitcoin":"BTC","Tron":"TRX","BNB Chain":"BNB","Base":"ETH","Robinhood Chain":"ETH","Polygon":"POL","Arbitrum":"ETH","Optimism":"ETH","Avalanche":"AVAX","XRP Ledger":"XRP"};
 var names=Object.keys(NW),$=function(i){return document.getElementById(i)};
 function opts(sel,list,v){sel.innerHTML=list.map(function(x){return '<option'+(x===v?' selected':'')+'>'+x+'</option>'}).join("")}
-function assets(n){return n==="Bitcoin"?["BTC"]:[NW[n],"USDT","USDC"]}
+function assets(n){return n==="Bitcoin"?["BTC"]:n==="XRP Ledger"?["XRP"]:[NW[n],"USDT","USDC"]}
 function fill(){opts($("bfa"),assets($("bfn").value));opts($("bta"),assets($("btn").value));
-$("broute").textContent="Route: "+$("bfn").value+" to "+$("btn").value+" via LI.FI (preview)"}
+$("broute").textContent="Route: "+$("bfn").value+" to "+$("btn").value+" via "+($("bfn").value==="XRP Ledger"||$("btn").value==="XRP Ledger"?"THORChain (native XRP)":"LI.FI")}
 opts($("bfn"),names,"Ethereum");opts($("btn"),names,"BNB Chain");fill();
 $("bfn").onchange=fill;$("btn").onchange=fill;$("bfa").onchange=function(){};
 $("bgo").onclick=function(){$("bmsg").textContent=$("bfn").value===$("btn").value?"Pick two different networks.":"Bridge preview only. Wallet connection and live quotes switch on when the router is connected."};
@@ -590,7 +590,7 @@ function slipDef(p){return p&&p.tax?6:1}
 function slipVal(p){var v=parseFloat($("slip").value);return ((v>0&&v<50)?v:slipDef(p))/100}
 function uiSwap(){var p=lst()[$("tok").value];if(!p)return;if($("tok").value!==lastTok){lastTok=$("tok").value;slipDirty=false}
  if(!slipDirty)$("slip").value=slipDef(p);
- $("route").textContent=(p.c==="XRP Ledger"?"Route: XRPL AMM + order book (Xaman, Crossmark or GemWallet)":p.dex==="pancake"?"Route: PancakeSwap V2 on "+p.c:p.c==="Solana"?"Route: best price via Jupiter on Solana":"Route: best price via LI.FI on "+p.c)+(p.tax?" · Token tax "+(p.taxTxt||"applies")+". Keep slippage at 6% or higher.":"")}
+ $("route").textContent=(p.c==="XRP Ledger"?"Route: XRPL AMM + order book (Xaman, Joey, Crossmark or GemWallet)":p.dex==="pancake"?"Route: PancakeSwap V2 on "+p.c:p.c==="Solana"?"Route: best price via Jupiter on Solana":"Route: best price via LI.FI on "+p.c)+(p.tax?" · Token tax "+(p.taxTxt||"applies")+". Keep slippage at 6% or higher.":"")}
 async function j(p){var r=await fetch("/api/li?p="+encodeURIComponent(p)),d=await r.json();if(!r.ok)throw new Error(d.message||"Request failed");return d}
 async function chains(){if(CH)return;var d;try{d=await j("/chains?chainTypes=EVM,SVM,UTXO,TVM")}catch(e){d=await j("/chains")}CH={};d.chains.forEach(function(c){for(var n in AL){if((CID[n]&&CID[n]===c.id)||AL[n].indexOf(String(c.key).toLowerCase())>-1||AL[n].indexOf(String(c.name).toLowerCase())>-1)CH[n]=c}})}
 function sv(f,n){try{localStorage.setItem("cbl_w_"+f,n)}catch(e){}}
@@ -687,6 +687,63 @@ bind($("go"),function(m){$("msg").textContent=m},function(){
  if(p.c==="Tron"||p.c==="Bitcoin")throw new Error("Trading on "+p.c+" is not supported yet. Bridge in from another network instead.");
  var sl=side==="sell";return {fn:p.c,tn:p.c,fs:sl?p.a:$("pay").value,ts:sl?$("pay").value:p.a,amt:amt,slip:slipVal(p)}},"Get quote");
 
+/* ---- XRP Ledger bridge through THORChain (server proxy /api/thor). LI.FI has no XRP Ledger, so any bridge with XRP on either side goes here. ---- */
+var THC={"Ethereum":"ETH","BNB Chain":"BSC","Base":"BASE","Avalanche":"AVAX","Bitcoin":"BTC","XRP Ledger":"XRP","Solana":"SOL","Tron":"TRON"},THN={ETH:"ETH",BSC:"BNB",BASE:"ETH",AVAX:"AVAX",BTC:"BTC",XRP:"XRP",SOL:"SOL",TRON:"TRX"},TSEND={ETH:1,BSC:1,BASE:1,AVAX:1,XRP:1},POOLS=null,pend4=null,TBPS=null;
+async function tget(p){var r=await fetch("/api/thor?p="+encodeURIComponent(p)),d=await r.json().catch(function(){return {}});if(!r.ok||d.error||(d.code&&d.message))throw new Error(thMsg(d.message||d.error||"THORChain request failed"));return d}
+function thMsg(m){m=String(m);if(/not enough asset to pay for fees|less than|dust|too small/i.test(m))return "Amount too small for this bridge (THORChain fees). Try a larger amount.";if(/halt|paused|trading is halted/i.test(m))return "This network is paused on THORChain right now. Try again later.";return m.slice(0,160)}
+async function tPools(){if(POOLS)return POOLS;var d=await tget("/thorchain/pools");POOLS=d.filter(function(p){return p.status==="Available"}).map(function(p){return p.asset});return POOLS}
+async function tAsset(net,sym){var c=THC[net];if(!c)return null;var ps=await tPools();
+ if(sym===THN[c]){var a=c+"."+THN[c];return ps.indexOf(a)>-1?a:null}
+ return ps.filter(function(a){return a.indexOf(c+"."+sym+"-")===0})[0]||null}
+function xBr(){return $("bfn").value==="XRP Ledger"||$("btn").value==="XRP Ledger"}
+function fmtT(v){return Number((Number(v)/1e8).toPrecision(6)).toString()}
+async function tBps(){if(TBPS!==null)return TBPS;try{var c=await fetch("/api/config").then(function(r){return r.json()});TBPS=Number(c.thorBps)||0}catch(e){TBPS=0}return TBPS}
+async function tQuote(o){var amt=units(String(o.amt),8);
+ var q=await tget("/thorchain/quote/swap?"+new URLSearchParams({from_asset:o.fa,to_asset:o.ta,amount:amt,destination:o.to,streaming_interval:"1",streaming_quantity:"0",refund_address:o.from}));
+ if(q.recommended_min_amount_in&&BigInt(amt)<BigInt(q.recommended_min_amount_in))throw new Error("Minimum for this route is about "+fmtT(q.recommended_min_amount_in)+" "+o.fs+" (THORChain fees).");
+ if(!q.inbound_address||!q.memo)throw new Error("THORChain returned no deposit address. Try again.");
+ if(q.expiry&&q.expiry*1000<Date.now()+60000)throw new Error("Quote expired. Try again.");
+ return q}
+async function tDesc(q,o){var b=await tBps(),fee=q.fees&&Number(q.fees.affiliate)>0&&b?" · includes "+(b/100)+"% CBL fee":"",mins=Math.max(1,Math.round((q.total_swap_seconds||600)/60));
+ return "You get about "+fmtT(q.expected_amount_out)+" "+o.ts+" on "+o.tn+" (after network fees"+(q.fees&&q.fees.outbound?" of ~"+fmtT(q.fees.outbound)+" "+o.ts:"")+")"+fee+". Route: THORChain · about "+mins+" min"}
+async function tSend(q,o,say){
+ if(o.fn==="XRP Ledger"){say("Confirm the XRP deposit in your wallet...");return XR().payMemo(q.inbound_address,o.amt,q.memo,say)}
+ await loadEth();await switchNet(CID[o.fn]);
+ var s=await new ethers.BrowserProvider(EP).getSigner(),me=await s.getAddress(),router=q.router;
+ if(!router){var ib=await tget("/thorchain/inbound_addresses");router=(ib.filter(function(x){return x.chain===THC[o.fn]})[0]||{}).router}
+ if(!router)throw new Error("THORChain router not found for "+o.fn);
+ var R=new ethers.Contract(router,["function depositWithExpiry(address,address,uint256,string,uint256) payable"],s),exp=Math.floor(Date.now()/1000)+3600,ta=o.fa.split("-")[1],tx;
+ if(!ta){var v=ethers.parseUnits(Number(o.amt).toFixed(8),18);say("Confirm the deposit in your wallet...");tx=await R.depositWithExpiry(q.inbound_address,ethers.ZeroAddress,v,q.memo,exp,{value:v})}
+ else{ta=ta.replace(/^0X/,"0x").toLowerCase();
+  var T=new ethers.Contract(ta,["function decimals() view returns (uint8)","function allowance(address,address) view returns (uint256)","function approve(address,uint256) returns (bool)"],s),dc=Number(await T.decimals()),au=ethers.parseUnits(Number(o.amt).toFixed(Math.min(dc,8)),dc);
+  if((await T.allowance(me,router))<au){say("Approve "+o.fs+" in your wallet...");var ap=await T.approve(router,au);await ap.wait()}
+  say("Confirm the deposit in your wallet...");tx=await R.depositWithExpiry(q.inbound_address,ta,au,q.memo,exp)}
+ say("Sent. Waiting for confirmation...");await tx.wait();return tx.hash}
+async function tTrack(h,o,say){var H=String(h).replace(/^0x/i,"").toUpperCase();say("Deposit confirmed. THORChain is bridging to "+o.tn+"...");
+ for(var i=0;i<120;i++){await sl(10000);try{var d=await tget("/thorchain/tx/status/"+H),out=(d.out_txs||[])[0];
+  if(out){say(/^REFUND/i.test(out.memo||"")?"Refunded to your "+o.fn+" wallet (price moved too much or amount too small).":"Done. "+o.ts+" sent to your "+o.tn+" wallet.");return}}catch(e){}}
+ say("Still processing. Track it at thorchain.net/tx/"+H)}
+async function thorGo(){var btn=$("bgo"),say=function(m){$("bmsg").textContent=m};
+ try{
+  if(!XR())throw new Error("XRPL module is still loading. Try again in a second.");
+  if(pend4){var x0=pend4;pend4=null;btn.disabled=true;say("Refreshing quote...");var q=await tQuote(x0.o);
+   if(Number(q.expected_amount_out)<x0.out*0.99){pend4={o:x0.o,out:Number(q.expected_amount_out)};$("bout").value=fmtT(q.expected_amount_out)+" "+x0.o.ts;btn.disabled=false;say("Price moved. "+(await tDesc(q,x0.o))+". Click again to confirm.");return}
+   var h=await tSend(q,x0.o,say);btn.textContent="Get quote";btn.disabled=false;await tTrack(h,x0.o,say);return}
+  var fn=$("bfn").value,tn=$("btn").value,fs=$("bfa").value,ts=$("bta").value,amt=$("bamt").value;
+  if(fn===tn)throw new Error("Pick two different networks");if(!(amt>0))throw new Error("Enter an amount");
+  say("Checking THORChain routes...");var fa=await tAsset(fn,fs),ta=await tAsset(tn,ts);
+  if(!fa||!ta)throw new Error((!fa?fs+" on "+fn:ts+" on "+tn)+" can't be bridged with XRP. Use XRP, BTC, ETH, BNB, AVAX, ETH on Base, or USDT/USDC on Ethereum, BNB Chain, Base or Avalanche.");
+  if(!TSEND[THC[fn]])throw new Error("Sending from "+fn+" isn't supported for XRP bridging yet. Use Ethereum, BNB Chain, Base, Avalanche or XRP Ledger as the source.");
+  say("Connecting wallet...");var from=fn==="XRP Ledger"?await XR().connect():await connect(fn),to=$("brecv").value.trim();
+  if(!to){if(tn==="XRP Ledger"&&XR().account())to=XR().account();else if(fam(fn)===fam(tn))to=from;else throw new Error("Enter your "+tn+" receiving address")}
+  if(tn==="XRP Ledger"&&!XR().isId("X."+to))throw new Error("That is not a valid XRP Ledger address (r...).");
+  var o={fn:fn,tn:tn,fs:fs,ts:ts,fa:fa,ta:ta,amt:amt,from:from,to:to};
+  say("Getting THORChain quote...");var q2=await tQuote(o);
+  pend4={o:o,out:Number(q2.expected_amount_out)};$("bout").value=fmtT(q2.expected_amount_out)+" "+ts;
+  say((await tDesc(q2,o))+". Click again to confirm.");btn.textContent="Confirm in wallet"
+ }catch(e){pend4=null;btn.disabled=false;btn.textContent="Get quote";fail(e,say)}}
+var liB=$("bgo").onclick;$("bgo").onclick=function(){return xBr()?thorGo():liB.call(this)};
+
 /* ---- Solana swap through Jupiter (server proxy /api/jup) ---- */
 var SOLM={SOL:"So11111111111111111111111111111111111111112",USDC:"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",USDT:"Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"},SOLD={SOL:9,USDC:6,USDT:6},DEC={};
 async function jget(qs){var r=await fetch("/api/jup?"+qs),d=await r.json().catch(function(){return {}});if(!r.ok||d.error)throw new Error(d.error||"Request failed");return d}
@@ -760,10 +817,10 @@ $("sB").onclick=function(){setSide("buy")};$("sS").onclick=function(){setSide("s
 $("wc").onclick=async function(){try{var a=await connect("Ethereum");reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
 $("wcx").onclick=async function(){try{if(!XR())throw new Error("XRPL module is still loading");if(XR().account()){if(confirm("Disconnect XRPL wallet?"))await XR().disconnect();return}var a=await XR().connect();reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
 $("wcs").onclick=async function(){try{var a=await connect("Solana");reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
-$("rconn").onclick=async function(){try{var a=await connect($("btn").value);$("brecv").value=a;reset()}catch(e){fail(e,say1)}};
+$("rconn").onclick=async function(){try{var a=$("btn").value==="XRP Ledger"?(XR()?await XR().connect():""):await connect($("btn").value);$("brecv").value=a;reset()}catch(e){fail(e,say1)}};
 function reset(){pend=null;pend2=null;pend3=null;if(XR())XR().reset();$("bgo").textContent="Get quote";$("go").textContent="Get quote";
  var fn=$("bfn").value,tn=$("btn").value,r=$("rcv");r.style.display=fam(fn)===fam(tn)?"none":"block";$("rcvl").textContent="Receiving "+tn+" address";
- if(A[fam(tn)]&&!$("brecv").value)$("brecv").value=A[fam(tn)];
+ if(A[fam(tn)]&&!$("brecv").value)$("brecv").value=A[fam(tn)];var rv=$("brecv").value.trim(),isR=/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(rv);if(tn==="XRP Ledger"){if(rv&&!isR)$("brecv").value="";if(XR()&&XR().account()&&!$("brecv").value)$("brecv").value=XR().account()}else if(isR){$("brecv").value=A[fam(tn)]||""}if(typeof pend4!=="undefined")pend4=null;
  $("wc").textContent=A.evm?"EVM: "+short(A.evm):"Connect EVM wallet";$("wcs").textContent=A.Solana?"Solana: "+short(A.Solana):"Connect Solana wallet";uiSwap();netCheck();updHW()}
 ["bamt","bfn","btn","bfa","bta","amt","tok","pay"].forEach(function(i){$(i).addEventListener("input",reset);$(i).addEventListener("change",reset)});
 $("tS").addEventListener("click",reset);$("tB").addEventListener("click",reset);
