@@ -405,12 +405,14 @@
       var h = document.createElement("h3"); h.textContent = "Connect XRPL wallet"; box.appendChild(h);
       Object.keys(W).forEach(function (n) {
         var b = document.createElement("button"); b.type = "button"; b.className = "wrow2";
-        var i = document.createElement("span"); i.className = "wl"; i.textContent = n[0]; b.appendChild(i);
+        var src = typeof window.wic === "function" ? window.wic(n) : null, i;
+        if (src) { i = document.createElement("img"); i.src = src; i.alt = "" } else { i = document.createElement("span"); i.className = "wl"; i.textContent = n[0] }
+        b.appendChild(i);
         var s = document.createElement("span"); s.textContent = n; b.appendChild(s);
         var u = document.createElement("small"); u.textContent = "Checking..."; b.appendChild(u);
         b.onclick = function () { m.hidden = true; ok(n) };
         W[n].ok().then(function (yes) {
-          if (yes) { u.textContent = W[n].label ? W[n].label() : n === "Xaman" ? (ISM ? "Opens Xaman" : "Scan QR with phone") : "Detected"; return }
+          if (yes) { u.textContent = hint(n); return }
           u.textContent = "Install";
           b.onclick = function () { window.open(W[n].web, "_blank", "noopener") };
         });
@@ -426,9 +428,20 @@
     var b = $("wcx"); if (b) b.textContent = account ? "XRPL: " + short(account) : "Connect XRPL wallet";
     try { window.dispatchEvent(new CustomEvent("cbl:xrpl", { detail: { account: account } })) } catch (e) {}
   }
+  function hint(n) { return W[n].label ? W[n].label() : n === "Xaman" ? (ISM ? "Opens Xaman" : "Scan QR with phone") : "Detected" }
+  /** Wallet list for the site-wide Connect Wallet picker. check() resolves to a status label, or null when not installed. */
+  function items() {
+    return Object.keys(W).map(function (n) {
+      return { n: n, web: W[n].web, check: function () { return Promise.race([W[n].ok(), sl(4000).then(function () { return false })]).then(function (y) { return y ? hint(n) : null }, function () { return null }) } };
+    });
+  }
   async function connect(force) {
     if (account && wallet && !force) return account;
-    var n = await picker();
+    return connectWith(await picker());
+  }
+  async function connectWith(n) {
+    if (!W[n]) throw new Error("Unknown XRPL wallet");
+    if (wallet && wallet !== n) { try { await W[wallet].disconnect() } catch (e) {} }
     account = await W[n].connect(); wallet = n;
     try { localStorage.setItem("cbl_w_XRPL", n) } catch (e) {}
     setBtn(); return account;
@@ -574,7 +587,7 @@
 
   window.CBLXRPL = {
     payMemo: payMemo,
-    go: go, connect: connect, disconnect: disconnect, restore: restore,
+    go: go, connect: connect, connectWith: connectWith, items: items, disconnect: disconnect, restore: restore,
     reset: function () { pend = null },
     isId: isId, parseId: parseId, label: label,
     account: function () { return account },
