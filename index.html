@@ -127,7 +127,7 @@ footer{margin:48px 0 28px;padding-top:18px;border-top:1px solid var(--line);colo
 .fld select{max-width:56%}.fld input{min-width:70px}
 .av.sm{width:28px;height:28px;font-size:14.4px}img.av{object-fit:cover;background:rgba(255,255,255,.08)}.card h3{display:flex;align-items:center;gap:8px}
 .soc{display:flex;gap:8px;flex-wrap:wrap}.so{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:#cfe0ff}.so:hover,.so:focus-visible{border-color:var(--cy);box-shadow:0 0 10px rgba(79,140,255,.45)}.so svg{width:15px;height:15px;fill:currentColor}.so svg.w{fill:none;stroke:currentColor}.bds{display:flex;gap:6px;flex-wrap:wrap}.stg.pre{background:rgba(251,191,36,.18);color:#fbbf24;border-color:transparent}.stg.soon{background:rgba(96,165,250,.18);color:#93c5fd;border-color:transparent}.pnote{color:var(--mute);font-size:13.8px;display:block}a.buy{font:inherit;font-size:15.6px;color:var(--ink);border:1px solid var(--cy);border-radius:8px;padding:4px 12px}
-.wmn{position:fixed;top:58px;right:16px;z-index:40;background:var(--panel);border:1px solid var(--cy);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:260px;box-shadow:0 0 24px rgba(79,140,255,.4)}.wmn[hidden]{display:none}.wmr{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.wmr span{flex:1;font-size:15.6px}.wmr .chip,.wmn>.chip{padding:5px 11px;font-size:14.4px}.hw.ok::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#34d399;margin-right:8px;box-shadow:0 0 8px #34d399}.wmp .tabs{flex-wrap:wrap}
+.wmn{position:fixed;top:58px;right:16px;z-index:40;background:var(--panel);border:1px solid var(--cy);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:260px;box-shadow:0 0 24px rgba(79,140,255,.4)}.wmn[hidden]{display:none}.wmr{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.wmr span{flex:1;font-size:15.6px}.wmr .chip,.wmn>.chip{padding:5px 11px;font-size:14.4px}.hwi{width:20px;height:20px;border-radius:6px;vertical-align:-4px;margin-right:8px;object-fit:cover}.hw.ok.hasi::before{display:none}.wmr img.hwi{margin-right:0}.hw.ok::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#34d399;margin-right:8px;box-shadow:0 0 8px #34d399}.wmp .tabs{flex-wrap:wrap}
 .rg{display:flex;gap:12px;align-items:center}.ring{--p:0;--c:#34d399;width:76px;height:76px;border-radius:50%;background:conic-gradient(var(--c) calc(var(--p)*1%),rgba(255,255,255,.1) 0);display:flex;align-items:center;justify-content:center;position:relative;flex:none}.ring::before{content:"";position:absolute;inset:7px;border-radius:50%;background:var(--panel)}.ring b,.ring small{position:relative;font-family:Sora,sans-serif}.ring b{font-size:26.4px;font-weight:700}.ring small{color:var(--mute);font-size:12px;align-self:flex-end;margin:0 0 20px -2px}
 /* ===== Light neon theme (logo palette) ===== */
 :root{color-scheme:light;--bg:#fbfbff;--panel:#ffffff;--line:#e8eaf5;--ink:#161058;--mute:#6f7590;--cy:#0A61E1;--mg:#A016DF;--pink:#E917E0;--violet:#580F5B;--blue:#1320E5;--aqua:#0B9CF0;--soft-pink:#EFA1F2;--ice:#F2F0FC;
@@ -503,7 +503,7 @@ function picker(title,f0,tabs){return new Promise(function(ok,no){
  function done(v){m.hidden=true;ok(v)}
  function draw(){box.textContent="";var n=0;
   function row(label,sub,icon,fn){n++;var b=document.createElement("button"),i;b.type="button";b.className="wrow2";
-   icon=icon||wic(label);if(icon&&/^(data:image|https:)/.test(icon)){i=document.createElement("img");i.src=icon;i.alt=""}else{i=document.createElement("span");i.className="wl";i.textContent=label[0]}
+   icon=wic(label)||icon;if(icon&&/^(data:image|https:)/.test(icon)){i=document.createElement("img");i.src=icon;i.alt="";i.onerror=function(){var l=document.createElement("span");l.className="wl";l.textContent=label[0];if(this.parentNode)this.parentNode.replaceChild(l,this)}}else{i=document.createElement("span");i.className="wl";i.textContent=label[0]}
    b.appendChild(i);var s=document.createElement("span");s.textContent=label;b.appendChild(s);var u=document.createElement("small");u.textContent=sub;b.appendChild(u);b.onclick=fn;box.appendChild(b)}
   var h=document.createElement("h3");h.textContent=title||FT[f];box.appendChild(h);
   if(tabs){var tr=document.createElement("div");tr.className="tabs";[["evm","EVM"],["Solana","Solana"],["XRPL","XRP"],["Tron","Tron"],["Bitcoin","Bitcoin"]].forEach(function(x){var b=document.createElement("button");b.type="button";b.className="chip";b.textContent=x[1];b.setAttribute("aria-pressed",x[0]===f);b.onclick=function(){f=x[0];draw()};tr.appendChild(b)});box.appendChild(tr)}
@@ -625,12 +625,12 @@ async function finish(ch){var f=ch.fam,ac,r;
    var qm=null,qclose=function(){if(qm){qm.remove();qm=null}};
    wcp.on("display_uri",function(uri){qclose();qm=wcQR(uri,function(){qclose();try{wcp.disconnect()}catch(e){}})});
    try{if(!wcp.session)await wcp.connect();else if(!wcp.accounts||!wcp.accounts.length)await wcp.connect()}catch(e){qclose();throw new Error(/reject|denied|closed/i.test(String(e&&e.message))?"Connection cancelled in your wallet.":"WalletConnect did not connect. Try again.")}
-   qclose();EP=wcp;ac=EP.accounts}
-  else{EP=ch.provider;ac=await EP.request({method:"eth_requestAccounts"});sv("evm",ch.name)}
+   qclose();EP=wcp;ac=EP.accounts;WN.evm="WalletConnect"}
+  else{EP=ch.provider;ac=await EP.request({method:"eth_requestAccounts"});sv("evm",ch.name);WN.evm=ch.name}
   hook();A.evm=ac[0];lastF="evm";netCheck();updHW();return A.evm}
- if(f==="Solana"){SOLP=ch.provider;r=await SOLP.connect();A.Solana=String((r&&r.publicKey)||SOLP.publicKey);sv("Solana",ch.name);lastF=f;updHW();return A.Solana}
- if(f==="Tron"){if(window.tronLink)await window.tronLink.request({method:"tron_requestAccounts"});var ad=window.tronWeb&&window.tronWeb.defaultAddress&&window.tronWeb.defaultAddress.base58;if(!ad)throw new Error("Unlock TronLink and approve the connection, then try again.");A.Tron=ad;lastF=f;updHW();return ad}
- BTCP=ch.provider;ac=BTCP.requestAccounts?await BTCP.requestAccounts():[(await BTCP.connect()).address];A.Bitcoin=ac[0];lastF=f;updHW();return A.Bitcoin}
+ if(f==="Solana"){SOLP=ch.provider;r=await SOLP.connect();A.Solana=String((r&&r.publicKey)||SOLP.publicKey);sv("Solana",ch.name);WN.Solana=ch.name;lastF=f;updHW();return A.Solana}
+ if(f==="Tron"){if(window.tronLink)await window.tronLink.request({method:"tron_requestAccounts"});var ad=window.tronWeb&&window.tronWeb.defaultAddress&&window.tronWeb.defaultAddress.base58;if(!ad)throw new Error("Unlock TronLink and approve the connection, then try again.");A.Tron=ad;WN.Tron="TronLink";lastF=f;updHW();return ad}
+ BTCP=ch.provider;ac=BTCP.requestAccounts?await BTCP.requestAccounts():[(await BTCP.connect()).address];A.Bitcoin=ac[0];WN.Bitcoin=ch.name;lastF=f;updHW();return A.Bitcoin}
 function tk(n,s){if(n==="Bitcoin"&&s==="BTC")return "bitcoin";if(n==="Tron"&&s==="TRX")return TRX;return s}
 function units(s,d){var p=String(s).split(".");return ((p[0]||"0")+(p[1]||"").padEnd(d,"0").slice(0,d)).replace(/^0+(?=\d)/,"")}
 function pad(x){return x.replace("0x","").toLowerCase().padStart(64,"0")}
@@ -829,12 +829,16 @@ function reset(){pend=null;pend2=null;pend3=null;if(XR())XR().reset();$("bgo").t
 $("tS").addEventListener("click",reset);$("tB").addEventListener("click",reset);
 window.addEventListener("cbl:xrpl",function(e){A.XRPL=(e.detail&&e.detail.account)||null;if(A.XRPL)lastF="XRPL";updHW()});
 function anyF(){return ["evm","Solana","XRPL","Tron","Bitcoin"].filter(function(f){return A[f]})}
-function updHW(){var l=anyF(),b=$("hw");b.classList.toggle("ok",l.length>0);if(!l.length){b.textContent="Connect Wallet";return}var f=(lastF&&A[lastF])?lastF:l[0];b.textContent=short(A[f])+(l.length>1?" +"+(l.length-1):"")}
+var WN={};
+function wName(f){var n=WN[f];if(!n)try{n=localStorage.getItem("cbl_w_"+f)}catch(e){}return n||(f==="Tron"?"TronLink":"")}
+function wIcon(f){var n=wName(f);if(!n)return null;var ic=wic(n);if(ic)return ic;var w=Object.keys(W6).map(function(k){return W6[k].info}).filter(function(x){return x.name===n})[0];return w&&/^(data:image|https:)/.test(w.icon||"")?w.icon:null}
+function wImg(f){var ic=wIcon(f);if(!ic)return null;var i=document.createElement("img");i.className="hwi";i.src=ic;i.alt="";i.onerror=function(){this.remove()};return i}
+function updHW(){var l=anyF(),b=$("hw");b.classList.toggle("ok",l.length>0);b.classList.remove("hasi");if(!l.length){b.textContent="Connect Wallet";return}var f=(lastF&&A[lastF])?lastF:l[0];b.textContent=short(A[f])+(l.length>1?" +"+(l.length-1):"");var im=wImg(f);if(im){b.insertBefore(im,b.firstChild);b.classList.add("hasi")}}
 function cbtn(t,fn){var b=document.createElement("button");b.type="button";b.className="chip";b.textContent=t;b.onclick=fn;return b}
 async function disc(f){try{if(f==="evm"){if(EP&&EP.disconnect)await EP.disconnect();EP=null;A.evm=null;$("nb").hidden=true}else if(f==="Solana"){if(SOLP&&SOLP.disconnect)await SOLP.disconnect();SOLP=null;A.Solana=null}else if(f==="XRPL"){if(window.CBLXRPL)await window.CBLXRPL.disconnect();A.XRPL=null}else if(f==="Tron")A.Tron=null;else{A.Bitcoin=null;BTCP=null}}catch(e){}
- try{localStorage.removeItem("cbl_w_"+f)}catch(e){}pend=null;pend2=null;updHW();reset()}
+ delete WN[f];try{localStorage.removeItem("cbl_w_"+f)}catch(e){}pend=null;pend2=null;updHW();reset()}
 function menu(){var m=$("wmn");if(!m.hidden){m.hidden=true;return}m.textContent="";
- anyF().forEach(function(f){var r=document.createElement("div");r.className="wmr";var s=document.createElement("span");s.textContent=FL[f]+" · "+short(A[f]);r.appendChild(s);
+ anyF().forEach(function(f){var r=document.createElement("div");r.className="wmr";var im=wImg(f);if(im)r.appendChild(im);var s=document.createElement("span");s.textContent=FL[f]+" · "+short(A[f]);r.appendChild(s);
   var cp=cbtn("Copy",function(){try{navigator.clipboard.writeText(A[f])}catch(e){}cp.textContent="Copied"});r.appendChild(cp);r.appendChild(cbtn("Disconnect",function(){m.hidden=true;disc(f)}));m.appendChild(r)});
  m.appendChild(cbtn("Connect another wallet",function(){m.hidden=true;connect("BNB Chain",true,true).catch(function(e){fail(e,say1)})}));m.hidden=false}
 $("hw").onclick=function(){if(anyF().length)menu();else connect("BNB Chain",true).catch(function(e){if(!/cancel/i.test(e.message||""))fail(e,say1)})};
