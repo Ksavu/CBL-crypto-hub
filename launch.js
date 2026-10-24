@@ -19,6 +19,7 @@
   var busy = false;
 
   /* ---------- small helpers ---------- */
+  function trade(id) { if (window.cblSwapXrpl) window.cblSwapXrpl(id); else location.href = "/?swap=" + id + "&chain=xrpl#swap" }
   function hex(s) { return Array.prototype.map.call(new TextEncoder().encode(s), function (b) { return b.toString(16).padStart(2, "0") }).join("").toUpperCase() }
   function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] }) }
   function num(v) { return Number(String(v).replace(/[,\s_]/g, "")) }
@@ -191,7 +192,7 @@
       $("lnMsg").innerHTML = "🎉 <b>" + esc(st.form.ticker) + "</b> is live. Supply and liquidity are locked forever." +
         (st.listed === "skipped" ? " (CBL listing is not set up yet.)" : "");
       $("lnDone").hidden = false;
-      $("lnTrade").onclick = function () { if (window.cblSwapXrpl) window.cblSwapXrpl(id) };
+      $("lnTrade").onclick = function () { trade(id) };
       $("lnShare").onclick = function () { var u = location.origin + "/?swap=" + id + "&chain=xrpl#swap"; try { navigator.clipboard.writeText(u); $("lnShare").textContent = "Copied" } catch (e) { prompt("Share link", u) } };
       list();
     } catch (e) {
@@ -281,50 +282,81 @@
         var c = document.createElement("canvas"), s = Math.min(img.width, img.height); c.width = c.height = 128;
         c.getContext("2d").drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 128, 128);
         var u = c.toDataURL("image/webp", 0.85); if (!/^data:image\/webp/.test(u)) u = c.toDataURL("image/png");
-        el.dataset.url = u; el.style.backgroundImage = "url(" + u + ")"; el.textContent = "";
+        el.dataset.url = u; el.style.backgroundImage = "url(" + u + ")"; el.classList.add("has");
+        var t = el.querySelector(".lt"); if (t) t.hidden = true; preview();
       };
       rd.readAsDataURL(fl);
     };
   }
 
-  /* ---------- "New on CBL" list ---------- */
-  async function list() {
+  /* ---------- launches list ---------- */
+  var ALL = [], LIQ = {}, SORT = "new";
+  function age(t) { var m = Math.max(1, Math.round((Date.now() - new Date(t).getTime()) / 60000)); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d" }
+  function card(t) {
+    var id = t.currency + "." + t.issuer, logo = /^data:image\/(png|webp|jpeg);base64,/.test(t.logo || "") ? t.logo : "", lq = LIQ[id];
+    return '<article class="card" data-id="' + esc(id) + '"><div class="ch">' + (logo ? '<img class="lg" alt="" src="' + logo + '">' : '<span class="lgx">' + esc((t.ticker || "?")[0]) + '</span>') +
+      '<div><div class="nm">' + esc(t.name) + '</div><div class="tk">' + esc(t.ticker) + ' · ' + age(t.created_at) + ' ago</div></div></div>' +
+      (t.description ? '<p class="desc">' + esc(t.description) + '</p>' : '') +
+      '<div class="kv"><div><span>Price</span><b>' + (lq ? fmt(lq.price) + " XRP" : "…") + '</b></div><div><span>Liquidity</span><b>' + (lq ? fmt(lq.liq) + " XRP" : "…") + '</b></div></div>' +
+      '<div class="pills"><span class="pill">🔒 Supply</span><span class="pill">🔒 Liquidity</span>' + (Number(t.dev_pct) ? '<span class="pill n">Dev ' + esc(t.dev_pct) + '%</span>' : '<span class="pill n">No dev tokens</span>') + '</div>' +
+      '<div class="acts"><button class="btn p" type="button" data-buy="' + esc(id) + '">Buy</button><a class="btn s" href="/?ca=' + encodeURIComponent(id) + '#scanner">Scan</a>' +
+      (t.web ? '<a class="btn s" href="' + esc(t.web) + '" target="_blank" rel="noopener nofollow" aria-label="Website">↗</a>' : '') + '</div></article>';
+  }
+  function render() {
     var g = $("lnList"); if (!g) return;
+    var q = (($("lnQ") || {}).value || "").trim().toLowerCase();
+    var L = ALL.filter(function (t) { return !q || (t.name + " " + t.ticker).toLowerCase().indexOf(q) > -1 });
+    if (SORT === "liq") L = L.slice().sort(function (a, b) { return ((LIQ[b.currency + "." + b.issuer] || {}).liq || 0) - ((LIQ[a.currency + "." + a.issuer] || {}).liq || 0) });
+    g.innerHTML = L.length ? L.map(card).join("") : '<p class="empty">' + (ALL.length ? "No token matches “" + esc(q) + "”." : "No launches yet. Be the first to launch.") + '</p>';
+    g.querySelectorAll("[data-buy]").forEach(function (b) { b.onclick = function () { trade(b.dataset.buy) } });
+  }
+  function stats() {
+    var n = $("stCount"), l = $("stLiq"); if (n) n.textContent = ALL.length.toLocaleString("en-US");
+    if (l) { var sum = 0, k = 0; for (var i in LIQ) { sum += LIQ[i].liq / 2; k++ } l.textContent = ALL.length ? (k ? fmt(sum) + " XRP" : "…") : "0 XRP" }
+  }
+  async function list() {
+    if (!$("lnList")) return;
     try {
       var d = await fetch("/api/launch").then(function (r) { return r.json() });
-      var L = (d && d.launches) || [];
-      if (!L.length) { g.innerHTML = '<p class="hint">No launches yet. Be the first.</p>'; return }
-      g.innerHTML = L.map(function (t) {
-        var id = t.currency + "." + t.issuer, logo = /^data:image\/(png|webp|jpeg);base64,/.test(t.logo || "") ? t.logo : "";
-        return '<article class="fc lnc"><div class="fcn">' + (logo ? '<img class="lnl" alt="" src="' + logo + '">' : '<span class="av">' + esc((t.ticker || "?")[0]) + '</span>') +
-          '<div><b>' + esc(t.name) + '</b> <small>' + esc(t.ticker) + '</small><div class="lnp" data-c="' + esc(t.currency) + '" data-i="' + esc(t.issuer) + '">…</div></div></div>' +
-          (t.description ? '<p>' + esc(t.description) + '</p>' : '') +
-          '<div class="row"><span class="tag">🔒 Supply locked</span><span class="tag">🔒 LP locked</span>' + (Number(t.dev_pct) ? '<span class="tag">Dev ' + esc(t.dev_pct) + '%</span>' : '') + '</div>' +
-          '<div class="row"><button class="buy" type="button" data-id="' + esc(id) + '">Buy</button><a class="chip" href="/?ca=' + encodeURIComponent(id) + '#scanner">Scan</a>' +
-          (t.web ? '<a class="chip" href="' + esc(t.web) + '" target="_blank" rel="noopener nofollow">Web</a>' : '') +
-          (t.x ? '<a class="chip" href="' + esc(t.x) + '" target="_blank" rel="noopener nofollow">X</a>' : '') +
-          (t.tg ? '<a class="chip" href="' + esc(t.tg) + '" target="_blank" rel="noopener nofollow">TG</a>' : '') + '</div></article>';
-      }).join("");
-      g.querySelectorAll("button.buy[data-id]").forEach(function (b) { b.onclick = function () { if (window.cblSwapXrpl) window.cblSwapXrpl(b.dataset.id) } });
-      g.querySelectorAll(".lnp").forEach(async function (el) {
+      ALL = (d && d.launches) || [];
+    } catch (e) { ALL = [] }
+    render(); stats();
+    for (var i = 0; i < ALL.length; i += 6) {
+      await Promise.all(ALL.slice(i, i + 6).map(async function (t) {
         try {
-          var a = await amm(el.dataset.c, el.dataset.i); if (!a) { el.textContent = ""; return }
-          var x = Number(a.amount) / 1e6, t = Number(a.amount2.value);
-          el.textContent = fmt(x / t) + " XRP · liquidity " + fmt(x * 2) + " XRP";
-        } catch (e) { el.textContent = "" }
-      });
-    } catch (e) { g.innerHTML = "" }
+          var a = await amm(t.currency, t.issuer); if (!a) return;
+          var x = Number(a.amount) / 1e6, tk = Number(a.amount2.value);
+          LIQ[t.currency + "." + t.issuer] = { price: x / tk, liq: x * 2 };
+        } catch (e) {}
+      }));
+      render(); stats();
+    }
+  }
+
+  /* ---------- live preview ---------- */
+  function preview() {
+    var n = $("pvName"), tk = $("pvTicker"), lg = $("pvLogo"); if (!n) return;
+    n.textContent = $("lnName").value.trim() || "Your token";
+    tk.textContent = ($("lnTicker").value.trim() || "TICKER").toUpperCase();
+    var u = $("lnLogo").dataset.url;
+    if (u) { lg.textContent = ""; lg.style.background = "center/cover no-repeat url(" + u + ")" }
+    else lg.textContent = (($("lnTicker").value.trim() || $("lnName").value.trim() || "?")[0] || "?").toUpperCase();
   }
 
   function init() {
     if (!$("launch")) return;
     logoInput();
-    ["lnName", "lnTicker", "lnSupply", "lnDev", "lnPool"].forEach(function (i) { $(i).addEventListener("input", summary) });
+    ["lnName", "lnTicker", "lnSupply", "lnDev", "lnPool"].forEach(function (i) { $(i).addEventListener("input", function () { summary(); preview() }) });
+    if ($("lnQ")) $("lnQ").addEventListener("input", render);
+    if ($("lnSort")) $("lnSort").querySelectorAll("button").forEach(function (b) {
+      b.onclick = function () { SORT = b.dataset.s; $("lnSort").querySelectorAll("button").forEach(function (o) { o.setAttribute("aria-pressed", o === b) }); render() };
+    });
     $("lnFee").querySelectorAll("button").forEach(function (b) {
       b.onclick = function () { $("lnFee").querySelectorAll("button").forEach(function (o) { o.setAttribute("aria-pressed", o === b) }); summary() };
     });
     $("lnGo").onclick = start;
-    pendingBanner(); summary(); list();
+    pendingBanner(); summary(); preview(); list();
+    if (load() && $("tCreate")) $("tCreate").click();
   }
   window.CBLLaunch = { _plan: plan, _steps: steps };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();

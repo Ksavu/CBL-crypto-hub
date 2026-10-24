@@ -62,7 +62,7 @@ The XRP Ledger chain filter chip is already added.
 
 ## XRPLaunch (fair launch on XRPL, by CBL)
 
-The "XRPLaunch" section creates an XRPL token together with its XRP/token AMM pool in one flow. No custody: the browser generates two fresh XRPL accounts and signs with their keys locally.
+XRPLaunch has its own page at **cryptobarlounge.space/launch** (`launch.html`, routed in `vercel.json`), with an Explore tab (all launches, search, sort by liquidity) and a Create tab. The homepage links to it from the menu, the tools card and a banner. It creates an XRPL token together with its XRP/token AMM pool in one flow. No custody: the browser generates two fresh XRPL accounts and signs with their keys locally.
 
 1. The creator signs **one payment** that funds the launch. A dev allocation adds one trust line signature.
 2. The issuer account enables trading, gives up freeze powers and mints the supply.
