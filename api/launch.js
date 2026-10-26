@@ -6,6 +6,7 @@
 // and that the CBL launch fee was paid from that wallet.
 // Env: SUPABASE_URL, SUPABASE_SERVICE_KEY, LAUNCH_FEE_XRP (default 5), LAUNCH_FEE_ACCOUNT (default XRPL_FEE_ACCOUNT)
 const db = require("./_lib/db");
+const data = require("./_lib/launchdata");
 
 const ORIGIN = /^https:\/\/(www\.)?cryptobarlounge\.space$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
 const RPCS = ["https://xrplcluster.com", "https://s1.ripple.com:51234", "https://s2.ripple.com:51234"];
@@ -85,11 +86,33 @@ module.exports = async (req, res) => {
 
   if (req.method === "GET") {
     if (!db.on()) return res.status(200).json({ ok: true, launches: [] });
+    const q = new URL(req.url, "http://x").searchParams;
+    const cols = "select=issuer,currency,ticker,name,description,logo,web,x,tg,dev_pct,supply,creator,lp,amm,created_at";
     try {
-      const rows = await db.select("launches", "select=issuer,currency,ticker,name,description,logo,web,x,tg,dev_pct,supply,created_at&order=created_at.desc&limit=60");
-      res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
-      return res.status(200).json({ ok: true, launches: rows || [] });
-    } catch (e) { return res.status(200).json({ ok: true, launches: [] }); }
+      // One token: full detail for the token page (stats, price history, trades, holders).
+      const id = str(q.get("id"), 80), m = id.match(/^([A-F0-9]{40}|[A-Z0-9]{3})\.(r[1-9A-HJ-NP-Za-km-z]{24,34})$/i);
+      if (m) {
+        const rows = await db.select("launches", cols + "&issuer=eq." + db.enc(m[2]) + "&limit=1");
+        const t = rows && rows[0];
+        if (!t) return res.status(404).json({ ok: false, error: "Token not found on XRPLaunch" });
+        const d = await data.detail(t).catch(() => null);
+        res.setHeader("Cache-Control", "public, s-maxage=20, stale-while-revalidate=60");
+        return res.status(200).json({ ok: true, token: t, ...(d || {}) });
+      }
+      const rows = (await db.select("launches", cols + "&order=created_at.desc&limit=100")) || [];
+      if (q.get("stats") === "1") {
+        // Market stats for every launch (cached at the edge, so the ledger is hit at most once a minute).
+        const t0 = Date.now();
+        for (let i = 0; i < rows.length && Date.now() - t0 < 18000; i += 8) {
+          await Promise.all(rows.slice(i, i + 8).map(async (t) => {
+            t.stats = await Promise.race([data.stats(t).catch(() => null), new Promise((r) => setTimeout(() => r(null), 8000))]);
+          }));
+        }
+        res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=300");
+      } else res.setHeader("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+      rows.forEach((t) => { delete t.creator; delete t.lp; });
+      return res.status(200).json({ ok: true, launches: rows });
+    } catch (e) { console.error("launch GET", e && e.message); return res.status(200).json({ ok: true, launches: [] }); }
   }
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
   if (!db.on()) return res.status(503).json({ ok: false, error: "Listing is not set up yet" });

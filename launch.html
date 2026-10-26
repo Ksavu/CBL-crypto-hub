@@ -132,6 +132,40 @@ details.more summary{cursor:pointer;color:var(--mute);font-weight:600}
 footer{border-top:1px solid var(--line);margin-top:70px;padding:26px 0 40px;color:var(--dim);font-size:13.5px}
 footer .wrap{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}footer a{color:var(--mute)}
 
+
+/* trending + token page */
+.shd{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:6px 0 12px}.shd h2{font-size:22px}
+.mut{color:var(--mute)}.up{color:var(--ok)}.dn{color:#ff6b8a}.sm2{font-size:14px}
+.lbw{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);overflow-x:auto;margin-bottom:34px}
+.lbw .empty{border:0}
+.lb{width:100%;border-collapse:collapse;font-size:15px}
+.lb th{text-align:left;font-weight:600;color:var(--dim);font-size:13px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.lb td{padding:11px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
+.lb tr:last-child td{border-bottom:0}
+.lb .r{text-align:right}.lb .rk{color:var(--dim);width:36px}
+.lb tbody tr[data-open]{cursor:pointer}.lb tbody tr[data-open]:hover td{background:var(--panel2)}
+.lb a{color:var(--mute);text-decoration:none}.lb a:hover{color:var(--ink)}
+.tn{display:flex;align-items:center;gap:10px}.tn .mut{font-size:13px}
+.lgs{width:28px;height:28px;border-radius:50%;object-fit:cover;flex:none}
+.lgxs{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;background:var(--grad);font:700 13px "Space Grotesk",sans-serif;color:#fff}
+.btn.sm{padding:7px 12px;font-size:14px}
+.card{cursor:pointer}.c24{margin-left:auto;font-weight:700;font-size:14.5px}
+.tkh{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+.tkh h2{font-size:30px}.tkh .lg,.tkh .lgx{width:58px;height:58px}
+.tkp{margin-left:auto;text-align:right}.tkp b{display:block;font:700 26px "Space Grotesk",sans-serif}
+.tkg{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}.tkg>*,.tkm,.tks{min-width:0}.tkh>div{min-width:0}.tkh h2{overflow-wrap:anywhere}
+.tkct{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:var(--mute);font-size:14px}
+.chartbox{height:380px}
+.tkb{display:grid;grid-template-columns:2fr 1fr;gap:8px;margin-bottom:14px}.tkb .btn{justify-content:center}
+.proof,.tkl{display:flex;gap:8px;flex-wrap:wrap}.proof a{font-size:14px;color:var(--aqua);text-decoration:none}
+.hold{margin:10px 0 6px;padding-left:20px;font-size:14.5px}.hold li{padding:3px 0}.hold li b{float:right;font-weight:600}.hold a{color:var(--mute);text-decoration:none}
+.tid{display:flex;gap:8px;align-items:center;margin-top:8px}.tid code{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;color:var(--mute);background:var(--bg2);padding:8px 10px;border-radius:8px}
+.tr td{padding:9px 12px;font-size:14px}.trw{max-height:560px;overflow:auto;margin-top:8px}.trw thead th{position:sticky;top:0;background:var(--panel)}
+#lnMore[hidden]{display:none}
+#lnHero[hidden],#lnTabs[hidden],.pane[hidden]{display:none}
+@media (max-width:960px){.tkg{display:flex;flex-direction:column}.tkm,.tks{display:contents}.tkg .blk{min-width:0;width:100%}.tkg .blk{order:4}.tkg .o1{order:1}.tkg .o2{order:2}.tkg .o3{order:3}.lb .hm{display:none}.chartbox{height:300px}}
+@media (max-width:620px){.lb .hs{display:none}.tkp{margin-left:0;text-align:left}}
+
 /* wallet modal (used by xrpl-swap.js) */
 .wm{position:fixed;inset:0;background:rgba(5,4,20,.8);display:flex;align-items:center;justify-content:center;z-index:60;padding:20px}
 .wm[hidden]{display:none}
@@ -159,7 +193,7 @@ footer .wrap{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}
 
 <main id="launch">
   <div class="wrap">
-    <section class="hero">
+    <section class="hero" id="lnHero">
       <div>
         <div class="kicker">XRPLAUNCH · XRP LEDGER · BY CBL</div>
         <h1>Launch on XRPL.<br><span class="gtx">Locked forever.</span></h1>
@@ -169,21 +203,29 @@ footer .wrap{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}
       <div class="stats" aria-live="polite">
         <div class="stat big"><span>XRP locked in launch pools</span><b id="stLiq">—</b></div>
         <div class="stat"><span>Tokens launched</span><b id="stCount">—</b></div>
-        <div class="stat"><span>Signatures to launch</span><b>1</b></div>
+        <div class="stat"><span>24h volume</span><b id="stVol">—</b></div>
       </div>
     </section>
 
-    <div class="tabs" role="tablist">
+    <div class="tabs" role="tablist" id="lnTabs">
       <button class="tab" role="tab" id="tExplore" aria-selected="true" aria-controls="pExplore">Explore</button>
       <button class="tab" role="tab" id="tCreate" aria-selected="false" aria-controls="pCreate">Create token</button>
     </div>
 
     <section class="pane" id="pExplore" role="tabpanel" aria-labelledby="tExplore">
+      <div class="shd"><h2>Trending now</h2><span class="mut">By 24h volume · updates every minute</span></div>
+      <div id="lnTop" class="lbw"><p class="empty">Loading…</p></div>
+      <div class="shd"><h2>All launches</h2></div>
       <div class="tools">
         <input class="search" id="lnQ" type="search" placeholder="Search name or ticker" aria-label="Search launches">
-        <div class="seg" id="lnSort" role="group" aria-label="Sort"><button type="button" data-s="new" aria-pressed="true">Newest</button><button type="button" data-s="liq" aria-pressed="false">Liquidity</button></div>
+        <div class="seg" id="lnSort" role="group" aria-label="Sort"><button type="button" data-s="trend" aria-pressed="true">Trending</button><button type="button" data-s="gain" aria-pressed="false">Gainers</button><button type="button" data-s="mcap" aria-pressed="false">Market cap</button><button type="button" data-s="new" aria-pressed="false">Newest</button></div>
       </div>
       <div class="grid" id="lnList"><p class="empty">Loading launches…</p></div>
+    </section>
+
+    <section class="pane" id="pToken" hidden aria-label="Token">
+      <button class="btn s sm" type="button" id="tkBack" style="margin:22px 0 18px">← All launches</button>
+      <div id="tkView"></div>
     </section>
 
     <section class="pane" id="pCreate" role="tabpanel" aria-labelledby="tCreate" hidden>
@@ -230,6 +272,7 @@ footer .wrap{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}
       </div>
     </section>
 
+    <div id="lnMore">
     <section class="sec" id="how">
       <h2>How a launch works</h2>
       <div class="how">
@@ -248,6 +291,7 @@ footer .wrap{display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap}
       <details><summary>What if my browser closes during the launch?</summary><p>Progress is saved in this browser. Reopen this page and press Resume. If the pool wasn't created yet, you can also cancel and get the unused XRP back.</p></details>
       <details><summary>Is a launched token "safe"?</summary><p>Locked supply and liquidity remove the most common rug pulls, but a token can still lose value. Always do your own research.</p></details>
     </section>
+    </div>
   </div>
 </main>
 
@@ -258,7 +302,7 @@ var WIC={"xaman": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAAC
 window.wic=function(n){var k=String(n).toLowerCase().replace(/[^a-z]/g,"");for(var x in WIC)if(k.indexOf(x)>-1)return WIC[x];return null};
 (function(){
  var $=function(i){return document.getElementById(i)};
- function tab(n){var c=n==="create";$("tExplore").setAttribute("aria-selected",!c);$("tCreate").setAttribute("aria-selected",c);$("pExplore").hidden=c;$("pCreate").hidden=!c;
+ function tab(n){var c=n==="create";if($("pToken"))$("pToken").hidden=true;if($("lnMore"))$("lnMore").hidden=false;$("lnTabs").hidden=false;$("lnHero").hidden=false;if(/[?&]t=/.test(location.search))try{history.pushState({},"","/launch")}catch(e){}$("tExplore").setAttribute("aria-selected",!c);$("tCreate").setAttribute("aria-selected",c);$("pExplore").hidden=c;$("pCreate").hidden=!c;
   try{history.replaceState(null,"",c?"#create":"#explore")}catch(e){}}
  $("tExplore").onclick=function(){tab("explore")};$("tCreate").onclick=function(){tab("create")};
  document.querySelectorAll("[data-go]").forEach(function(b){b.onclick=function(){tab(b.dataset.go);document.querySelector(".tabs").scrollIntoView({behavior:"smooth"})}});

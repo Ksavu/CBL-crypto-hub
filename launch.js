@@ -289,48 +289,147 @@
     };
   }
 
-  /* ---------- launches list ---------- */
-  var ALL = [], LIQ = {}, SORT = "new";
+  /* ---------- launches list, trending, token pages ---------- */
+  var ALL = [], SORT = "trend", EXPL = "https://xrpscan.com/account/", TXL = "https://xrpscan.com/tx/";
+  var CHART_LIB = "https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js";
   function age(t) { var m = Math.max(1, Math.round((Date.now() - new Date(t).getTime()) / 60000)); return m < 60 ? m + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d" }
+  function idOf(t) { return t.currency + "." + t.issuer }
+  function logoHtml(t, cls) { var l = /^data:image\/(png|webp|jpeg);base64,/.test(t.logo || "") ? t.logo : ""; return l ? '<img class="' + (cls || "lg") + '" alt="" src="' + l + '">' : '<span class="' + (cls === "lgs" ? "lgxs" : "lgx") + '">' + esc((t.ticker || "?")[0]) + '</span>' }
+  function chg(v) { return v == null || !isFinite(v) ? '<span class="mut">—</span>' : '<span class="' + (v >= 0 ? "up" : "dn") + '">' + (v >= 0 ? "+" : "") + (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString("en-US") : v.toFixed(1)) + '%</span>' }
+  function xrp(v) { return v == null || !isFinite(v) ? "—" : fmt(v) + " XRP" }
+  function st(t) { return t.stats || {} }
+
   function card(t) {
-    var id = t.currency + "." + t.issuer, logo = /^data:image\/(png|webp|jpeg);base64,/.test(t.logo || "") ? t.logo : "", lq = LIQ[id];
-    return '<article class="card" data-id="' + esc(id) + '"><div class="ch">' + (logo ? '<img class="lg" alt="" src="' + logo + '">' : '<span class="lgx">' + esc((t.ticker || "?")[0]) + '</span>') +
-      '<div><div class="nm">' + esc(t.name) + '</div><div class="tk">' + esc(t.ticker) + ' · ' + age(t.created_at) + ' ago</div></div></div>' +
+    var s = st(t), id = idOf(t);
+    return '<article class="card" data-open="' + esc(id) + '" tabindex="0"><div class="ch">' + logoHtml(t) +
+      '<div><div class="nm">' + esc(t.name) + '</div><div class="tk">' + esc(t.ticker) + ' · ' + age(t.created_at) + ' ago</div></div><div class="c24">' + chg(s.change24) + '</div></div>' +
       (t.description ? '<p class="desc">' + esc(t.description) + '</p>' : '') +
-      '<div class="kv"><div><span>Price</span><b>' + (lq ? fmt(lq.price) + " XRP" : "…") + '</b></div><div><span>Liquidity</span><b>' + (lq ? fmt(lq.liq) + " XRP" : "…") + '</b></div></div>' +
+      '<div class="kv"><div><span>Market cap</span><b>' + xrp(s.mcap) + '</b></div><div><span>24h volume</span><b>' + xrp(s.vol24) + '</b></div></div>' +
       '<div class="pills"><span class="pill">🔒 Supply</span><span class="pill">🔒 Liquidity</span>' + (Number(t.dev_pct) ? '<span class="pill n">Dev ' + esc(t.dev_pct) + '%</span>' : '<span class="pill n">No dev tokens</span>') + '</div>' +
-      '<div class="acts"><button class="btn p" type="button" data-buy="' + esc(id) + '">Buy</button><a class="btn s" href="/?ca=' + encodeURIComponent(id) + '#scanner">Scan</a>' +
-      (t.web ? '<a class="btn s" href="' + esc(t.web) + '" target="_blank" rel="noopener nofollow" aria-label="Website">↗</a>' : '') + '</div></article>';
+      '<div class="acts"><button class="btn p" type="button" data-buy="' + esc(id) + '">Buy</button><button class="btn s" type="button" data-open="' + esc(id) + '">Chart &amp; info</button></div></article>';
+  }
+  function sorted(mode) {
+    var L = ALL.slice(), v = function (t, k) { var x = st(t)[k]; return x == null || !isFinite(x) ? -Infinity : x };
+    if (mode === "trend") L.sort(function (a, b) { return (v(b, "vol24") - v(a, "vol24")) || ((st(b).buys24 || 0) - (st(a).buys24 || 0)) });
+    else if (mode === "gain") L.sort(function (a, b) { return v(b, "change24") - v(a, "change24") });
+    else if (mode === "mcap") L.sort(function (a, b) { return v(b, "mcap") - v(a, "mcap") });
+    return L;
+  }
+  function bind(root) {
+    root.querySelectorAll("[data-buy]").forEach(function (b) { b.onclick = function (e) { e.stopPropagation(); trade(b.dataset.buy) } });
+    root.querySelectorAll("[data-open]").forEach(function (el) {
+      el.onclick = function (e) { if (e.target.closest("[data-buy],a")) return; e.stopPropagation(); openToken(el.dataset.open) };
+      el.onkeydown = function (e) { if (e.key === "Enter" && el === e.target) openToken(el.dataset.open) };
+    });
+  }
+  function renderTop() {
+    var box = $("lnTop"); if (!box) return;
+    var L = sorted("trend").filter(function (t) { return st(t).vol24 > 0 || st(t).buys24 > 0 }).slice(0, 10);
+    if (!L.length) L = sorted("mcap").slice(0, 10);
+    if (!L.length) { box.innerHTML = '<p class="empty">No launches yet. Be the first to launch.</p>'; return }
+    box.innerHTML = '<table class="lb"><thead><tr><th>#</th><th>Token</th><th class="r">Price</th><th class="r">24h</th><th class="r hs">Volume 24h</th><th class="r hs">Market cap</th><th class="r hm">Liquidity</th><th></th></tr></thead><tbody>' +
+      L.map(function (t, i) { var s = st(t);
+        return '<tr data-open="' + esc(idOf(t)) + '" tabindex="0"><td class="rk">' + (i + 1) + '</td><td><div class="tn">' + logoHtml(t, "lgs") + '<b>' + esc(t.name) + '</b><span class="mut">' + esc(t.ticker) + '</span></div></td>' +
+          '<td class="r">' + xrp(s.price) + '</td><td class="r">' + chg(s.change24) + '</td><td class="r hs">' + xrp(s.vol24) + '</td><td class="r hs">' + xrp(s.mcap) + '</td><td class="r hm">' + xrp(s.liq) + '</td>' +
+          '<td class="r"><button class="btn p sm" type="button" data-buy="' + esc(idOf(t)) + '">Buy</button></td></tr>' }).join("") + '</tbody></table>';
+    bind(box);
   }
   function render() {
     var g = $("lnList"); if (!g) return;
     var q = (($("lnQ") || {}).value || "").trim().toLowerCase();
-    var L = ALL.filter(function (t) { return !q || (t.name + " " + t.ticker).toLowerCase().indexOf(q) > -1 });
-    if (SORT === "liq") L = L.slice().sort(function (a, b) { return ((LIQ[b.currency + "." + b.issuer] || {}).liq || 0) - ((LIQ[a.currency + "." + a.issuer] || {}).liq || 0) });
+    var L = sorted(SORT).filter(function (t) { return !q || (t.name + " " + t.ticker).toLowerCase().indexOf(q) > -1 });
     g.innerHTML = L.length ? L.map(card).join("") : '<p class="empty">' + (ALL.length ? "No token matches “" + esc(q) + "”." : "No launches yet. Be the first to launch.") + '</p>';
-    g.querySelectorAll("[data-buy]").forEach(function (b) { b.onclick = function () { trade(b.dataset.buy) } });
+    bind(g);
   }
   function stats() {
-    var n = $("stCount"), l = $("stLiq"); if (n) n.textContent = ALL.length.toLocaleString("en-US");
-    if (l) { var sum = 0, k = 0; for (var i in LIQ) { sum += LIQ[i].liq / 2; k++ } l.textContent = ALL.length ? (k ? fmt(sum) + " XRP" : "…") : "0 XRP" }
+    var n = $("stCount"), l = $("stLiq"), v = $("stVol"); if (n) n.textContent = ALL.length.toLocaleString("en-US");
+    var liq = 0, vol = 0, k = 0; ALL.forEach(function (t) { if (t.stats) { liq += (t.stats.liq || 0) / 2; vol += t.stats.vol24 || 0; k++ } });
+    if (l) l.textContent = ALL.length && !k ? "…" : fmt(liq) + " XRP";
+    if (v) v.textContent = ALL.length && !k ? "…" : fmt(vol) + " XRP";
   }
   async function list() {
     if (!$("lnList")) return;
-    try {
-      var d = await fetch("/api/launch").then(function (r) { return r.json() });
-      ALL = (d && d.launches) || [];
-    } catch (e) { ALL = [] }
-    render(); stats();
-    for (var i = 0; i < ALL.length; i += 6) {
-      await Promise.all(ALL.slice(i, i + 6).map(async function (t) {
-        try {
-          var a = await amm(t.currency, t.issuer); if (!a) return;
-          var x = Number(a.amount) / 1e6, tk = Number(a.amount2.value);
-          LIQ[t.currency + "." + t.issuer] = { price: x / tk, liq: x * 2 };
-        } catch (e) {}
-      }));
-      render(); stats();
-    }
+    try { var d = await fetch("/api/launch?stats=1").then(function (r) { return r.json() }); ALL = (d && d.launches) || [] } catch (e) { ALL = [] }
+    // Fill gaps straight from the ledger if the server couldn't compute stats for some tokens.
+    await Promise.all(ALL.filter(function (t) { return !t.stats }).slice(0, 30).map(async function (t) {
+      try { var a = await amm(t.currency, t.issuer); if (!a) return; var x = Number(a.amount) / 1e6, tk = Number(a.amount2.value);
+        t.stats = { price: x / tk, liq: x * 2, mcap: Number(t.supply) ? (x / tk) * Number(t.supply) : null } } catch (e) {}
+    }));
+    render(); renderTop(); stats();
+  }
+
+  /* ----- token page ----- */
+  var chart = null;
+  function show(view) { ["pExplore", "pCreate", "pToken"].forEach(function (p) { if ($(p)) $(p).hidden = p !== view }); if ($("lnTabs")) $("lnTabs").hidden = view === "pToken"; if ($("lnHero")) $("lnHero").hidden = view === "pToken"; if ($("lnMore")) $("lnMore").hidden = view === "pToken" }
+  function openToken(id, noPush) {
+    if (!$("pToken")) return trade(id);
+    if (!noPush) try { history.pushState({ t: id }, "", "/launch?t=" + encodeURIComponent(id)) } catch (e) {}
+    show("pToken"); window.scrollTo(0, 0);
+    var known = ALL.filter(function (t) { return idOf(t) === id })[0];
+    $("tkView").innerHTML = '<p class="empty">Loading ' + esc(known ? known.name : "token") + '…</p>';
+    fetch("/api/launch?id=" + encodeURIComponent(id)).then(function (r) { return r.json() }).then(function (d) {
+      if (!d || !d.ok) throw new Error((d && d.error) || "Token not found");
+      d.token.stats = d.stats || (known && known.stats) || {};
+      renderToken(d);
+    }).catch(function (e) { $("tkView").innerHTML = '<p class="empty">' + esc(e.message) + '</p>' });
+  }
+  function closeToken() { show("pExplore"); try { history.pushState({}, "", "/launch") } catch (e) {} }
+  function renderToken(d) {
+    var t = d.token, s = t.stats, id = idOf(t), h = d.holders, links = "";
+    [["web", "Website"], ["x", "X"], ["tg", "Telegram"]].forEach(function (k) { if (t[k[0]]) links += '<a class="btn s sm" href="' + esc(t[k[0]]) + '" target="_blank" rel="noopener nofollow">' + k[1] + ' ↗</a>' });
+    var buys = s.buys24 || 0, sells = s.sells24 || 0;
+    $("tkView").innerHTML =
+      '<div class="tkh">' + logoHtml(t) + '<div><h2>' + esc(t.name) + ' <span class="mut">' + esc(t.ticker) + '</span></h2><div class="mut sm2">Launched ' + age(t.created_at) + ' ago · ' + esc(t.ticker) + '/XRP · pool fee ' + (s.poolFee != null ? s.poolFee + "%" : "—") + '</div></div>' +
+        '<div class="tkp"><b>' + xrp(s.price) + '</b>' + chg(s.change24) + '</div></div>' +
+      '<div class="tkg"><div class="tkm">' +
+        '<div class="blk tkc o1"><div class="tkct"><span>Price (XRP)</span><div class="seg" id="tkTf"><button type="button" data-h="24" aria-pressed="false">24h</button><button type="button" data-h="168" aria-pressed="false">7d</button><button type="button" data-h="0" aria-pressed="true">All</button></div></div><div id="tkChart" class="chartbox"></div></div>' +
+        '<div class="blk o3"><h3>Recent trades</h3><div id="tkTrades"></div></div></div>' +
+      '<aside class="tks">' +
+        '<div class="blk o2"><div class="tkb"><button class="btn p" type="button" id="tkBuy">Buy ' + esc(t.ticker) + '</button><button class="btn s" type="button" id="tkSell">Sell</button></div>' +
+          '<div class="sum"><div><span>Market cap</span><b>' + xrp(s.mcap) + '</b></div><div><span>Liquidity</span><b>' + xrp(s.liq) + '</b></div><div><span>24h volume</span><b>' + xrp(s.vol24) + '</b></div>' +
+          '<div><span>24h trades</span><b><span class="up">' + buys + ' buys</span> · <span class="dn">' + sells + ' sells</span></b></div>' +
+          '<div><span>Holders</span><b>' + (h ? h.count.toLocaleString("en-US") + (h.capped ? "+" : "") : "—") + '</b></div><div><span>Supply</span><b>' + (s.supply || Number(t.supply) ? fmt(s.supply || Number(t.supply)) : "—") + '</b></div>' +
+          '<div><span>Dev allocation</span><b>' + (Number(t.dev_pct) ? esc(t.dev_pct) + "%" : "None") + '</b></div></div></div>' +
+        '<div class="blk"><h3>Safety</h3><div class="pills" style="margin:8px 0 10px"><span class="pill">🔒 Supply locked</span><span class="pill">🔒 Liquidity locked</span><span class="pill">No freeze</span></div>' +
+          '<div class="proof"><a href="' + EXPL + esc(t.issuer) + '" target="_blank" rel="noopener">Issuer (blackholed) ↗</a>' + (s.amm ? '<a href="' + EXPL + esc(s.amm) + '" target="_blank" rel="noopener">AMM pool ↗</a>' : '') + '<a href="/?ca=' + encodeURIComponent(id) + '#scanner">Scan on CBL ↗</a></div></div>' +
+        (t.description || links ? '<div class="blk"><h3>About</h3>' + (t.description ? '<p class="mut" style="margin:6px 0 12px">' + esc(t.description) + '</p>' : '') + '<div class="tkl">' + links + '</div></div>' : '') +
+        (h && h.top && h.top.length ? '<div class="blk"><h3>Top holders</h3><ol class="hold">' + h.top.map(function (x) { return '<li><a href="' + EXPL + esc(x.account) + '" target="_blank" rel="noopener">' + esc(x.account.slice(0, 6) + "…" + x.account.slice(-4)) + '</a><b>' + x.pct.toFixed(2) + '%</b></li>' }).join("") + '</ol><small class="mut">Pool excluded.</small></div>' : '') +
+        '<div class="blk"><h3>Token ID</h3><div class="tid"><code>' + esc(id) + '</code><button class="btn s sm" type="button" id="tkCopy">Copy</button></div></div>' +
+      '</aside></div>';
+    $("tkBuy").onclick = $("tkSell").onclick = function () { trade(id) };
+    $("tkCopy").onclick = function () { try { navigator.clipboard.writeText(id); $("tkCopy").textContent = "Copied" } catch (e) {} };
+    var tr = d.trades || [];
+    $("tkTrades").innerHTML = tr.length ? '<div class="trw"><table class="lb tr"><thead><tr><th>Type</th><th class="r">XRP</th><th class="r hs">' + esc(t.ticker) + '</th><th class="r hm">Price</th><th class="r hs">Account</th><th class="r">Age</th></tr></thead><tbody>' +
+      tr.map(function (r) { var lab = { buy: "Buy", sell: "Sell", create: "Launch", add: "Add", remove: "Remove" }[r.side] || r.side, cls = r.side === "buy" || r.side === "create" ? "up" : r.side === "sell" ? "dn" : "mut";
+        return '<tr><td class="' + cls + '">' + lab + '</td><td class="r">' + fmt(r.xrp) + '</td><td class="r hs">' + fmt(r.tok) + '</td><td class="r hm">' + (r.price ? fmt(r.price) : "—") + '</td><td class="r hs">' + (r.account ? '<a href="' + EXPL + esc(r.account) + '" target="_blank" rel="noopener">' + esc(r.account.slice(0, 5) + "…" + r.account.slice(-4)) + '</a>' : "") + '</td><td class="r">' + (r.hash ? '<a href="' + TXL + esc(r.hash) + '" target="_blank" rel="noopener">' + age(r.t * 1000) + '</a>' : age(r.t * 1000)) + '</td></tr>' }).join("") + '</tbody></table></div>'
+      : '<p class="mut">No trades yet.</p>';
+    drawChart(d.history || [], 0);
+    $("tkTf").querySelectorAll("button").forEach(function (b) { b.onclick = function () { $("tkTf").querySelectorAll("button").forEach(function (o) { o.setAttribute("aria-pressed", o === b) }); drawChart(d.history || [], Number(b.dataset.h)) } });
+  }
+  function loadChartLib() {
+    if (window.LightweightCharts) return Promise.resolve();
+    return new Promise(function (ok, no) { var s = document.createElement("script"); s.src = CHART_LIB; s.onload = ok; s.onerror = function () { no(new Error("chart")) }; document.head.appendChild(s) });
+  }
+  async function drawChart(hist, hours) {
+    var box = $("tkChart"); if (!box) return;
+    var since = hours ? Date.now() / 1000 - hours * 3600 : 0, pts = hist.filter(function (p) { return p.t >= since });
+    if (pts.length < 2) { if (chart) { chart.remove(); chart = null } box.innerHTML = '<p class="empty" style="border:0">Not enough trades yet for a chart.</p>'; return }
+    try { await loadChartLib() } catch (e) { box.innerHTML = '<p class="empty" style="border:0">Chart could not load.</p>'; return }
+    if (chart) { chart.remove(); chart = null } box.innerHTML = "";
+    var css = getComputedStyle(document.documentElement), v = function (n) { return css.getPropertyValue(n).trim() };
+    chart = LightweightCharts.createChart(box, { autoSize: true, layout: { background: { type: "solid", color: "transparent" }, textColor: v("--mute"), fontFamily: "DM Sans, sans-serif" },
+      grid: { vertLines: { visible: false }, horzLines: { color: v("--line") } }, rightPriceScale: { borderVisible: false }, timeScale: { borderVisible: false, timeVisible: true },
+      localization: { priceFormatter: function (p) { return p > 1e-12 ? fmt(p) : "" } } });
+    chart.priceScale("right").applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
+    var line = chart.addAreaSeries({ lineColor: "#E917E0", topColor: "rgba(233,23,224,.28)", bottomColor: "rgba(19,32,229,0)", lineWidth: 2, priceFormat: { type: "price", precision: 10, minMove: 1e-10 } });
+    var vol = chart.addHistogramSeries({ priceScaleId: "", priceFormat: { type: "volume" }, color: "rgba(11,156,240,.35)", lastValueVisible: false, priceLineVisible: false });
+    vol.priceScale().applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+    // one point per second max (lightweight-charts needs strictly increasing time)
+    var byT = {}; pts.forEach(function (p) { var k = Math.floor(p.t); byT[k] = { p: p.p, v: ((byT[k] || {}).v || 0) + p.v } });
+    var ks = Object.keys(byT).map(Number).sort(function (a, b) { return a - b });
+    line.setData(ks.map(function (k) { return { time: k, value: byT[k].p } }));
+    vol.setData(ks.map(function (k) { return { time: k, value: byT[k].v } }));
+    chart.timeScale().fitContent();
   }
 
   /* ---------- live preview ---------- */
@@ -351,6 +450,9 @@
     if ($("lnSort")) $("lnSort").querySelectorAll("button").forEach(function (b) {
       b.onclick = function () { SORT = b.dataset.s; $("lnSort").querySelectorAll("button").forEach(function (o) { o.setAttribute("aria-pressed", o === b) }); render() };
     });
+    if ($("tkBack")) $("tkBack").onclick = closeToken;
+    window.addEventListener("popstate", function () { var t = new URLSearchParams(location.search).get("t"); if (t) openToken(t, true); else show("pExplore") });
+    var t0 = new URLSearchParams(location.search).get("t"); if (t0) openToken(t0, true);
     $("lnFee").querySelectorAll("button").forEach(function (b) {
       b.onclick = function () { $("lnFee").querySelectorAll("button").forEach(function (o) { o.setAttribute("aria-pressed", o === b) }); summary() };
     });
