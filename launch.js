@@ -256,6 +256,17 @@
   }
 
   /* ---------- live summary ---------- */
+  /** How much of the supply a single 20 XRP buy would take at launch (constant-product AMM, fee on input). */
+  function snipe(f, p) {
+    var b = 20 * (1 - f.tradingFee / 100000), share = (p.pool * b / (f.poolXrp + b)) / p.supply * 100;
+    var cls = share >= 15 ? "risk-h" : share >= 5 ? "risk-m" : "risk-l", word = share >= 15 ? "high snipe risk" : share >= 5 ? "medium" : "low snipe risk";
+    return "<div><span>A 20 XRP buy at launch gets</span><b class='" + cls + "'>" + (share >= 10 ? share.toFixed(0) : share.toFixed(1)) + "% of supply · " + word + "</b></div>";
+  }
+  function syncTier() {
+    var v = num($("lnPool").value), box = $("lnTier"); if (!box) return;
+    box.querySelectorAll("button").forEach(function (b) { b.setAttribute("aria-pressed", v >= Number(b.dataset.min) && v <= Number(b.dataset.max)) });
+  }
+
   async function summary() {
     var box = $("lnSum");
     try {
@@ -264,6 +275,7 @@
       box.innerHTML = "<div><span>Starting price</span><b>" + fmt(p.price) + " XRP</b></div>" +
         "<div><span>Starting market cap</span><b>" + fmt(p.mcap) + " XRP</b></div>" +
         "<div><span>Pool</span><b>" + fmt(f.poolXrp) + " XRP + " + fmt(p.pool) + " " + esc(f.ticker) + "</b></div>" +
+        snipe(f, p) +
         (p.dev ? "<div><span>Dev allocation (public)</span><b>" + fmt(p.dev) + " " + esc(f.ticker) + "</b></div>" : "") +
         "<div><span>CBL launch fee</span><b>" + (fee ? fee + " XRP" : "Free") + "</b></div>" +
         "<div><span>Network costs (locked/burned)</span><b>~" + fmt(p.network) + " XRP</b></div>" +
@@ -453,6 +465,10 @@
     if ($("tkBack")) $("tkBack").onclick = closeToken;
     window.addEventListener("popstate", function () { var t = new URLSearchParams(location.search).get("t"); if (t) openToken(t, true); else show("pExplore") });
     var t0 = new URLSearchParams(location.search).get("t"); if (t0) openToken(t0, true);
+    if ($("lnTier")) $("lnTier").querySelectorAll("button").forEach(function (b) {
+      b.onclick = function () { $("lnPool").value = b.dataset.v; syncTier(); summary() };
+    });
+    $("lnPool").addEventListener("input", syncTier); syncTier();
     $("lnFee").querySelectorAll("button").forEach(function (b) {
       b.onclick = function () { $("lnFee").querySelectorAll("button").forEach(function (o) { o.setAttribute("aria-pressed", o === b) }); summary() };
     });
