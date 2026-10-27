@@ -37,7 +37,9 @@ const fail = (status, message) => Object.assign(new Error(message), { status });
 
 
 const { runXrpl, isXrplId } = require("./xrpl");
+const { runTerra, isTerraId } = require("./terra");
 function detect(ca) {
+  if (isTerraId(ca)) return "terra";
   if (isXrplId(ca)) return "xrpl";
   return /^0x[a-fA-F0-9]{40}$/.test(ca) ? "evm" : /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca) ? "sol" : "";
 }
@@ -51,6 +53,13 @@ async function runScan(caIn, selIn, opts) {
     const k = "x|" + ca, h = cache.get(k);
     if (h && !opts.fresh && Date.now() - h.t < 60000) return h.v;
     const v = await runXrpl(ca); cache.set(k, { t: Date.now(), v }); return v;
+  }
+  if (kind === "terra") {
+    const k = "t|" + ca.toLowerCase(), h = cache.get(k);
+    if (h && !opts.fresh && Date.now() - h.t < 60000) return h.v;
+    const v = await runTerra(ca); cache.set(k, { t: Date.now(), v });
+    if (v.address !== ca.toLowerCase()) cache.set("t|" + v.address, { t: Date.now(), v }); // pair address was pasted
+    return v;
   }
   if (sel !== "auto" && !OK_CHAINS.includes(sel)) throw fail(400, "Unsupported network");
   if (kind === "sol" && sel !== "auto" && sel !== "solana") throw fail(400, "That is a Solana address");
