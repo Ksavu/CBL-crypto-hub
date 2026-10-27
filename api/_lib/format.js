@@ -28,9 +28,17 @@ function card(r, site, opt) {
   L.push(`${dot} <b>${r.score === null ? "n/a" : r.score + "/100"}</b> · ${esc(r.verdict)}`);
   if (r.market) {
     const m = r.market, ch = typeof m.change24h === "number" ? ` (${m.change24h >= 0 ? "+" : ""}${m.change24h}% 24h)` : "";
-    L.push("", `💧 Liquidity ${usd(m.liquidity)}   💰 MC ${usd(m.marketCap || m.fdv)}`,
+    L.push("", m.curve ? `💧 Bonding curve ${usd(m.liquidity)}${typeof m.curveProgress === "number" ? ` (${m.curveProgress}% to migration)` : ""}   💰 MC ${usd(m.marketCap || m.fdv)}` : `💧 Liquidity ${usd(m.liquidity)}   💰 MC ${usd(m.marketCap || m.fdv)}`,
       `📊 Vol 24h ${usd(m.volume24h)}   🕒 Age ${age(m.pairCreatedAt)}`,
       `💲 $${esc(Number(m.price).toPrecision(4))}${ch}`);
+  }
+  if (r.dex && (r.dex.paid !== null || r.dex.boosts || r.dex.cto)) {
+    const d = r.dex, bits = [];
+    if (d.paid !== null) bits.push(`🦅 DEX paid ${d.paid ? "✅" : "❌"}`);
+    if (d.boosts) bits.push(`🚀 Boosts ${d.boosts}`);
+    if (d.cto) bits.push("👥 Community takeover");
+    if (d.ads) bits.push("📣 Ads running");
+    L.push(bits.join(" · "));
   }
   if (r.chain === "solana" || r.deep) {
     const d = r.deep;

@@ -2,6 +2,7 @@
 const { analyze } = require("./score");
 const { deepSol } = require("./deep");
 const { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS } = require("./explorer");
+const { fillSol } = require("./solmarket");
 
 const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663 };
 const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"];
@@ -32,6 +33,17 @@ function extractLinks(pair) {
   return L;
 }
 const fail = (status, message) => Object.assign(new Error(message), { status });
+
+/** DEX paid status from DexScreener orders (+ boosts from the pair). paid: true/false, or null if unknown. */
+function dexPaid(orders, pair) {
+  const list = Array.isArray(orders) ? orders : (orders && Array.isArray(orders.orders) ? orders.orders : null);
+  const ok = (t) => !!list && list.some((o) => o && o.type === t && o.status === "approved");
+  let paid = list ? ok("tokenProfile") : null;
+  // Orders API unavailable: an enhanced profile (header banner) on the pair means it was paid.
+  if (paid === null && pair && pair.info && pair.info.header) paid = true;
+  const ts = list ? list.filter((o) => o && o.type === "tokenProfile" && o.status === "approved").map((o) => o.paymentTimestamp).filter(Boolean)[0] : null;
+  return { paid, paidAt: ts || null, cto: ok("communityTakeover"), ads: ok("tokenAd") || ok("trendingBarAd"), boosts: (pair && pair.boosts && pair.boosts.active) || 0 };
+}
 
 const { runXrpl, isXrplId } = require("./xrpl");
 function detect(ca) {
@@ -66,8 +78,12 @@ async function runScan(caIn, selIn, opts) {
   if (!chain && pairs.length) chain = pairs.sort((a, b) => liq(b) - liq(a))[0].chainId;
   if (!chain) throw fail(404, "No trading pair found. Choose the network and try again.");
   pairs = pairs.filter((p) => p.chainId === chain).sort((a, b) => liq(b) - liq(a));
-  const pair = pairs[0] || null;
+  let pair = pairs[0] || null;
+  // Solana: DexScreener often has no liquidity/volume/age for new and pump.fun tokens; fill from other sources.
+  if (kind === "sol") pair = await fillSol(ca, pair).catch(() => pair);
 
+  // DexScreener paid orders (profile, community takeover, ads). Hype info only, never affects the score.
+  const ordersP = Promise.race([j(`https://api.dexscreener.com/orders/v1/${chain}/${ca}`, 3500).catch(() => null), new Promise((ok) => setTimeout(() => ok(null), 3800))]);
   let gp = null, hp = null, rc = null, deep = null, ex = null;
   if (kind === "evm") {
     const id = EVM[chain];
@@ -101,6 +117,7 @@ async function runScan(caIn, selIn, opts) {
   sources.helius = !!deep && kind === "sol";
   if (!pair && !sources.goplus && !sources.honeypot && !sources.rugcheck && !sources.explorer) throw fail(404, "No data found for this address on " + chain);
 
+  const dexInfo = dexPaid(await ordersP, pair);
   const stv = (x) => (x && typeof x === "object" && "status" in x ? x.status : x);
   const hasGp = !!(gp && Object.keys(gp).length), sim = hp && hp.simulationResult;
   const flags = kind === "sol"
@@ -118,8 +135,9 @@ async function runScan(caIn, selIn, opts) {
              logo: (pair && pair.info && pair.info.imageUrl) || null },
     market: pair ? { price: pair.priceUsd, liquidity: liq(pair), fdv: pair.fdv, marketCap: pair.marketCap,
              volume24h: pair.volume && pair.volume.h24, change24h: pair.priceChange && pair.priceChange.h24,
-             pairCreatedAt: pair.pairCreatedAt, dex: pair.dexId, url: pair.url } : null,
-    links, flags, deep: deep ? { supply: deep.supply || null, deployerAmt: deep.deployerAmt != null ? deep.deployerAmt : null, deployer: deep.deployer || null, deployerPct: deep.deployerPct, traced: deep.traced, debug: deep.debug || null, holders: deep.holderCount, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, notes: deep.notes } : null,
+             pairCreatedAt: pair.pairCreatedAt || (deep && deep.launchTs ? deep.launchTs * 1000 : null), dex: pair.dexId, url: pair.url,
+             curve: pair.curve || false, curveProgress: typeof pair.curveProgress === "number" ? Math.round(pair.curveProgress) : null, curveSol: pair.curveSol || null } : null,
+    links, flags, dex: dexInfo, deep: deep ? { supply: deep.supply || null, deployerAmt: deep.deployerAmt != null ? deep.deployerAmt : null, deployer: deep.deployer || null, deployerPct: deep.deployerPct, traced: deep.traced, debug: deep.debug || null, holders: deep.holderCount, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, notes: deep.notes } : null,
     score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };
   cache.set(key, { t: now, v: out });
