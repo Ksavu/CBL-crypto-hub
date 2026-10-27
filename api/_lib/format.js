@@ -90,7 +90,7 @@ function card(r, site, opt) {
   ], [
     { text: "🔄 Rescan", callback_data: "r:" + cb(r.address) },
     { text: "👁 Watch", callback_data: "w:" + cb(r.address) },
-    ...(r.chain === "terraclassic" ? [] : r.chain === "xrpl" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.hex || r.address.split(".")[0]}.${r.issuer}&chain=xrpl#swap` }] : [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }]),
+    ...(r.chain === "terraclassic" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=terraclassic#swap` }] : r.chain === "xrpl" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.hex || r.address.split(".")[0]}.${r.issuer}&chain=xrpl#swap` }] : [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }]),
   ]];
   if (r.chain !== "solana" && r.chain !== "xrpl" && r.chain !== "terraclassic") rows.push([{ text: "🛡 Audit contract", callback_data: "a:" + r.address }]);
   const so = [];

@@ -108,8 +108,25 @@ async function poolOf(pairAddr, ca, px) {
   if (!mine || !other) return null;
   const oid = assetId(other.info), oUsd = px[oid] || null;
   const otherAmt = Number(other.amount) / 1e6; // uluna / uusd use 6 decimals
-  return { pair: pairAddr, lpToken: pair && pair.liquidity_token, totalShare: Number(pool.total_share) || 0, other: oid, otherAmt,
+  return { pair: pairAddr, lpToken: pair && pair.liquidity_token, totalShare: Number(pool.total_share) || 0, other: oid, otherNative: !!(other.info && other.info.native_token), otherAmt,
     tokenRaw: Number(mine.amount), liqUsd: oUsd ? otherAmt * oUsd * 2 : null, otherUsd: oUsd };
+}
+
+// Pools for a token, best (most USD liquidity) first. Used by the swap quote endpoint. Cached per warm instance.
+const poolCache = new Map();
+async function findPools(ca) {
+  const h = poolCache.get(ca);
+  if (h && Date.now() - h.t < 300000) return h.v;
+  const [gt, ds, bals, px] = await Promise.all([gtPools(ca), dsPair(ca), allBalances(ca, 3), prices()]);
+  const cand = new Set();
+  (gt && gt.pools || []).slice(0, 4).forEach((p) => p.address && isContract(p.address) && cand.add(p.address));
+  if (ds && ds.pairAddress && isContract(ds.pairAddress)) cand.add(ds.pairAddress);
+  if (bals) [...bals.out.entries()].sort((x, y) => y[1] - x[1]).slice(0, 15).filter((e) => isContract(e[0])).slice(0, 5).forEach((e) => cand.add(e[0]));
+  const v = (await Promise.all([...cand].slice(0, 7).map((p) => poolOf(p, ca, px).catch(() => null)))).filter(Boolean)
+    .sort((a, b) => (b.liqUsd || 0) - (a.liqUsd || 0));
+  poolCache.set(ca, { t: Date.now(), v });
+  if (poolCache.size > 300) poolCache.delete(poolCache.keys().next().value);
+  return v;
 }
 
 async function runTerra(input, depth = 0) {
@@ -251,4 +268,4 @@ async function runTerra(input, depth = 0) {
   };
 }
 
-module.exports = { runTerra, isTerraId, bech32, bechValid, allBalances, FINDER };
+module.exports = { runTerra, isTerraId, bech32, bechValid, allBalances, findPools, smart, lcd, FINDER, isContract };
