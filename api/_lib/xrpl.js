@@ -5,6 +5,30 @@ const ISSUER_RE = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/;
 const ID_RE = /^([A-Za-z0-9]{1,20}|[0-9A-Fa-f]{40})\.(r[1-9A-HJ-NP-Za-km-z]{24,34})$/;
 
 const fail = (status, message) => Object.assign(new Error(message), { status });
+const { getOrders, dexPaid } = require("./dexpaid");
+const db = require("./db");
+
+/**
+ * Issuer domain verification (XLS-26 / xrp-ledger.toml): the issuer points to a domain with its Domain field,
+ * and that domain confirms the issuer in https://<domain>/.well-known/xrp-ledger.toml. Both directions must match.
+ */
+async function verifyDomain(host, issuer) {
+  host = String(host || "").trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0];
+  // Only real public hostnames (no IPs, ports or localhost), so the server can't be pointed at internal addresses.
+  if (!/^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$/.test(host)) return { domain: host || null, verified: null };
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 4000);
+  try {
+    const r = await fetch(`https://${host}/.well-known/xrp-ledger.toml`, { signal: c.signal, redirect: "follow", headers: { accept: "text/plain, application/toml, */*" } });
+    if (!r.ok) return { domain: host, verified: false };
+    const txt = (await r.text()).slice(0, 200000);
+    const re = new RegExp(`(address|issuer)\\s*=\\s*["']${issuer}["']`);
+    return { domain: host, verified: re.test(txt) };
+  } catch (e) { return { domain: host, verified: false }; } finally { clearTimeout(t); }
+}
+async function onXrplaunch(issuer) {
+  if (!db.on()) return null;
+  try { const r = await db.select("launches", "select=issuer,created_at&issuer=eq." + db.enc(issuer) + "&limit=1"); return !!(r && r[0]); } catch (e) { return null; }
+}
 const isXrplId = (s) => ID_RE.test(s) || ISSUER_RE.test(s);
 
 function decodeCode(c) {
@@ -120,8 +144,15 @@ async function runXrpl(input) {
   const noKey = !d.RegularKey || BLACKHOLE.has(d.RegularKey);
   const blackholed = has(0x00100000) && noKey && !sl;
   const rate = d.TransferRate && d.TransferRate > 1e9 ? (d.TransferRate - 1e9) / 1e7 : 0;
-  let web = null;
-  if (d.Domain) { try { web = "https://" + Buffer.from(d.Domain, "hex").toString("utf8").replace(/^https?:\/\//, ""); } catch (e) { /* ignore */ } }
+  let web = null, domainRaw = null;
+  if (d.Domain) { try { domainRaw = Buffer.from(d.Domain, "hex").toString("utf8"); web = "https://" + domainRaw.replace(/^https?:\/\//, ""); } catch (e) { /* ignore */ } }
+  // Hype / trust info (never scored): DexScreener paid status, verified issuer domain, launched on XRPLaunch.
+  const [orders, dom, launched] = await Promise.all([
+    pair && pair.baseToken ? getOrders("xrpl", pair.baseToken.address) : Promise.resolve(null),
+    domainRaw ? verifyDomain(domainRaw, issuer) : Promise.resolve({ domain: null, verified: null }),
+    onXrplaunch(issuer),
+  ]);
+  const dexInfo = pair ? dexPaid(orders, pair) : null;
 
   // holders: lines seen from the issuer, negative balance = the holder owns tokens
   let holders = null, top = [], poolPct = 0, topAcc = null;
@@ -147,6 +178,9 @@ async function runXrpl(input) {
 
   const R = [];
   const add = (sev, title, detail) => R.push({ sev, title, detail: detail || "" });
+  if (dom.verified) add("ok", `Issuer domain verified: ${dom.domain}`, "The issuer links to this domain and the domain's xrp-ledger.toml confirms the issuer.");
+  else if (dom.domain) add("info", `Issuer domain not verified: ${dom.domain}`, "The issuer points to this domain, but the domain does not confirm the issuer in its xrp-ledger.toml. Anyone can set any domain.");
+  if (launched) add("ok", "Launched on XRPLaunch", "Created through XRPLaunch by CBL: issuer blackholed and launch liquidity locked at creation.");
   const pc = (n) => n.toFixed(1) + "%";
   if (has(0x00400000)) add("critical", "Issuer froze all trading", "Global freeze is switched on for this issuer.");
   if (blackholed) add("ok", "Issuer is blackholed", "The issuer can no longer create more tokens or change settings.");
@@ -226,7 +260,7 @@ async function runXrpl(input) {
   return {
     ok: true, chain: "xrpl", address: `${label}.${issuer}`, issuer, hex, ts: Date.now(),
     token: { name: label, symbol: label, logo: (pair && pair.info && pair.info.imageUrl) || null },
-    market, links, flags: {}, deep: null, lp: lpInfo,
+    market, links, flags: {}, deep: null, lp: lpInfo, dex: dexInfo, xrplInfo: { domain: dom.domain, domainVerified: dom.verified, xrplaunch: launched },
     score, verdict, confidence: pair ? "high" : "medium", reasons: R,
     sources: { dexscreener: !!pair, xrpl: true },
   };

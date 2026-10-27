@@ -3,6 +3,7 @@ const { analyze } = require("./score");
 const { deepSol } = require("./deep");
 const { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS } = require("./explorer");
 const { fillSol } = require("./solmarket");
+const { getOrders, dexPaid } = require("./dexpaid");
 
 const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663 };
 const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"];
@@ -34,16 +35,6 @@ function extractLinks(pair) {
 }
 const fail = (status, message) => Object.assign(new Error(message), { status });
 
-/** DEX paid status from DexScreener orders (+ boosts from the pair). paid: true/false, or null if unknown. */
-function dexPaid(orders, pair) {
-  const list = Array.isArray(orders) ? orders : (orders && Array.isArray(orders.orders) ? orders.orders : null);
-  const ok = (t) => !!list && list.some((o) => o && o.type === t && o.status === "approved");
-  let paid = list ? ok("tokenProfile") : null;
-  // Orders API unavailable: an enhanced profile (header banner) on the pair means it was paid.
-  if (paid === null && pair && pair.info && pair.info.header) paid = true;
-  const ts = list ? list.filter((o) => o && o.type === "tokenProfile" && o.status === "approved").map((o) => o.paymentTimestamp).filter(Boolean)[0] : null;
-  return { paid, paidAt: ts || null, cto: ok("communityTakeover"), ads: ok("tokenAd") || ok("trendingBarAd"), boosts: (pair && pair.boosts && pair.boosts.active) || 0 };
-}
 
 const { runXrpl, isXrplId } = require("./xrpl");
 function detect(ca) {
@@ -83,7 +74,7 @@ async function runScan(caIn, selIn, opts) {
   if (kind === "sol") pair = await fillSol(ca, pair).catch(() => pair);
 
   // DexScreener paid orders (profile, community takeover, ads). Hype info only, never affects the score.
-  const ordersP = Promise.race([j(`https://api.dexscreener.com/orders/v1/${chain}/${ca}`, 3500).catch(() => null), new Promise((ok) => setTimeout(() => ok(null), 3800))]);
+  const ordersP = getOrders(chain, ca);
   let gp = null, hp = null, rc = null, deep = null, ex = null;
   if (kind === "evm") {
     const id = EVM[chain];
