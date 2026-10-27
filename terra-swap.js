@@ -12,7 +12,7 @@
   var REST = "https://terra-classic-lcd.publicnode.com";
   var COSMJS = "https://esm.sh/@cosmjs/cosmwasm-stargate@0.32.4";
   var EXPLORER = "https://finder.terra-classic.hexxagon.io/mainnet/tx/";
-  var ID_RE = /^terra1[02-9ac-hj-np-z]{58}$/;
+  var ID_RE = /^terra1(?:[02-9ac-hj-np-z]{58}|[02-9ac-hj-np-z]{38})$/;
   var CHAIN_INFO = {
     chainId: CHAIN, chainName: "Terra Classic", rpc: RPCS[0], rest: REST,
     bip44: { coinType: 330 },

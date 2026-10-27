@@ -836,7 +836,7 @@ async function jupGo(){var btn=$("go"),say=function(m){$("msg").textContent=m};
 
 /* ---- Token opened from a link (bot or scanner): ?swap=<address>&chain=<ethereum|bsc|base|solana>&t=<sell tax %> ---- */
 var CHN2={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood Chain",solana:"Solana"},NATC={Solana:"SOL","BNB Chain":"BNB",Base:"ETH","Robinhood Chain":"ETH",Ethereum:"ETH","XRP Ledger":"XRP","Terra Classic":"LUNC"};
-var XR=function(){return window.CBLXRPL};var TR=function(){return window.CBLTERRA};function isTid(s){return /^terra1[02-9ac-hj-np-z]{58}$/.test(String(s||"").trim().toLowerCase())}function isXid(s){return /^[A-Za-z0-9]{1,40}\.r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(String(s||"").trim())}
+var XR=function(){return window.CBLXRPL};var TR=function(){return window.CBLTERRA};function isTid(s){return /^terra1(?:[02-9ac-hj-np-z]{58}|[02-9ac-hj-np-z]{38})$/.test(String(s||"").trim().toLowerCase())}function isXid(s){return /^[A-Za-z0-9]{1,40}\.r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(String(s||"").trim())}
 function E(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function payOpts(p){var n=NATC[p&&p.c]||"ETH",l=p&&p.c==="XRP Ledger"?["XRP"]:p&&p.c==="Terra Classic"?["LUNC","USTC"]:p&&p.c==="Solana"?[n,"USDC","USDT"]:["USDT","USDC",n];$("pay").innerHTML=l.map(function(x){return '<option>'+x+'</option>'}).join("")}
 function rebuildTok(i){var L=lst();$("tok").innerHTML=L.map(function(p,k){return '<option value="'+k+'">'+E(p.n)+' ('+p.c+')</option>'}).join("");$("tok").value=i||0;payOpts(L[$("tok").value]||L[0])}
@@ -865,7 +865,7 @@ setTimeout(function(){var q=new URLSearchParams(location.search),ca=(q.get("swap
  if(/^0x[a-fA-F0-9]{40}$/.test(ca)||/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca)||isXid(ca)||isTid(ca))openCustom(ca,(q.get("chain")||"").toLowerCase(),parseFloat(q.get("t"))||0).catch(function(e){say1("Could not open this token.")})},300);
 function loadCA(){var ca=$("cca").value.trim(),n=$("ccn").value;
  if(isTid(ca)){openCustom(ca,"terraclassic",0).catch(function(){say1("Could not open this token.")});return}
- if(n==="terraclassic"){say1("Enter a Terra Classic CW20 token contract (terra1..., 64 characters).");return}
+ if(n==="terraclassic"){say1("Enter a Terra Classic CW20 token contract (terra1...).");return}
  if(isXid(ca)){openCustom(ca,"xrpl",0).catch(function(){say1("Could not open this token.")});return}
  if(n==="xrpl"){say1("Enter an XRPL token as CODE.rIssuer, for example SOLO.rsoLo2S1kiGeCcn6hCUXVrCpGMWLrRrLZz");return}
  if(!(/^0x[a-fA-F0-9]{40}$/.test(ca)||/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca))){say1("That does not look like a valid token address.");return}
@@ -992,9 +992,9 @@ function renderApi(d,a,sel){
  $("sc-share").onclick=function(){var u=location.origin+location.pathname+"?ca="+a;try{navigator.clipboard.writeText(u);$("sc-share").textContent="Link copied"}catch(e){$("sc-share").textContent=u}}}
 async function scan(){
  var a=$("sc-ca").value.trim(),sel=$("sc-chain").value;
- var kind=/^terra1[02-9ac-hj-np-z]{58}$/i.test(a)?"terra":/^(?:[A-Za-z0-9]{1,20}\.|[0-9A-Fa-f]{40}\.)?r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(a)?"xrpl":/^0x[a-fA-F0-9]{40}$/.test(a)?"evm":/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a)?"sol":"";
+ var kind=/^terra1(?:[02-9ac-hj-np-z]{58}|[02-9ac-hj-np-z]{38})$/i.test(a)?"terra":/^(?:[A-Za-z0-9]{1,20}\.|[0-9A-Fa-f]{40}\.)?r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(a)?"xrpl":/^0x[a-fA-F0-9]{40}$/.test(a)?"evm":/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a)?"sol":"";
  if(!kind)return msg("Paste a valid token address: 0x... for EVM chains, a Solana mint, an XRPL CODE.rIssuer or a Terra Classic terra1... contract.");
- if(sel==="terraclassic"&&kind!=="terra")return msg("Terra Classic tokens are CW20 contracts that start with terra1 (64 characters).");
+ if(sel==="terraclassic"&&kind!=="terra")return msg("Terra Classic tokens are CW20 contracts that start with terra1.");
  if(kind==="sol"&&sel!=="auto"&&sel!=="solana")return msg("That looks like a Solana address. Set the network to Solana or Auto.");
  if(kind==="evm"&&sel==="solana")return msg("That looks like an EVM address. Pick Ethereum, BNB Chain, Base or Auto.");
  msg("Scanning...");$("sc-go").disabled=true;

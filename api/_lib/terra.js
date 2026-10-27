@@ -1,15 +1,28 @@
-// Terra Classic (columbus-5) CW20 token scanner. Token id = the CW20 contract address (terra1..., 64 chars).
+// Terra Classic (columbus-5) CW20 token scanner. Token id = the CW20 contract address (terra1..., 44 chars for
+// contracts from before the 2023 wasm upgrade, 64 chars for newer ones).
 // No API keys: public Terra Classic LCD + GeckoTerminal + DexScreener. Set TERRA_LCD to use your own node first.
 const { getOrders, dexPaid } = require("./dexpaid");
 
 const LCDS = () => [process.env.TERRA_LCD, "https://terra-classic-lcd.publicnode.com", "https://terra-mainnet-rpc.allthatnode.com:1317"].filter(Boolean).map((u) => u.replace(/\/$/, ""));
-const CONTRACT_RE = /^terra1[02-9ac-hj-np-z]{58}$/;
+const CONTRACT_RE = /^terra1(?:[02-9ac-hj-np-z]{58}|[02-9ac-hj-np-z]{38})$/;
 const BURN = new Set(["terra1sk06e3dyexuq4shw77y3dsv480xv42mq73anxu"]); // community LUNC burn wallet
 const FINDER = "https://finder.terra-classic.hexxagon.io/mainnet/address/";
 const PTS = { critical: 100, high: 25, medium: 10, low: 4, info: 0, ok: 0 };
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const isTerraId = (s) => CONTRACT_RE.test(String(s || "").trim().toLowerCase());
-const isContract = (a) => CONTRACT_RE.test(a);
+const isAddr = (a) => CONTRACT_RE.test(String(a || ""));
+// Old (44-char) contracts look like wallets, so ask the chain. Cached per warm instance.
+const kindCache = new Map();
+async function isContract(a) {
+  if (!isAddr(a)) return false;
+  if (a.length === 64) return true;
+  if (kindCache.has(a)) return kindCache.get(a);
+  const r = await lcd(`/cosmwasm/wasm/v1/contract/${a}`, 4000);
+  const v = !!(r && !r.notFound && r.contract_info);
+  if (r) kindCache.set(a, v);
+  if (kindCache.size > 2000) kindCache.delete(kindCache.keys().next().value);
+  return v;
+}
 
 async function jget(u, ms = 6000) {
   const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
@@ -18,13 +31,13 @@ async function jget(u, ms = 6000) {
 }
 // LCD GET with failover. Returns the JSON body, or { notFound: true } when a node answered that it does not exist.
 async function lcd(path, ms = 6000) {
-  let nf = false;
   for (const base of LCDS()) {
     const r = await jget(base + path, ms);
     if (r.body) return r.body;
-    if (r.status === 404 || r.status === 400 || r.status === 500) nf = true; // node is up, query failed (missing contract / bad query)
+    // Node is up and the query itself failed (missing contract, not a pool, bad query): no point asking the next node.
+    if (r.status === 404 || r.status === 400 || r.status === 500 || r.status === 501) return { notFound: true };
   }
-  return nf ? { notFound: true } : null;
+  return null;
 }
 const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64");
 async function smart(addr, msg) {
@@ -119,10 +132,11 @@ async function findPools(ca) {
   if (h && Date.now() - h.t < 300000) return h.v;
   const [gt, ds, bals, px] = await Promise.all([gtPools(ca), dsPair(ca), allBalances(ca, 3), prices()]);
   const cand = new Set();
-  (gt && gt.pools || []).slice(0, 4).forEach((p) => p.address && isContract(p.address) && cand.add(p.address));
-  if (ds && ds.pairAddress && isContract(ds.pairAddress)) cand.add(ds.pairAddress);
-  if (bals) [...bals.out.entries()].sort((x, y) => y[1] - x[1]).slice(0, 15).filter((e) => isContract(e[0])).slice(0, 5).forEach((e) => cand.add(e[0]));
-  const v = (await Promise.all([...cand].slice(0, 7).map((p) => poolOf(p, ca, px).catch(() => null)))).filter(Boolean)
+  (gt && gt.pools || []).slice(0, 4).forEach((p) => p.address && isAddr(p.address) && cand.add(p.address));
+  if (ds && ds.pairAddress && isAddr(ds.pairAddress)) cand.add(ds.pairAddress);
+  // Pools are usually among the biggest holders; a pool query on a plain wallet just fails.
+  if (bals) [...bals.out.entries()].sort((x, y) => y[1] - x[1]).filter((e) => !BURN.has(e[0])).slice(0, 6).forEach((e) => cand.add(e[0]));
+  const v = (await Promise.all([...cand].slice(0, 9).map((p) => poolOf(p, ca, px).catch(() => null)))).filter(Boolean)
     .sort((a, b) => (b.liqUsd || 0) - (a.liqUsd || 0));
   poolCache.set(ca, { t: Date.now(), v });
   if (poolCache.size > 300) poolCache.delete(poolCache.keys().next().value);
@@ -131,11 +145,11 @@ async function findPools(ca) {
 
 async function runTerra(input, depth = 0) {
   let ca = String(input || "").trim().toLowerCase();
-  if (!isTerraId(ca)) throw fail(400, "Send a Terra Classic CW20 token contract address (terra1..., 64 characters).");
+  if (!isTerraId(ca)) throw fail(400, "Send a Terra Classic CW20 token contract address (terra1...).");
 
   const ci = await lcd(`/cosmwasm/wasm/v1/contract/${ca}`);
   if (!ci) throw fail(502, "Terra Classic nodes did not answer. Try again.");
-  if (ci.notFound || !ci.contract_info) throw fail(404, "That contract does not exist on Terra Classic (columbus-5). Terra 2.0 tokens are not supported.");
+  if (ci.notFound || !ci.contract_info) throw fail(404, "That is not a token contract on Terra Classic (columbus-5). Wallet addresses and Terra 2.0 tokens can't be scanned.");
   let ti = await smart(ca, { token_info: {} });
   if (!ti) {
     // Maybe a pair address was pasted: scan the token side of the pool instead.
@@ -154,10 +168,10 @@ async function runTerra(input, depth = 0) {
   // Pairs: from market APIs, plus any contract among the top holders that answers like a pool.
   const holders = bals ? [...bals.out.entries()].map(([a, v]) => ({ a, v })).sort((x, y) => y.v - x.v) : [];
   const cand = new Set();
-  (gt && gt.pools || []).slice(0, 4).forEach((p) => p.address && isContract(p.address) && cand.add(p.address));
-  if (ds && ds.pairAddress && isContract(ds.pairAddress)) cand.add(ds.pairAddress);
-  holders.slice(0, 15).filter((h) => isContract(h.a)).slice(0, 5).forEach((h) => cand.add(h.a));
-  const pools = (await Promise.all([...cand].slice(0, 7).map((p) => poolOf(p, ca, px).catch(() => null)))).filter(Boolean);
+  (gt && gt.pools || []).slice(0, 4).forEach((p) => p.address && isAddr(p.address) && cand.add(p.address));
+  if (ds && ds.pairAddress && isAddr(ds.pairAddress)) cand.add(ds.pairAddress);
+  holders.filter((h) => !BURN.has(h.a)).slice(0, 6).forEach((h) => cand.add(h.a));
+  const pools = (await Promise.all([...cand].slice(0, 9).map((p) => poolOf(p, ca, px).catch(() => null)))).filter(Boolean);
   const pairSet = new Set(pools.map((p) => p.pair));
   pools.sort((a, b) => (b.liqUsd || 0) - (a.liqUsd || 0));
   const best = pools[0] || null;
@@ -211,7 +225,7 @@ async function runTerra(input, depth = 0) {
     const th = holders.filter((h) => !BURN.has(h.a) && !pairSet.has(h.a)).slice(0, 10);
     top = th.map((h) => pctSup(h.v)); topAcc = th[0] && th[0].a;
     if (top.length) {
-      const t10 = top.reduce((a, b) => a + b, 0), cx = th[0] && isContract(th[0].a) ? " It is a contract (staking, vesting or a locker), check what it is." : "";
+      const t10 = top.reduce((a, b) => a + b, 0), cx = th[0] && (await isContract(th[0].a)) ? " It is a contract (staking, vesting or a locker), check what it is." : "";
       add(top[0] >= 30 ? "high" : top[0] >= 15 ? "medium" : "ok", `Largest wallet holds ${pc(top[0])}`, `Top 10 wallets ${pc(t10)}. Pools and burn wallet excluded.${cx} Check ${FINDER}${topAcc}`);
       if (t10 >= 70) add("high", `Top 10 wallets hold ${pc(t10)}`); else if (t10 >= 50) add("medium", `Top 10 wallets hold ${pc(t10)}`);
     }
@@ -219,13 +233,13 @@ async function runTerra(input, depth = 0) {
 
   // Liquidity ownership: who holds the LP tokens of the main pool.
   let lpInfo = null;
-  if (best && best.lpToken && isContract(best.lpToken)) {
+  if (best && best.lpToken && isAddr(best.lpToken)) {
     const lb = await allBalances(best.lpToken, 2).catch(() => null);
     const tot = best.totalShare || (lb ? [...lb.out.values()].reduce((a, b) => a + b, 0) : 0);
     if (lb && tot > 0 && lb.out.size) {
       const hs = [...lb.out.entries()].map(([a, v]) => ({ a, v, p: (v / tot) * 100 })).sort((x, y) => y.v - x.v);
       const burned = hs.filter((h) => BURN.has(h.a)).reduce((a, b) => a + b.p, 0);
-      const t = hs[0], tc = isContract(t.a) && !BURN.has(t.a);
+      const t = hs[0], tc = !BURN.has(t.a) && (await isContract(t.a));
       lpInfo = { burned: +burned.toFixed(1), topPct: +t.p.toFixed(1), topContract: tc, top: t.a, providers: hs.length };
       if (burned >= 90) add("ok", `${pc(Math.min(100, burned))} of liquidity is burned`, "LP tokens were sent to the burn wallet. That liquidity cannot be pulled.");
       else if (t.p >= 50 && BURN.has(t.a)) add("ok", `Largest LP holder (${t.p.toFixed(0)}%) is the burn wallet`);
@@ -268,4 +282,4 @@ async function runTerra(input, depth = 0) {
   };
 }
 
-module.exports = { runTerra, isTerraId, bech32, bechValid, allBalances, findPools, smart, lcd, FINDER, isContract };
+module.exports = { runTerra, isTerraId, bech32, bechValid, allBalances, findPools, smart, lcd, FINDER, isContract, isAddr };
