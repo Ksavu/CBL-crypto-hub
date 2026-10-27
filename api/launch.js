@@ -8,7 +8,7 @@
 const db = require("./_lib/db");
 const data = require("./_lib/launchdata");
 
-const ORIGIN = /^https:\/\/(www\.)?cryptobarlounge\.space$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
+const ORIGIN = /^https:\/\/(www\.)?(cryptobarlounge\.space|xrplabs\.fun)$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
 const RPCS = ["https://xrplcluster.com", "https://s1.ripple.com:51234", "https://s2.ripple.com:51234"];
 const BLACKHOLE = new Set(["rrrrrrrrrrrrrrrrrrrrrhoLvTp", "rrrrrrrrrrrrrrrrrrrrBZbvji", "rrrrrrrrrrrrrrrrrNAMEtxvNvQ", "rrrrrrrrrrrrrrrrrrrn5RM1rHd"]);
 const ADDR = /^r[1-9A-HJ-NP-Za-km-z]{24,34}$/, CUR = /^([A-Z0-9]{3}|[0-9A-F]{40})$/, HASH = /^[0-9A-F]{64}$/;
@@ -94,7 +94,7 @@ module.exports = async (req, res) => {
       if (m) {
         const rows = await db.select("launches", cols + "&issuer=eq." + db.enc(m[2]) + "&limit=1");
         const t = rows && rows[0];
-        if (!t) return res.status(404).json({ ok: false, error: "Token not found on XRPLaunch" });
+        if (!t) return res.status(404).json({ ok: false, error: "Token not found on XRPLabs" });
         const d = await data.detail(t).catch(() => null);
         res.setHeader("Cache-Control", "public, s-maxage=20, stale-while-revalidate=60");
         return res.status(200).json({ ok: true, token: t, ...(d || {}) });

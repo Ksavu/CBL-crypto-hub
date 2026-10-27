@@ -1,4 +1,4 @@
-/* XRPLaunch (by CBL) — fair-launch XRPL tokens with no custody.
+/* XRPLabs (by CBL) — fair-launch XRPL tokens with no custody.
  *
  * The browser creates two fresh XRPL accounts and keeps their keys locally:
  *   I = issuer        (mints the supply, then is blackholed: supply fixed forever)
@@ -19,7 +19,10 @@
   var busy = false;
 
   /* ---------- small helpers ---------- */
-  function trade(id) { if (window.cblSwapXrpl) window.cblSwapXrpl(id); else location.href = "/?swap=" + id + "&chain=xrpl#swap" }
+  /* Runs on xrplabs.fun and on cryptobarlounge.space/launch. Swap and scanner live on the CBL site. */
+  var MAIN = /(^|\.)cryptobarlounge\.space$/.test(location.hostname) || /localhost|127\.0\.0\.1/.test(location.hostname) ? "" : "https://cryptobarlounge.space";
+  var BASE = /^\/launch/.test(location.pathname) ? "/launch" : "/";
+  function trade(id) { if (window.cblSwapXrpl) window.cblSwapXrpl(id); else location.href = MAIN + "/?swap=" + id + "&chain=xrpl#swap" }
   function hex(s) { return Array.prototype.map.call(new TextEncoder().encode(s), function (b) { return b.toString(16).padStart(2, "0") }).join("").toUpperCase() }
   function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] }) }
   function num(v) { return Number(String(v).replace(/[,\s_]/g, "")) }
@@ -111,7 +114,7 @@
       done: async function () { return !!(await acct(L)) },
       run: async function (say) {
         await creatorWallet(cr);
-        var r = await C().send({ TransactionType: "Payment", Account: cr, Destination: L, Amount: C().drops(p.lpFund), Memos: [{ Memo: { MemoData: hex("XRPLaunch " + f.ticker) } }] }, say);
+        var r = await C().send({ TransactionType: "Payment", Account: cr, Destination: L, Amount: C().drops(p.lpFund), Memos: [{ Memo: { MemoData: hex("XRPLabs " + f.ticker) } }] }, say);
         if (r.code !== "tesSUCCESS") throw new Error(C().why(r.code));
         await wait(async function () { return !!(await acct(L)) });
       }
@@ -193,7 +196,7 @@
         (st.listed === "skipped" ? " (CBL listing is not set up yet.)" : "");
       $("lnDone").hidden = false;
       $("lnTrade").onclick = function () { trade(id) };
-      $("lnShare").onclick = function () { var u = location.origin + "/?swap=" + id + "&chain=xrpl#swap"; try { navigator.clipboard.writeText(u); $("lnShare").textContent = "Copied" } catch (e) { prompt("Share link", u) } };
+      $("lnShare").onclick = function () { var u = location.origin + BASE + "?t=" + encodeURIComponent(id); try { navigator.clipboard.writeText(u); $("lnShare").textContent = "Copied" } catch (e) { prompt("Share link", u) } };
       list();
     } catch (e) {
       var m = (e && e.message) || String(e);
@@ -375,7 +378,7 @@
   function show(view) { ["pExplore", "pCreate", "pToken"].forEach(function (p) { if ($(p)) $(p).hidden = p !== view }); if ($("lnTabs")) $("lnTabs").hidden = view === "pToken"; if ($("lnHero")) $("lnHero").hidden = view === "pToken"; if ($("lnMore")) $("lnMore").hidden = view === "pToken" }
   function openToken(id, noPush) {
     if (!$("pToken")) return trade(id);
-    if (!noPush) try { history.pushState({ t: id }, "", "/launch?t=" + encodeURIComponent(id)) } catch (e) {}
+    if (!noPush) try { history.pushState({ t: id }, "", BASE + "?t=" + encodeURIComponent(id)) } catch (e) {}
     show("pToken"); window.scrollTo(0, 0);
     var known = ALL.filter(function (t) { return idOf(t) === id })[0];
     $("tkView").innerHTML = '<p class="empty">Loading ' + esc(known ? known.name : "token") + '…</p>';
@@ -385,7 +388,7 @@
       renderToken(d);
     }).catch(function (e) { $("tkView").innerHTML = '<p class="empty">' + esc(e.message) + '</p>' });
   }
-  function closeToken() { show("pExplore"); try { history.pushState({}, "", "/launch") } catch (e) {} }
+  function closeToken() { show("pExplore"); try { history.pushState({}, "", BASE) } catch (e) {} }
   function renderToken(d) {
     var t = d.token, s = t.stats, id = idOf(t), h = d.holders, links = "";
     [["web", "Website"], ["x", "X"], ["tg", "Telegram"]].forEach(function (k) { if (t[k[0]]) links += '<a class="btn s sm" href="' + esc(t[k[0]]) + '" target="_blank" rel="noopener nofollow">' + k[1] + ' ↗</a>' });
@@ -403,7 +406,7 @@
           '<div><span>Holders</span><b>' + (h ? h.count.toLocaleString("en-US") + (h.capped ? "+" : "") : "—") + '</b></div><div><span>Supply</span><b>' + (s.supply || Number(t.supply) ? fmt(s.supply || Number(t.supply)) : "—") + '</b></div>' +
           '<div><span>Dev allocation</span><b>' + (Number(t.dev_pct) ? esc(t.dev_pct) + "%" : "None") + '</b></div></div></div>' +
         '<div class="blk"><h3>Safety</h3><div class="pills" style="margin:8px 0 10px"><span class="pill">🔒 Supply locked</span><span class="pill">🔒 Liquidity locked</span><span class="pill">No freeze</span></div>' +
-          '<div class="proof"><a href="' + EXPL + esc(t.issuer) + '" target="_blank" rel="noopener">Issuer (blackholed) ↗</a>' + (s.amm ? '<a href="' + EXPL + esc(s.amm) + '" target="_blank" rel="noopener">AMM pool ↗</a>' : '') + '<a href="/?ca=' + encodeURIComponent(id) + '#scanner">Scan on CBL ↗</a></div></div>' +
+          '<div class="proof"><a href="' + EXPL + esc(t.issuer) + '" target="_blank" rel="noopener">Issuer (blackholed) ↗</a>' + (s.amm ? '<a href="' + EXPL + esc(s.amm) + '" target="_blank" rel="noopener">AMM pool ↗</a>' : '') + '<a href="' + MAIN + '/?ca=' + encodeURIComponent(id) + '#scanner">Scan on CBL ↗</a></div></div>' +
         (t.description || links ? '<div class="blk"><h3>About</h3>' + (t.description ? '<p class="mut" style="margin:6px 0 12px">' + esc(t.description) + '</p>' : '') + '<div class="tkl">' + links + '</div></div>' : '') +
         (h && h.top && h.top.length ? '<div class="blk"><h3>Top holders</h3><ol class="hold">' + h.top.map(function (x) { return '<li><a href="' + EXPL + esc(x.account) + '" target="_blank" rel="noopener">' + esc(x.account.slice(0, 6) + "…" + x.account.slice(-4)) + '</a><b>' + x.pct.toFixed(2) + '%</b></li>' }).join("") + '</ol><small class="mut">Pool excluded.</small></div>' : '') +
         '<div class="blk"><h3>Token ID</h3><div class="tid"><code>' + esc(id) + '</code><button class="btn s sm" type="button" id="tkCopy">Copy</button></div></div>' +

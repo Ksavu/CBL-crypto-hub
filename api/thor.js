@@ -2,7 +2,7 @@
 // GET /api/thor?p=/thorchain/quote/swap?...  |  /thorchain/pools  |  /thorchain/inbound_addresses  |  /thorchain/tx/status/<hash>
 // The CBL fee is added here on the server (affiliate + affiliate_bps) so it cannot be removed in the browser.
 // Env: THOR_AFFILIATE (your THORName or thor1... address), THOR_AFFILIATE_BPS (default 50 = 0.5%).
-const ORIGIN = /^https:\/\/(www\.)?cryptobarlounge\.space$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
+const ORIGIN = /^https:\/\/(www\.)?(cryptobarlounge\.space|xrplabs\.fun)$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
 const NODES = ["https://gateway.liquify.com/chain/thorchain_api", "https://thornode.ninerealms.com"];
 const ALLOW = [/^\/thorchain\/quote\/swap$/, /^\/thorchain\/pools$/, /^\/thorchain\/inbound_addresses$/, /^\/thorchain\/tx\/status\/[0-9A-Fa-f]{64}$/];
 const clean = (v) => (v || "").trim().replace(/^["']|["']$/g, "");

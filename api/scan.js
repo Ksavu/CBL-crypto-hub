@@ -1,7 +1,7 @@
 // Vercel serverless function: GET /api/scan?ca=<address>&chain=auto|ethereum|bsc|base|solana
 const { runScan } = require("./_lib/scanner");
 
-const ORIGIN = /^https:\/\/(www\.)?cryptobarlounge\.space$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
+const ORIGIN = /^https:\/\/(www\.)?(cryptobarlounge\.space|xrplabs\.fun)$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
 const hits = new Map(); // simple per-IP rate limit
 
 module.exports = async (req, res) => {

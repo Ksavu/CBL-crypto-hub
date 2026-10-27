@@ -146,7 +146,7 @@ async function runXrpl(input) {
   const rate = d.TransferRate && d.TransferRate > 1e9 ? (d.TransferRate - 1e9) / 1e7 : 0;
   let web = null, domainRaw = null;
   if (d.Domain) { try { domainRaw = Buffer.from(d.Domain, "hex").toString("utf8"); web = "https://" + domainRaw.replace(/^https?:\/\//, ""); } catch (e) { /* ignore */ } }
-  // Hype / trust info (never scored): DexScreener paid status, verified issuer domain, launched on XRPLaunch.
+  // Hype / trust info (never scored): DexScreener paid status, verified issuer domain, launched on XRPLabs.
   const [orders, dom, launched] = await Promise.all([
     pair && pair.baseToken ? getOrders("xrpl", pair.baseToken.address) : Promise.resolve(null),
     domainRaw ? verifyDomain(domainRaw, issuer) : Promise.resolve({ domain: null, verified: null }),
@@ -180,7 +180,7 @@ async function runXrpl(input) {
   const add = (sev, title, detail) => R.push({ sev, title, detail: detail || "" });
   if (dom.verified) add("ok", `Issuer domain verified: ${dom.domain}`, "The issuer links to this domain and the domain's xrp-ledger.toml confirms the issuer.");
   else if (dom.domain) add("info", `Issuer domain not verified: ${dom.domain}`, "The issuer points to this domain, but the domain does not confirm the issuer in its xrp-ledger.toml. Anyone can set any domain.");
-  if (launched) add("ok", "Launched on XRPLaunch", "Created through XRPLaunch by CBL: issuer blackholed and launch liquidity locked at creation.");
+  if (launched) add("ok", "Launched on XRPLabs", "Created through XRPLabs by CBL: issuer blackholed and launch liquidity locked at creation.");
   const pc = (n) => n.toFixed(1) + "%";
   if (has(0x00400000)) add("critical", "Issuer froze all trading", "Global freeze is switched on for this issuer.");
   if (blackholed) add("ok", "Issuer is blackholed", "The issuer can no longer create more tokens or change settings.");

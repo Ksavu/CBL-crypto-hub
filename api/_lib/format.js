@@ -43,7 +43,7 @@ function card(r, site, opt) {
   if (r.chain === "xrpl" && r.xrplInfo && (r.xrplInfo.domain || r.xrplInfo.xrplaunch)) {
     const x = r.xrplInfo, bits = [];
     if (x.domain) bits.push(x.domainVerified ? `🌐 Domain verified ✅ ${esc(x.domain)}` : `🌐 Domain not verified (${esc(x.domain)})`);
-    if (x.xrplaunch) bits.push("🚀 Launched on XRPLaunch");
+    if (x.xrplaunch) bits.push("🚀 Launched on XRPLabs");
     L.push(bits.join(" · "));
   }
   if (r.chain === "solana" || r.deep) {

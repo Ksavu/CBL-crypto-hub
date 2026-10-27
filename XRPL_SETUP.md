@@ -60,21 +60,22 @@ The XRP Ledger chain filter chip is already added.
 - `api/thor.js` — THORChain proxy (adds your affiliate fee server-side)
 - `api/_lib/format.js` — bot swap button points to CBL Swap for XRPL tokens
 
-## XRPLaunch (fair launch on XRPL, by CBL)
+## XRPLabs (fair launch on XRPL, by CBL)
 
-XRPLaunch has its own page at **cryptobarlounge.space/launch** (`launch.html`, routed in `vercel.json`), with an Explore tab (a "Trending now" top 10 by 24h volume, plus all launches with search and Trending / Gainers / Market cap / Newest sorting), a page per token (`/launch?t=CODE.rIssuer`: price chart, market cap, liquidity, 24h volume and trades, holders, top holders, recent trades, safety proof, Buy/Sell) and a Create tab. Market data is read straight from the XRP Ledger: each token's AMM pool history is its trade history (`api/_lib/launchdata.js`), cached at the edge for a minute, so no indexer is needed. The homepage links to it from the menu, the tools card and a banner. It creates an XRPL token together with its XRP/token AMM pool in one flow. No custody: the browser generates two fresh XRPL accounts and signs with their keys locally.
+XRPLabs lives on its own domain **xrplabs.fun** (same Vercel project; `vercel.json` serves `launch.html` for that host, and cryptobarlounge.space/launch redirects there), with an Explore tab (a "Trending now" top 10 by 24h volume, plus all launches with search and Trending / Gainers / Market cap / Newest sorting), a page per token (`/launch?t=CODE.rIssuer`: price chart, market cap, liquidity, 24h volume and trades, holders, top holders, recent trades, safety proof, Buy/Sell) and a Create tab. Market data is read straight from the XRP Ledger: each token's AMM pool history is its trade history (`api/_lib/launchdata.js`), cached at the edge for a minute, so no indexer is needed. The homepage links to it from the menu, the tools card and a banner. It creates an XRPL token together with its XRP/token AMM pool in one flow. No custody: the browser generates two fresh XRPL accounts and signs with their keys locally.
 
 1. The creator signs **one payment** that funds the launch. A dev allocation adds one trust line signature.
 2. The issuer account enables trading, gives up freeze powers and mints the supply.
 3. The launch wallet creates the AMM pool and pays the CBL fee.
 4. Both accounts are **blackholed**: supply is fixed forever, and the LP tokens can never be withdrawn.
-5. The token is verified on-ledger by `/api/launch` and listed under "New on XRPLaunch".
+5. The token is verified on-ledger by `/api/launch` and listed under "New on XRPLabs".
 
 If the tab closes mid-way, progress is saved in that browser. Reopen the page and choose **Resume**, or **Cancel & refund** if the pool wasn't created yet.
 
 **Costs for the creator:** starting liquidity, plus the CBL fee, plus about 2.7 XRP of network reserves that stay locked or burned.
 
 ### Setup
+- **Domain:** Vercel → Settings → Domains → add `xrplabs.fun` and `www.xrplabs.fun`, then set the DNS records Vercel shows at your registrar (usually `A @ 76.76.21.21` and `CNAME www cname.vercel-dns.com`). Add `https://xrplabs.fun` to the Xaman app's origins/redirect URIs (and to the WalletConnect project's allowed domains if you restricted them).
 - **Vercel:**
   - `LAUNCH_FEE_XRP`: launch fee, default `5`. Set `0` for free.
   - `LAUNCH_FEE_ACCOUNT`: wallet that receives the fee. Defaults to `XRPL_FEE_ACCOUNT`.

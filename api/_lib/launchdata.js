@@ -1,4 +1,4 @@
-// Market data for XRPLaunch tokens, read straight from the XRP Ledger (no indexer needed).
+// Market data for XRPLabs tokens, read straight from the XRP Ledger (no indexer needed).
 // Every trade on a launched token changes its AMM pool, so the AMM account's transaction
 // history *is* the trade history: each validated tx's metadata holds the pool reserves after it.
 const RPCS = ["https://xrplcluster.com", "https://s2.ripple.com:51234", "https://s1.ripple.com:51234"];

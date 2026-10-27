@@ -6,8 +6,52 @@
  },
  "rewrites": [
   {
+   "source": "/",
+   "has": [
+    {
+     "type": "host",
+     "value": "xrplabs.fun"
+    }
+   ],
+   "destination": "/launch.html"
+  },
+  {
+   "source": "/",
+   "has": [
+    {
+     "type": "host",
+     "value": "www.xrplabs.fun"
+    }
+   ],
+   "destination": "/launch.html"
+  },
+  {
    "source": "/launch",
    "destination": "/launch.html"
+  }
+ ],
+ "redirects": [
+  {
+   "source": "/launch",
+   "has": [
+    {
+     "type": "host",
+     "value": "cryptobarlounge.space"
+    }
+   ],
+   "destination": "https://xrplabs.fun/",
+   "permanent": false
+  },
+  {
+   "source": "/launch",
+   "has": [
+    {
+     "type": "host",
+     "value": "www.cryptobarlounge.space"
+    }
+   ],
+   "destination": "https://xrplabs.fun/",
+   "permanent": false
   }
  ]
 }
