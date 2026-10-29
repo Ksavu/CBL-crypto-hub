@@ -70,3 +70,31 @@ create table if not exists radar_cache (
   updated_at timestamptz default now()
 );
 alter table radar_cache enable row level security;
+
+-- Group first calls (Telegram): who posted a token first in each group, market cap then, and the peak since.
+create table if not exists calls (
+  chat_id bigint not null,
+  address text not null,
+  chain text,
+  sym text,
+  user_id bigint not null,
+  username text,
+  name text,
+  mcap numeric,          -- market cap at the first call
+  peak_mcap numeric,
+  last_mcap numeric,
+  peak_at timestamptz,
+  alerted_x numeric default 1,  -- highest X milestone already announced
+  msg_id bigint,
+  checked_at timestamptz,
+  created_at timestamptz default now(),
+  primary key (chat_id, address)
+);
+create index if not exists calls_created_idx on calls (created_at);
+create index if not exists calls_chat_user_idx on calls (chat_id, user_id);
+create table if not exists group_settings (
+  chat_id bigint primary key,
+  x_alerts boolean default true
+);
+alter table calls enable row level security;
+alter table group_settings enable row level security;

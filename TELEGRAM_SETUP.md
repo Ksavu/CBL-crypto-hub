@@ -62,6 +62,15 @@ Trending, new and boosted tokens on all scanner chains, each with a CBL score. S
 - Bot: `/radar` (safer picks), `/radar trending`, `/radar new`, `/radar gainers`, with buttons to switch.
 - **Setup:** run the `radar_cache` table at the end of `supabase.sql` and upload the updated workflow. The first snapshot appears after the next cron run (up to 5 minutes).
 
+## Group first calls (like Phanes)
+
+In groups, the first person to post a token's contract address gets the **call**. The scan card shows it: "🎯 First call by @alice at $1.0M MC" for the first post, then "🏆 First call: @alice · $1.0M → $2.5M (2.5x)" whenever anyone posts it again.
+- `/api/cron?job=calls` (same GitHub workflow, every 5 minutes) refreshes market caps of calls from the last 14 days, records the peak, and posts **X alerts** in the group when a call crosses 2x, 3x, 5x, 10x, 20x, 50x, 100x... (replying to the original post).
+- `/lb [24h|7d|30d|all]`: top callers ranked by average peak X, with hit rate (2x+) and best calls. Buttons switch the period.
+- `/calls`: your calls in this group, or reply to someone's message to see theirs.
+- `/xalerts on|off`: group admins can mute X alerts.
+- Setup: run the `calls` and `group_settings` part of `supabase.sql`, upload the updated workflow. The bot needs privacy mode off in BotFather (it already does to scan addresses in groups).
+
 ## Solana swap (Jupiter) and swap links from the bot
 
 1. Get a free Jupiter API key: developers.jup.ag/portal, sign in, create a key.

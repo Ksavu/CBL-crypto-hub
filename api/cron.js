@@ -2,6 +2,7 @@
 //   /api/cron              token watchlist alerts
 //   /api/cron?job=wallets  wallet tracker alerts (buys, sells, new tokens, transfers)
 //   /api/cron?job=radar    rebuild the Token Radar snapshot (trending tokens + CBL scores)
+//   /api/cron?job=calls    group first calls: refresh market caps, peaks, post X alerts
 const crypto = require("crypto");
 const db = require("./_lib/db");
 const { runScan } = require("./_lib/scanner");
@@ -56,6 +57,23 @@ module.exports = async (req, res) => {
   const t0 = Date.now(), site = (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
   const job = new URL(req.url, "http://x").searchParams.get("job");
   if (job === "wallets") return res.status(200).json(await walletJob(t0, site));
+  if (job === "calls") {
+    const out = { sent: 0 };
+    try {
+      const C = require("./_lib/calls"), { xAlertMsg } = require("./_lib/format");
+      const r = await C.trackJob(t0 + 24000); Object.assign(out, { checked: r.checked, updated: r.updated, alerts: r.alerts.length });
+      const st = {};
+      for (const a of r.alerts) {
+        const s = st[a.call.chat_id] || (st[a.call.chat_id] = await C.settings(a.call.chat_id));
+        if (s.x_alerts === false) continue;
+        const m = xAlertMsg(a, site);
+        const x = await tg("sendMessage", { chat_id: a.call.chat_id, text: m.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: m.reply_markup,
+          ...(a.call.msg_id ? { reply_parameters: { message_id: a.call.msg_id, allow_sending_without_reply: true } } : {}) });
+        if (x && x.ok) out.sent++;
+      }
+    } catch (e) { out.error = String(e.message).slice(0, 100); }
+    return res.status(200).json({ ok: true, job: "calls", ...out, ms: Date.now() - t0 });
+  }
   if (job === "radar") { const r = await require("./_lib/radar").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "radar", ...r.stats }); }
   const out = { checked: 0, alerts: 0, sent: 0, errors: 0 };
   try {

@@ -30,6 +30,7 @@ function card(r, site, opt) {
   const L = [];
   L.push(`<b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${chainName(r.chain)}`);
   L.push(`${dot} <b>${r.score === null ? "n/a" : r.score + "/100"}</b> · ${esc(r.verdict)}`);
+  if (opt.call) L.push(callLine(opt.call, r));
   if (r.market) {
     const m = r.market, ch = typeof m.change24h === "number" ? ` (${m.change24h >= 0 ? "+" : ""}${m.change24h}% 24h)` : "";
     L.push("", m.curve ? `💧 Bonding curve ${usd(m.liquidity)}${typeof m.curveProgress === "number" ? ` (${m.curveProgress}% to migration)` : ""}   💰 MC ${usd(m.marketCap || m.fdv)}` : `💧 Liquidity ${usd(m.liquidity)}   💰 MC ${usd(m.marketCap || m.fdv)}`,
@@ -130,6 +131,13 @@ const HELP = [
   "Tip: on a scan, tap 📜 Dev history to see the deployer's other tokens, or 👤 Track dev to follow them.",
   "",
   "/radar [safe|trending|new|gainers] – top tokens right now with CBL scores",
+  "",
+  "<b>Group calls</b> 🏆",
+  "Post a contract address in a group: the first poster gets the call, and I track how high it goes.",
+  "/lb [24h|7d|30d|all] – top callers in this group",
+  "/calls [reply to someone] – your (or their) calls",
+  "/xalerts on|off – X milestone alerts in this group (admins)",
+  "",
   "/help",
   "",
   "In groups I also scan any contract address posted in chat.",
@@ -259,6 +267,38 @@ function radarMsg(rows, mode, site) {
   return { text: L.join("\n"), reply_markup: { inline_keyboard: [[b("safe", "🛡 Safer"), b("trending", "🔥 Trending"), b("new", "🆕 New"), b("gainers", "🚀 Gainers")], [{ text: "📡 Open Token Radar", url: `${site}/radar?tab=${mode === "safe" ? "safe" : mode}` }]] } };
 }
 
+// ---------- first calls (groups) ----------
+const callWho = (c) => esc(c.username ? "@" + c.username : c.name || "anon");
+const fx = (x) => String(x >= 100 ? Math.round(x) : x >= 10 ? x.toFixed(1) : x.toFixed(2)).replace(/\.?0+$/, "") + "x";
+const ago = (iso) => { const m = (Date.now() - Date.parse(iso)) / 60000; return m < 60 ? Math.max(1, Math.round(m)) + "m" : m < 1440 ? Math.round(m / 60) + "h" : Math.round(m / 1440) + "d"; };
+function callLine(c, r) {
+  if (c.isNew) return `🎯 <b>First call</b> by ${callWho(c)}${c.mcap ? " at " + usd(c.mcap) + " MC" : ""}`;
+  const now = r && r.market ? Number(r.market.marketCap || r.market.fdv) || null : null, x = c.mcap && now ? now / c.mcap : null, pk = c.mcap && c.peak_mcap ? Math.max(c.peak_mcap, now || 0) / c.mcap : null;
+  return `🏆 First call: ${callWho(c)} · ${c.mcap ? usd(c.mcap) : "?"}${now ? " → " + usd(now) : ""}${x ? ` (<b>${fx(x)}</b>)` : ""}${pk && pk >= 1.5 && (!x || pk > x * 1.05) ? ` · peak ${fx(pk)}` : ""} · ${ago(c.created_at)} ago`;
+}
+function lbMsg(res, days, title) {
+  const span = days === 1 ? "24h" : days ? days + " days" : "all time";
+  const L = [`🏆 <b>Top callers</b>${title ? " · " + esc(title) : ""} · ${span}`, ""];
+  if (!res.users.length) L.push("No calls yet. Post a token contract address in this group and I'll track who called it first.");
+  const medal = ["🥇", "🥈", "🥉"];
+  res.users.slice(0, 10).forEach((u, i) => L.push(`${medal[i] || (i + 1) + "."} <b>${esc(u.who)}</b> · avg ${fx(u.avg)} · ${u.n} call${u.n === 1 ? "" : "s"} · ${Math.round(u.hit * 100)}% hit 2x+ · best ${fx(u.best.x)} ${esc(u.best.sym || "")}`));
+  if (res.top.length) { L.push("", "<b>Best calls</b>"); res.top.forEach((c) => L.push(`🚀 ${esc(c.sym || shortA(c.address))} · <b>${fx(c.x)}</b> · ${esc(c.who)} · ${usd(c.mcap)} → ${usd(c.peak_mcap)} peak`)); }
+  L.push("", "<i>X = peak market cap since the first call. Not financial advice.</i>");
+  const b = (d, t) => ({ text: (d === days ? "• " : "") + t, callback_data: "lb:" + d });
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[b(1, "24h"), b(7, "7d"), b(30, "30d"), b(0, "All")]] } };
+}
+function callsMsg(rows, name) {
+  const L = [`📒 <b>Calls by ${esc(name)}</b>`, ""];
+  if (!rows.length) L.push("No calls in this group yet.");
+  rows.forEach((c) => L.push(`${c.x >= 2 ? "🟢" : c.x >= 1 ? "🟡" : "🔴"} ${esc(c.sym || shortA(c.address))} · ${chainName(c.chain)} · ${usd(c.mcap)} → ${usd(c.last_mcap)} · peak <b>${c.x ? fx(c.x) : "?"}</b> · ${ago(c.created_at)} ago`));
+  return L.join("\n");
+}
+function xAlertMsg(a, site) {
+  const c = a.call;
+  return { text: `🚀 <b>${esc(c.sym || shortA(c.address))} just hit ${a.hit}x</b> from ${callWho(c)}'s call!\n${usd(c.mcap)} → <b>${usd(a.mcap)}</b> MC (${fx(a.x)}) · called ${ago(c.created_at)} ago\n<code>${esc(c.address)}</code>`,
+    reply_markup: { inline_keyboard: [[...(a.url ? [{ text: "📈 Chart", url: a.url }] : []), { text: "🔍 Scan", callback_data: "s:" + cb(c.chain === "xrpl" ? String(c.address).split(".")[1] || c.address : c.address) }, { text: "🏆 Leaderboard", callback_data: "lb:7" }]] } };
+}
+
 const SEV = { critical: "🚨", high: "🔴", medium: "🟠" };
 function alertMsg(r, alerts, site) {
   const L = [`🚨 <b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${chainName(r.chain)}`, ""];
@@ -286,4 +326,4 @@ function auditCard(r, site) {
     ...(r.chain && CHAINS[r.chain] ? [{ text: "🔎 Explorer", url: CHAINS[r.chain][2] + r.address + "#code" }] : []),
   ]] } };
 }
-module.exports = { card, alertMsg, auditCard, HELP, esc, cb, uncb, walletAlert, walletReport, devReportMsg, radarMsg, chainName, shortA };
+module.exports = { card, alertMsg, auditCard, HELP, esc, cb, uncb, walletAlert, walletReport, devReportMsg, radarMsg, lbMsg, callsMsg, xAlertMsg, chainName, shortA };

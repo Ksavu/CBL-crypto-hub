@@ -1,7 +1,8 @@
 // Telegram webhook: POST /api/telegram  (set with setWebhook + secret_token, see TELEGRAM_SETUP.md)
 const crypto = require("crypto");
 const { runScan, detect } = require("./_lib/scanner");
-const { card, auditCard, HELP, esc, cb, uncb, devReportMsg, radarMsg, shortA, chainName } = require("./_lib/format");
+const { card, auditCard, HELP, esc, cb, uncb, devReportMsg, radarMsg, lbMsg, callsMsg, shortA, chainName } = require("./_lib/format");
+const Calls = require("./_lib/calls");
 const WT = require("./_lib/wallets");
 const { runAudit } = require("./audit");
 const db = require("./_lib/db");
@@ -102,7 +103,7 @@ async function doAudit(msg, ca, chain) {
   } catch (e) { await reply(msg, esc(e.status ? e.message : "Audit failed. Try again.")); }
 }
 
-async function doScan(msg, ca, chain, explicit) {
+async function doScan(msg, ca, chain, explicit, noCall) {
   const group = msg.chat.type !== "private";
   if (limited(msg.from.id)) { if (!group || explicit) await reply(msg, "⏳ Slow down a little. Try again in a minute."); return; }
   const k = msg.chat.id + "|" + ca.toLowerCase();
@@ -112,11 +113,13 @@ async function doScan(msg, ca, chain, explicit) {
   try {
     const deep = detect(ca) === "sol" && !!process.env.HELIUS_API_KEY;
     const r = await runScan(ca, chain, deep ? { noDeep: true } : undefined); // fast first answer
-    const c = card(r, SITE(), { pending: deep });
+    // Groups: the first person to post a token gets the call (shown on the card, tracked for X alerts and /lb).
+    const call = group && !noCall && db.on() ? await Calls.record(msg.chat, msg.from, r, msg.message_id).catch((e) => { console.error("call record", e && e.message); return null; }) : null;
+    const c = card(r, SITE(), { pending: deep, call });
     const sent = await reply(msg, c.text, { reply_markup: c.reply_markup });
     if (deep && sent && sent.ok) { // then fill in the slow Solana deep scan
       const full = await runScan(ca, chain).catch(() => null);
-      if (full) { const c2 = card(full, SITE());
+      if (full) { const c2 = card(full, SITE(), { call });
         await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c2.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c2.reply_markup }); }
       else await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c.text.replace("🧬 Deep scan running… (holders, snipers, bundlers)", "🧬 Deep scan unavailable"), parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
     }
@@ -203,6 +206,27 @@ async function onMessage(msg) {
       try { const r = await require("./_lib/radar").read({ refresh: false }); const c = radarMsg(r.rows, mode, SITE()); return void (await reply(msg, c.text, { reply_markup: c.reply_markup })); }
       catch (e) { console.error("radar error", e && e.stack || e); return void (await reply(msg, "Radar is unavailable right now. Try again in a minute.")); }
     }
+    if (name === "lb" || name === "leaderboard" || name === "top") {
+      if (msg.chat.type === "private") return void (await reply(msg, "Leaderboards are per group. Add me to a group, post contract addresses there, then use /lb in the group."));
+      if (!db.on()) return void (await reply(msg, "Calls are not set up yet."));
+      const a = (args[0] || "7d").toLowerCase(), days = /^all/.test(a) ? 0 : /^24|^1d|^day/.test(a) ? 1 : /^30|^m/.test(a) ? 30 : 7;
+      const c = lbMsg(await Calls.leaderboard(msg.chat.id, days), days, msg.chat.title);
+      return void (await reply(msg, c.text, { reply_markup: c.reply_markup }));
+    }
+    if (name === "calls" || name === "mycalls") {
+      if (msg.chat.type === "private") return void (await reply(msg, "Use /calls inside a group to see calls made there."));
+      if (!db.on()) return void (await reply(msg, "Calls are not set up yet."));
+      const u = msg.reply_to_message && msg.reply_to_message.from && !msg.reply_to_message.from.is_bot ? msg.reply_to_message.from : msg.from;
+      return void (await reply(msg, callsMsg(await Calls.userCalls(msg.chat.id, u.id), u.username ? "@" + u.username : u.first_name || "you")));
+    }
+    if (name === "xalerts") {
+      if (msg.chat.type === "private" || !db.on()) return void (await reply(msg, "Use this in a group."));
+      const m = await tg("getChatMember", { chat_id: msg.chat.id, user_id: msg.from.id });
+      if (!m || !m.ok || !["creator", "administrator"].includes(m.result.status)) return void (await reply(msg, "Only group admins can change this."));
+      const on = !/^off|^0|^no/i.test(args[0] || "on");
+      await Calls.setAlerts(msg.chat.id, on);
+      return void (await reply(msg, on ? "🚀 X alerts are on: I'll post when a call hits 2x, 3x, 5x, 10x and more." : "🔕 X alerts are off for this group."));
+    }
     if (name === "list" || name === "watchlist") {
       if (!db.on()) return void (await reply(msg, "Alerts are not set up yet."));
       const ws = await W.listWatches(msg.from.id);
@@ -218,6 +242,16 @@ async function onMessage(msg) {
 
 async function onCallback(q) {
   const data = q.data || "";
+  if (data.startsWith("lb:") && q.message) {
+    await tg("answerCallbackQuery", { callback_query_id: q.id });
+    if (q.message.chat.type === "private" || !db.on()) return;
+    const days = Number(data.slice(3)) || 0;
+    try { const c = lbMsg(await Calls.leaderboard(q.message.chat.id, days), days, q.message.chat.title);
+      // From an X alert: post a new leaderboard; from a leaderboard: switch its period in place.
+      if (/Top callers/.test(q.message.text || "")) await tg("editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text: c.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
+      else await tg("sendMessage", { chat_id: q.message.chat.id, text: c.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup }); } catch (e) { /* unchanged */ }
+    return;
+  }
   if (data.startsWith("rd:") && q.message) {
     await tg("answerCallbackQuery", { callback_query_id: q.id });
     try { const r = await require("./_lib/radar").read({ refresh: false }); const c = radarMsg(r.rows, data.slice(3), SITE());
@@ -239,7 +273,7 @@ async function onCallback(q) {
     const m = { chat: q.message.chat, from: q.from, message_id: q.message.message_id };
     await tg("answerCallbackQuery", { callback_query_id: q.id, text: k === "v" ? "Loading wallet..." : "Scanning..." });
     if (k === "v") return void (await doWallet(m, a, chain));
-    if (detect(a)) return void (await doScan(m, a, "auto", true));
+    if (detect(a)) return void (await doScan(m, a, "auto", true, true));
     return;
   }
   if (data.startsWith("w:") || data.startsWith("u:")) {
