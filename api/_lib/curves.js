@@ -8,7 +8,7 @@
 const db = require("./db");
 const { runScan } = require("./scanner");
 
-const ROW_ID = "curve", MAX = 120, SCORE_TTL = 20 * 60e3, DISCOVER_TTL = 24 * 3600e3;
+const ROW_ID = "curve", MAX = 150, SCORE_TTL = 20 * 60e3, DISCOVER_TTL = 24 * 3600e3;
 const BS = "https://robinhoodchain.blockscout.com/api/v2";
 const GT = "https://api.geckoterminal.com/api/v2";
 // Launchpad curve DEXes on GeckoTerminal (matched against discovered ids; graduated venues like pumpswap are excluded).
@@ -105,6 +105,50 @@ function addrsFromLog(l) {
   const words = [...(l.topics || []).slice(1).filter(Boolean), ...((String(l.data || "").replace(/^0x/, "").match(/.{64}/g) || []).map((w) => "0x" + w))];
   return [...new Set(words.filter((w) => /^0x0{24}[0-9a-f]{40}$/i.test(w) && !/^0x0{64}$/.test(w)).map((w) => "0x" + w.slice(-40).toLowerCase()))];
 }
+// Straight from the chain (works even when the explorer is slow or can't decode the events):
+// recent logs of each launchpad contract; every address in them is a candidate token, kept if it answers symbol().
+// For Hood.fun / RobinFun the same contract also logs trades, so the log count per token doubles as activity.
+const RH_RPC = "https://rpc.mainnet.chain.robinhood.com", PONS_LAUNCH = "0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607";
+async function rpc(body, ms = 6000) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  try { const r = await fetch(RH_RPC, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const d = DIAG["rpc.robinhood"] || (DIAG["rpc.robinhood"] = { ok: 0, fail: 0 }); if (!r.ok) { d.fail++; d.last = "HTTP " + r.status; return null; } d.ok++; return await r.json(); }
+  catch (e) { const d = DIAG["rpc.robinhood"] || (DIAG["rpc.robinhood"] = { ok: 0, fail: 0 }); d.fail++; d.last = String((e && e.name) || e).slice(0, 30); return null; } finally { clearTimeout(t); }
+}
+const hexStr = (h) => { try { const b = Buffer.from(String(h || "").replace(/^0x/, ""), "hex"); if (b.length < 64) return b.toString("utf8").replace(/\0/g, "").trim(); const len = parseInt(b.slice(32, 64).toString("hex"), 16); return b.slice(64, 64 + len).toString("utf8").replace(/\0/g, "").trim(); } catch (e) { return ""; } };
+async function rhFromChain(budget) {
+  const head = await rpc({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] });
+  const latest = head && head.result ? parseInt(head.result, 16) : 0;
+  if (!latest) return [];
+  const found = new Map(); // address -> { f, n }
+  for (const f of RH_FACTORIES) {
+    for (let k = 0; k < 4 && now() < budget; k++) { // 4 x 10k blocks (Robinhood Chain makes several blocks a second)
+      const to = latest - k * 10000, from = Math.max(0, to - 9999);
+      const r = await rpc({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{ address: f.a, fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16), ...(f.k === "pons" ? { topics: [PONS_LAUNCH] } : {}) }] });
+      for (const l of (r && r.result) || []) for (const a of addrsFromLog(l)) {
+        if (RH_FACTORIES.some((x) => x.a === a)) continue;
+        const e = found.get(a) || { f, n: 0, block: parseInt(l.blockNumber, 16) }; e.n++; found.set(a, e);
+      }
+      if ([...found.values()].filter((x) => x.f === f).length >= 30) break;
+    }
+  }
+  const cands = [...found.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 60);
+  if (!cands.length) return [];
+  const batch = [];
+  cands.forEach(([a], i) => { batch.push({ jsonrpc: "2.0", id: i * 2, method: "eth_call", params: [{ to: a, data: "0x95d89b41" }, "latest"] }, { jsonrpc: "2.0", id: i * 2 + 1, method: "eth_call", params: [{ to: a, data: "0x06fdde03" }, "latest"] }); });
+  const res = await rpc(batch, 8000);
+  const by = new Map((Array.isArray(res) ? res : []).map((x) => [x.id, x]));
+  const rows = [];
+  cands.forEach(([a, e], i) => {
+    const sym = by.get(i * 2), nm = by.get(i * 2 + 1);
+    if (!sym || sym.error || !sym.result || sym.result === "0x") return; // not a token (curve, pair, user wallet...)
+    const s = hexStr(sym.result); if (!s || s.length > 20) return;
+    rows.push({ chain: "robinhood", ca: a, sym: s, name: nm && !nm.error ? hexStr(nm.result) : "", logo: null, lp: { n: e.f.n, k: e.f.k, g: false }, progress: null,
+      mcap: null, tx1h: e.f.k === "pons" ? 0 : e.n, holders: 0, created: null, block: e.block, url: `https://robinhoodchain.blockscout.com/token/${a}`, src: "rpc" });
+  });
+  return rows;
+}
+
 async function robinhood(budget) {
   const rows = [];
   for (const f of RH_FACTORIES) {
@@ -125,6 +169,9 @@ async function robinhood(budget) {
         created: x.ts, url: `https://robinhoodchain.blockscout.com/token/${x.t}`, src: "blockscout" });
     }));
   }
+  // Merge with what the chain itself says (fills gaps when the explorer returns nothing or can't decode).
+  const chain = await rhFromChain(budget + 4000).catch(() => []);
+  for (const r of chain) { const have = rows.find((x) => x.ca === r.ca); if (have) { have.tx1h = have.tx1h || r.tx1h; } else rows.push(r); }
   return rows;
 }
 
@@ -153,7 +200,10 @@ async function build(budgetMs = 23000) {
   let rows = [...seen.values()];
   rows.forEach((r) => (r.heat = heat(r)));
   rows.sort((a, b) => b.heat - a.heat);
-  rows = rows.slice(0, MAX);
+  // Every launchpad keeps its 15 hottest, so busy ones (Pump.fun) can't push smaller ones (Pons, Hood.fun...) off the list.
+  const per = {}, keepSet = new Set();
+  rows.forEach((r) => { const k = (r.lp && r.lp.n) || r.chain; per[k] = (per[k] || 0) + 1; if (per[k] <= 15) keepSet.add(r); });
+  rows = rows.filter((r) => keepSet.has(r)).concat(rows.filter((r) => !keepSet.has(r))).slice(0, MAX).sort((a, b) => b.heat - a.heat);
   // CBL score for the hottest ones (scores reused for 20 minutes)
   const scores = (prev && prev.scores) || {};
   const todo = rows.filter((r) => { const s = scores[r.chain + "|" + r.ca]; return !s || now() - s.t > SCORE_TTL; }).slice(0, 40);
