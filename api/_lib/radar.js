@@ -17,9 +17,16 @@ const SCORE_TTL = 30 * 60e3, MAX_ROWS = 150, FEED_ID = "feed";
 const { launchpadOf } = require("./launchpads");
 
 async function jget(u, ms = 7000) {
-  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
-  try { const r = await fetch(u, { signal: c.signal, headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; CBLRadar/1.0; +https://cryptobarlounge.space)" } }); return r.ok ? await r.json() : null; }
-  catch (e) { return null; } finally { clearTimeout(t); }
+  for (let k = 0; k < 3; k++) {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+    try {
+      const r = await fetch(u, { signal: c.signal, headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; CBLRadar/1.0; +https://cryptobarlounge.space)" } });
+      // GeckoTerminal's free API rate-limits per IP (Vercel IPs are shared): wait a bit (with jitter) and retry
+      if (r.status === 429 && k < 2) { await new Promise((z) => setTimeout(z, 1200 * (k + 1) + Math.random() * 800)); continue; }
+      return r.ok ? await r.json() : null;
+    } catch (e) { return null; } finally { clearTimeout(t); }
+  }
+  return null;
 }
 const key = (c, a) => c + "|" + (c === "solana" ? a : String(a).toLowerCase());
 

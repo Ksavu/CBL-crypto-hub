@@ -15,8 +15,8 @@ const DS = (chain, ca) => `https://dexscreener.com/${chain}/${ca}`; // charts al
 const PAD_URL = { pump: (ca) => "https://pump.fun/coin/" + ca, four: (ca) => "https://four.meme/token/" + ca, pons: (ca) => "https://ponsfamily.com/launchpad/" + ca }; // where curve tokens can be bought
 // Launchpad curve DEXes on GeckoTerminal (matched against discovered ids; graduated venues like pumpswap are excluded).
 const GT_NETS = { solana: "solana", bsc: "bsc", base: "base" };
-const CURVE_DEX = /pump-?fun|moonshot|launch-?lab|bonk|boop|believe|dbc|heaven|four-?meme|flap|virtuals|pons|hood|robin|klik|printr/i, NOT_CURVE = /pumpswap|amm|cpmm|clmm|dlmm|v2|v3|v4/i;
-const PAD_NAME = (id) => /pons/i.test(id) ? ["Pons", "pons"] : /hood/i.test(id) ? ["Hood.fun", "hood"] : /robin/i.test(id) ? ["RobinFun", "robin"] : /pump/i.test(id) ? ["Pump.fun", "pump"] : /moonshot/i.test(id) ? ["Moonshot", "moon"] : /bonk|launch-?lab/i.test(id) ? ["LetsBonk", "bonk"]
+const CURVE_DEX = /pump-?fun|moonshot|launch-?lab|bonk|boop|believe|dbc|heaven|four-?meme|flap|virtuals|pons|hood|robin|klik|printr/i, NOT_CURVE = /pumpswap|amm|cpmm|clmm|dlmm|v2|v3|v4|swap|clanker|bankr/i;
+const PAD_NAME = (id) => /pons/i.test(id) ? ["Pons", "pons"] : /hoodit/i.test(id) ? ["Hoodit", "hoodit"] : /hood/i.test(id) ? ["Hood.fun", "hood"] : /robin/i.test(id) ? ["RobinFun", "robin"] : /pump/i.test(id) ? ["Pump.fun", "pump"] : /moonshot/i.test(id) ? ["Moonshot", "moon"] : /bonk|launch-?lab/i.test(id) ? ["LetsBonk", "bonk"]
   : /dbc|believe/i.test(id) ? ["Meteora DBC", "dbc"] : /boop/i.test(id) ? ["Boop", "boop"] : /four/i.test(id) ? ["Four.meme", "four"] : /flap/i.test(id) ? ["Flap", "flap"]
   : /virtual/i.test(id) ? ["Virtuals", "virt"] : /zora/i.test(id) ? ["Zora", "zora"] : /clanker/i.test(id) ? ["Clanker", "clanker"] : [id, "x"];
 const RH_FACTORIES = [
@@ -26,14 +26,21 @@ const RH_FACTORIES = [
 ];
 
 const DIAG = {};
-async function jget(u, ms = 7000, headers) {
-  const c = new AbortController(), t = setTimeout(() => c.abort(), ms), host = u.split("/")[2];
-  try {
-    const r = await fetch(u, { signal: c.signal, headers: Object.assign({ accept: "application/json", "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" }, headers || {}) });
-    const d = DIAG[host] || (DIAG[host] = { ok: 0, fail: 0 });
-    if (!r.ok) { d.fail++; d.last = "HTTP " + r.status; return null; }
-    d.ok++; return await r.json();
-  } catch (e) { const d = DIAG[host] || (DIAG[host] = { ok: 0, fail: 0 }); d.fail++; d.last = String((e && e.name) || e).slice(0, 30); return null; } finally { clearTimeout(t); }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const UA_BROWSER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+const UA_BOT = "Mozilla/5.0 (compatible; CBLScanner/1.0; +https://cryptobarlounge.space)"; // what the scanner already uses with Blockscout
+async function jget(u, ms = 7000, headers, tries = 3) {
+  const host = u.split("/")[2], d = DIAG[host] || (DIAG[host] = { ok: 0, fail: 0 });
+  for (let k = 0; k < tries; k++) {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+    try {
+      const r = await fetch(u, { signal: c.signal, headers: Object.assign({ accept: "application/json", "user-agent": /blockscout/.test(host) ? UA_BOT : UA_BROWSER }, headers || {}) });
+      if (r.status === 429 && k < tries - 1) { d.retry = (d.retry || 0) + 1; await sleep(1500 * (k + 1)); continue; } // rate limited: wait and retry
+      if (!r.ok) { d.fail++; d.last = "HTTP " + r.status; return null; }
+      d.ok++; return await r.json();
+    } catch (e) { d.fail++; d.last = String((e && e.name) || e).slice(0, 30); return null; } finally { clearTimeout(t); }
+  }
+  return null;
 }
 const num = (x) => { const v = Number(x); return Number.isFinite(v) ? v : null; };
 const now = () => Date.now();
@@ -78,12 +85,18 @@ async function discover(prev, rhId) {
   const ok = Object.keys(ids).some((n) => (ids[n] || []).length > (GUESS[n] || []).length);
   return { t: ok ? now() : 0, ids }; // t:0 = try discovery again next run
 }
-async function gtCurves(ids, budget, withPump) {
+// GeckoTerminal's free API allows ~30 calls/minute per IP (and Vercel IPs are shared), so: one call at a time,
+// spaced out, most important launchpads first, retry on 429 (in jget).
+const PRIORITY = [/pump-?fun/, /pons/, /four/, /launch-?lab|bonk/, /hoodit|hood/, /dbc/, /boop/, /moonshot/, /heaven/, /virtual/];
+async function gtCurves(ids, budget) {
   const rows = [], jobs = [];
-  for (const [net, list] of Object.entries(ids || {})) for (const dex of list) if (withPump || !/pump/i.test(dex)) jobs.push([net, dex]); // pump.fun normally comes from its own API
-  jobs.sort((a, b) => (/pump/i.test(b[1]) ? 1 : 0) - (/pump/i.test(a[1]) ? 1 : 0));
-  for (const [net, dex] of jobs.slice(0, 7)) {
+  for (const [net, list] of Object.entries(ids || {})) for (const dex of list) if (!NOT_CURVE.test(dex)) jobs.push([net, dex]);
+  const rank = (d) => { const i = PRIORITY.findIndex((re) => re.test(d)); return i < 0 ? 99 : i; };
+  jobs.sort((a, b) => rank(a[1]) - rank(b[1]));
+  let first = true;
+  for (const [net, dex] of jobs.slice(0, 9)) {
     if (now() > budget) break;
+    if (!first) await sleep(1200); first = false;
     const j = await jget(`${GT}/networks/${net}/dexes/${dex}/pools?page=1&sort=h24_tx_count_desc&include=base_token`, 6000);
     const toks = new Map(((j && j.included) || []).map((t) => [t.id, t.attributes || {}]));
     for (const p of (j && j.data) || []) {
@@ -115,10 +128,17 @@ function addrsFromLog(l) {
 // For Hood.fun / RobinFun the same contract also logs trades, so the log count per token doubles as activity.
 const RH_RPC = "https://rpc.mainnet.chain.robinhood.com", PONS_LAUNCH = "0x8d4aad4953d0ca700d468f3753aa14432d1b35b43ec6409f051fb6aa43a89607";
 async function rpc(body, ms = 6000) {
-  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
-  try { const r = await fetch(RH_RPC, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    const d = DIAG["rpc.robinhood"] || (DIAG["rpc.robinhood"] = { ok: 0, fail: 0 }); if (!r.ok) { d.fail++; d.last = "HTTP " + r.status; return null; } d.ok++; return await r.json(); }
-  catch (e) { const d = DIAG["rpc.robinhood"] || (DIAG["rpc.robinhood"] = { ok: 0, fail: 0 }); d.fail++; d.last = String((e && e.name) || e).slice(0, 30); return null; } finally { clearTimeout(t); }
+  const d = DIAG["rpc.robinhood"] || (DIAG["rpc.robinhood"] = { ok: 0, fail: 0 });
+  for (let k = 0; k < 3; k++) {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+    try {
+      const r = await fetch(RH_RPC, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      if (r.status === 429 && k < 2) { d.retry = (d.retry || 0) + 1; await sleep(800 * (k + 1)); continue; }
+      if (!r.ok) { d.fail++; d.last = "HTTP " + r.status; return null; }
+      d.ok++; return await r.json();
+    } catch (e) { d.fail++; d.last = String((e && e.name) || e).slice(0, 30); return null; } finally { clearTimeout(t); }
+  }
+  return null;
 }
 const hexStr = (h) => { try { const b = Buffer.from(String(h || "").replace(/^0x/, ""), "hex"); if (b.length < 64) return b.toString("utf8").replace(/\0/g, "").trim(); const len = parseInt(b.slice(32, 64).toString("hex"), 16); return b.slice(64, 64 + len).toString("utf8").replace(/\0/g, "").trim(); } catch (e) { return ""; } };
 async function rhFromChain(budget) {
@@ -132,7 +152,9 @@ async function rhFromChain(budget) {
   for (const f of RH_FACTORIES) {
     const stop = now() + per;
     let to = latest, step = 10000, calls = 0, logs = 0;
-    while (to > 0 && latest - to < 400000 && calls < 40 && now() < Math.min(stop, budget)) {
+    const maxCalls = f.k === "pons" ? 40 : 12; // Hood.fun / RobinFun: ~120k blocks is plenty for their (log-heavy) contracts
+    while (to > 0 && latest - to < 400000 && calls < maxCalls && now() < Math.min(stop, budget)) {
+      if (calls) await sleep(60);
       const from = Math.max(0, to - step + 1);
       const r = await rpc({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{ address: f.a, fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16), ...(f.k === "pons" ? { topics: [PONS_LAUNCH] } : {}) }] });
       calls++;
@@ -148,10 +170,15 @@ async function rhFromChain(budget) {
   }
   const cands = [...found.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 60);
   if (!cands.length) return [];
-  const batch = [];
-  cands.forEach(([a], i) => { batch.push({ jsonrpc: "2.0", id: i * 2, method: "eth_call", params: [{ to: a, data: "0x95d89b41" }, "latest"] }, { jsonrpc: "2.0", id: i * 2 + 1, method: "eth_call", params: [{ to: a, data: "0x06fdde03" }, "latest"] }); });
-  const res = await rpc(batch, 8000);
-  const by = new Map((Array.isArray(res) ? res : []).map((x) => [x.id, x]));
+  // symbol() + name() for each candidate, 10 tokens per request (big batches get rate limited)
+  const by = new Map();
+  for (let s = 0; s < cands.length; s += 10) {
+    const batch = [];
+    cands.slice(s, s + 10).forEach(([a], j) => { const i = s + j; batch.push({ jsonrpc: "2.0", id: i * 2, method: "eth_call", params: [{ to: a, data: "0x95d89b41" }, "latest"] }, { jsonrpc: "2.0", id: i * 2 + 1, method: "eth_call", params: [{ to: a, data: "0x06fdde03" }, "latest"] }); });
+    const res = await rpc(batch, 6000);
+    (Array.isArray(res) ? res : []).forEach((x) => by.set(x.id, x));
+    await sleep(150);
+  }
   const rows = [];
   cands.forEach(([a, e], i) => {
     const sym = by.get(i * 2), nm = by.get(i * 2 + 1);
@@ -205,8 +232,9 @@ async function build(budgetMs = 23000) {
   for (const k of Object.keys(DIAG)) delete DIAG[k];
   let rhId = null;
   try { const rs = db.on() ? ((await db.select("radar_cache", "id=eq.feed&select=data"))[0] || {}).data : null; rhId = rs && rs.rhNet && rs.rhNet.id; } catch (e) { rhId = null; }
-  const [p, disc, rh] = await Promise.all([pump().catch(() => []), discover(prev && prev.disc && (!rhId || (prev.disc.ids && rhId in prev.disc.ids)) ? prev.disc : null, rhId).catch(() => ({ t: 0, ids: GUESS })), robinhood(t0 + 14000).catch(() => [])]);
-  const g = await gtCurves(disc && disc.ids, t0 + 15000, !p.length).catch(() => []); // no Pump.fun API? take Pump.fun pools from GeckoTerminal
+  const disc = await discover(prev && prev.disc && (!rhId || (prev.disc.ids && rhId in prev.disc.ids)) ? prev.disc : null, rhId).catch(() => ({ t: 0, ids: GUESS }));
+  // Pump.fun's own API refuses Vercel's servers (403), so Pump.fun curve pools come from GeckoTerminal too; duplicates merge below.
+  const [p, g, rh] = await Promise.all([pump().catch(() => []), gtCurves(disc && disc.ids, t0 + 17000).catch(() => []), robinhood(t0 + 14000).catch(() => [])]);
   // Tokens on the main Radar that still trade on a launchpad curve (DexScreener lists many pump.fun / moonshot curves).
   let fromRadar = [];
   try {
