@@ -38,7 +38,7 @@ Alerts: liquidity drop of 50%+ in an hour, price down 40%+ in an hour, deployer 
 
 Users follow any wallet and get a DM when it **buys, sells, swaps, creates a new token or sends tokens out**. Chains: all EVM chains the scanner supports, Solana, XRP Ledger and Terra Classic.
 
-Commands: `/track <wallet> [chain] [name]`, `/untrack <wallet>`, `/wallets`, `/wallet <wallet>` (last 7 days). Scan results show a **👤 Track dev** button when the token's creator is known. If someone pastes a wallet instead of a token, the bot offers to show or track it. Max 10 wallets per user.
+Commands: `/track <wallet> [chain] [name]`, `/untrack <wallet>`, `/wallets`, `/wallet <wallet>` (developer report: every token it created with live/dead status, plus 7 days of trades). Scan results show a **👤 Track dev** button when the token's creator is known. If someone pastes a wallet instead of a token, the bot offers to show or track it. Max 10 wallets per user.
 
 Setup:
 1. **Supabase:** run the `wallets` and `tracked` part at the end of `supabase.sql`.

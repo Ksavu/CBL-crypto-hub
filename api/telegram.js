@@ -1,7 +1,7 @@
 // Telegram webhook: POST /api/telegram  (set with setWebhook + secret_token, see TELEGRAM_SETUP.md)
 const crypto = require("crypto");
 const { runScan, detect } = require("./_lib/scanner");
-const { card, auditCard, HELP, esc, cb, uncb, walletReport, shortA, chainName } = require("./_lib/format");
+const { card, auditCard, HELP, esc, cb, uncb, devReportMsg, shortA, chainName } = require("./_lib/format");
 const WT = require("./_lib/wallets");
 const { runAudit } = require("./audit");
 const db = require("./_lib/db");
@@ -73,15 +73,21 @@ async function trackFlow(user, addr, chain, label, say) {
     const where = r.family === "evm" ? r.chains.map(chainName).join(", ") : chainName(r.family);
     await tg("sendMessage", { chat_id: user.id, parse_mode: "HTML", disable_web_page_preview: true, text: `✅ Tracking ${label ? "<b>" + esc(label) + "</b> " : ""}<code>${esc(r.address)}</code>\nChains: ${esc(where)}\n\nI'll message you here when it buys, sells, creates a new token or sends tokens out. Checks run every few minutes.${r.family === "evm" ? "\n<i>Wrong chain? Use</i> <code>/track " + esc(r.address) + " base</code> <i>to add one.</i>" : ""}` });
     return say("Tracking. Alerts will arrive in your DM.");
-  } catch (e) { if (!e.status) console.error("track error", e && e.stack || e); return say(e.status ? e.message : "Could not track it. Try again."); }
+  } catch (e) {
+    if (e.status) return say(e.message);
+    console.error("track error", e && e.stack || e);
+    const m = String((e && e.message) || "");
+    if (/PGRST20|schema cache|does not exist|DB 404/i.test(m)) return say("Wallet tracking isn't set up yet: the wallets/tracked tables are missing in Supabase (run the end of supabase.sql).");
+    return say("Could not track it. Try again." + (/^DB \d+/.test(m) ? " (" + m.slice(0, 60) + ")" : ""));
+  }
 }
 async function doWallet(msg, addr, chain) {
   if (limited(msg.from.id)) return void (await reply(msg, "⏳ Slow down a little. Try again in a minute."));
   tg("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
   try {
-    const r = await WT.activity(addr, 7, chain, Date.now() + 20000);
+    const r = await WT.devReport(addr, chain, Date.now() + 22000);
     const tracked = db.on() ? (await WT.listTracks(msg.from.id).catch(() => [])).some((t) => t.address === r.address) : false;
-    const c = walletReport(r, SITE(), tracked);
+    const c = devReportMsg(r, SITE(), tracked);
     await reply(msg, c.text, { reply_markup: c.reply_markup });
   } catch (e) { if (!e.status) console.error("wallet error", e && e.stack || e); await reply(msg, "⚠️ " + esc(e.status ? e.message : "Could not load this wallet. Try again.")); }
 }

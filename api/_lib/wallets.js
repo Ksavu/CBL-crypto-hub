@@ -282,6 +282,96 @@ async function terraEvents(addr, cur) {
   return out;
 }
 
+
+// ---------- developer history: every token this wallet created, and how each one is doing ----------
+const DS_CHAIN = { ethereum: "ethereum", bsc: "bsc", base: "base", arbitrum: "arbitrum", polygon: "polygon", optimism: "optimism", avalanche: "avalanche", linea: "linea",
+  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", solana: "solana" };
+async function createdSolana(addr) {
+  const out = new Map(), key = clean(process.env.HELIUS_API_KEY);
+  const [pf, hel] = await Promise.all([
+    jget(`https://frontend-api-v3.pump.fun/coins/user-created-coins/${addr}?offset=0&limit=50&includeNsfw=true`, 6000),
+    key ? jget(`https://api.helius.xyz/v0/addresses/${addr}/transactions?api-key=${key}&type=CREATE&limit=50`, 9000) : null,
+  ]);
+  const coins = Array.isArray(pf) ? pf : (pf && (pf.coins || pf.data)) || [];
+  for (const c of coins) if (c && c.mint) out.set(c.mint, { id: c.mint, sym: c.symbol || "", name: c.name || "", ts: Math.floor(Number(c.created_timestamp || 0) / 1000) || null,
+    mcap: Number(c.usd_market_cap) || null, graduated: !!c.complete, src: "pump.fun" });
+  if (Array.isArray(hel)) for (const t of hel) {
+    if (t.feePayer !== addr || t.transactionError) continue;
+    const m = (t.tokenTransfers || []).map((x) => x.mint).find((x) => x && !SOL_BASE[x]);
+    if (m && !out.has(m)) out.set(m, { id: m, sym: "", name: "", ts: Number(t.timestamp) || null, src: t.source || "" });
+  }
+  return [...out.values()];
+}
+async function createdEvm(addr, chains) {
+  const out = [];
+  for (const c of chains) {
+    const txs = await esCall(c, `module=account&action=txlist&address=${addr}&startblock=0&endblock=99999999&page=1&offset=1000&sort=desc`);
+    for (const x of txs || []) if (!x.to && x.contractAddress && x.isError !== "1" && String(x.from).toLowerCase() === addr) out.push({ id: String(x.contractAddress).toLowerCase(), chain: c, ts: Number(x.timeStamp), sym: "", name: "" });
+  }
+  return out;
+}
+async function createdXrpl(addr) {
+  const out = []; let marker;
+  for (let i = 0; i < 3; i++) {
+    const r = await xrplRpc("account_tx", { account: addr, ledger_index_min: -1, ledger_index_max: -1, limit: 200, forward: false, ...(marker ? { marker } : {}) });
+    if (!r) break;
+    for (const t of r.transactions || []) {
+      const tx = t.tx_json || t.tx || {}, meta = t.meta || t.metaData;
+      if (tx.TransactionType !== "AMMCreate" || tx.Account !== addr || !meta || meta.TransactionResult !== "tesSUCCESS") continue;
+      const a = typeof tx.Amount2 === "object" ? tx.Amount2 : typeof tx.Amount === "object" ? tx.Amount : null;
+      if (a) out.push({ id: a.currency + "." + a.issuer, sym: decodeCode(a.currency), name: "", ts: t.close_time_iso ? Math.floor(Date.parse(t.close_time_iso) / 1000) : tx.date != null ? tx.date + RIPPLE_EPOCH : null });
+    }
+    marker = r.marker; if (!marker) break;
+  }
+  return out;
+}
+/** Market status for created tokens via DexScreener (30 per request). */
+async function marketFor(chain, list) {
+  const ds = DS_CHAIN[chain]; if (!ds) return;
+  for (let i = 0; i < list.length; i += 30) {
+    const part = list.slice(i, i + 30), j = await jget(`https://api.dexscreener.com/tokens/v1/${ds}/${part.map((x) => x.id).join(",")}`, 7000);
+    if (!Array.isArray(j)) continue;
+    for (const t of part) {
+      const low = t.id.toLowerCase(), ps = j.filter((p) => String(p.baseToken && p.baseToken.address).toLowerCase() === low);
+      if (!ps.length) { t.listed = false; continue; }
+      const p = ps.sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
+      t.listed = true; t.sym = t.sym || p.baseToken.symbol; t.name = t.name || p.baseToken.name;
+      t.liq = (p.liquidity && p.liquidity.usd) || 0; t.mcap = p.marketCap || p.fdv || t.mcap || null; t.url = p.url;
+      t.ath = null; t.ts = t.ts || (p.pairCreatedAt ? Math.floor(p.pairCreatedAt / 1000) : null);
+    }
+  }
+}
+function statusOf(t) {
+  const age = t.ts ? now() - t.ts : null;
+  if (t.graduated && (t.liq == null || t.liq >= 1000)) return "live";
+  if (t.liq >= 1000 || (t.mcap >= 15000 && t.listed !== false)) return "live";
+  if (age !== null && age < 86400) return "new";
+  return "dead";
+}
+/** Full developer report: created tokens (with status) + recent trades. */
+async function devReport(addrIn, chainHint, deadline) {
+  const fam = familyOf(addrIn);
+  if (!fam) throw Object.assign(new Error("That doesn't look like a wallet address."), { status: 400 });
+  const address = normAddr(addrIn);
+  const chains = fam === "evm" ? (chainHint && EVM[chainHint] ? [chainHint] : (await evmChains(address)).slice(0, 4)) : [fam];
+  let created = [];
+  try {
+    if (fam === "solana") created = (await createdSolana(address)).map((t) => Object.assign(t, { chain: "solana" }));
+    else if (fam === "evm") created = await createdEvm(address, chains);
+    else if (fam === "xrpl") created = (await createdXrpl(address)).map((t) => Object.assign(t, { chain: "xrpl" }));
+    else created = ((await terraEvents(address, { ts: 0 })) || []).filter((e) => e.type === "create").map((e) => ({ id: e.token.id, sym: e.token.sym, name: e.token.name || "", ts: e.ts, chain: "terraclassic" }));
+  } catch (e) { created = []; }
+  const byChain = {};
+  created.forEach((t) => (byChain[t.chain] = byChain[t.chain] || []).push(t));
+  await Promise.all(Object.entries(byChain).map(([c, l]) => marketFor(c, l).catch(() => {})));
+  if (fam === "evm") created = created.filter((t) => t.listed || t.sym); // non-token contracts (routers, multisigs) drop out
+  created.forEach((t) => (t.status = statusOf(t)));
+  created.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const left = deadline ? deadline - Date.now() : 15000;
+  const recent = left > 4000 ? (await poll({ address, family: fam, chains: chains.length ? chains : [fam] }, { since: now() - 7 * 86400, deadline }).catch(() => ({ events: [] }))).events.reverse() : [];
+  return { address, family: fam, chains, created, events: recent };
+}
+
 // ---------- token info for alerts (name, market cap, liquidity, chart) ----------
 const infoCache = new Map();
 async function tokenInfo(chain, id) {
@@ -369,4 +459,4 @@ async function activity(addrIn, days = 7, chainHint, deadline) {
   return { address, family: fam, chains: fam === "evm" ? chains : [fam], events: events.reverse() };
 }
 
-module.exports = { familyOf, normAddr, poll, addTrack, removeTrack, listTracks, activity, tokenInfo, classify, evmEvents, solEvents, xrplEvents, terraEvents, evmChains, MAX_TRACK, NATIVE };
+module.exports = { devReport, createdSolana, createdEvm, createdXrpl, statusOf, familyOf, normAddr, poll, addTrack, removeTrack, listTracks, activity, tokenInfo, classify, evmEvents, solEvents, xrplEvents, terraEvents, evmChains, MAX_TRACK, NATIVE };

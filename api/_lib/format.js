@@ -95,7 +95,10 @@ function card(r, site, opt) {
   ]];
   const last = [];
   if (r.chain !== "solana" && r.chain !== "xrpl" && r.chain !== "terraclassic") last.push({ text: "🛡 Audit contract", callback_data: "a:" + r.address });
-  if (r.creator && (r.chain === "solana" || /^0x[a-f0-9]{40}$/i.test(r.creator))) last.push({ text: "👤 Track dev", callback_data: "t:" + cb(r.creator) + (r.chain === "solana" ? "" : "|" + r.chain) });
+  if (r.creator && (r.chain === "solana" || /^0x[a-f0-9]{40}$/i.test(r.creator))) {
+    const hint = r.chain === "solana" ? "" : "|" + r.chain;
+    last.push({ text: "📜 Dev history", callback_data: "v:" + cb(r.creator) + hint }, { text: "👤 Track dev", callback_data: "t:" + cb(r.creator) + hint });
+  }
   if (last.length) rows.push(last);
   const so = [];
   if (r.links && r.links.web) so.push({ text: "🌐 Website", url: r.links.web });
@@ -121,10 +124,10 @@ const HELP = [
   "",
   "<b>Wallet tracker</b> 👤",
   "/track &lt;wallet&gt; [chain] [name] – alerts in DM when a wallet buys, sells, creates a token or moves tokens (EVM, Solana, XRPL, Terra)",
-  "/wallet &lt;wallet&gt; – last 7 days of buys, sells and new tokens",
+  "/wallet &lt;wallet&gt; – developer report: every token it created (live or dead) + last 7 days of trades",
   "/wallets – your tracked wallets",
   "/untrack &lt;wallet&gt;",
-  "Tip: tap 👤 Track dev on a scan to follow the token's deployer.",
+  "Tip: on a scan, tap 📜 Dev history to see the deployer's other tokens, or 👤 Track dev to follow them.",
   "",
   "/help",
   "",
@@ -195,6 +198,42 @@ function walletReport(r, site, tracked) {
   return { text: L.join("\n"), reply_markup: { inline_keyboard: [[tracked ? { text: "🔕 Untrack", callback_data: "x:" + cb(r.address) } : { text: "👤 Track this wallet", callback_data: "t:" + cb(r.address) + (r.family === "evm" && r.chains.length === 1 ? "|" + r.chains[0] : "") }]] } };
 }
 
+/** /wallet and 📜 Dev history: tokens this wallet created + recent trades. */
+function devReportMsg(r, site, tracked) {
+  const C = r.created, n = (s) => C.filter((t) => t.status === s).length, grad = C.filter((t) => t.graduated).length;
+  const where = r.family === "evm" ? (r.chains.map(chainName).join(", ") || "no recent EVM activity") : chainName(r.family);
+  const L = [`👤 <b>Developer wallet</b> · ${esc(where)}`, `<code>${esc(r.address)}</code>`, ""];
+  if (C.length) {
+    L.push(`🆕 <b>${C.length} token${C.length === 1 ? "" : "s"} created</b> · 🟢 ${n("live")} live${grad ? ` · 🎓 ${grad} graduated` : ""}${n("new") ? ` · 🟡 ${n("new")} new` : ""} · 💀 ${n("dead")} dead`);
+    if (C.length >= 5 && n("dead") / C.length >= 0.6) L.push(`⚠️ <b>Serial launcher:</b> ${n("dead")} of ${C.length} tokens are dead.`);
+    L.push("", "<b>Launches</b>");
+    for (const t of C.slice(0, 10)) {
+      const ic = t.status === "live" ? "🟢" : t.status === "new" ? "🟡" : "💀", s = esc(t.sym || (t.chain === "xrpl" ? String(t.id).split(".")[0] : shortA(t.id)));
+      const when = t.ts ? ((d) => (d < 1 ? Math.max(1, Math.round(d * 24)) + "h" : Math.round(d) + "d"))((Date.now() / 1000 - t.ts) / 86400) : "";
+      const mk = [t.mcap ? "MC " + usd(t.mcap) : "", t.liq ? "Liq " + usd(t.liq) : "", t.graduated ? "🎓" : ""].filter(Boolean).join(" · ");
+      L.push(`${ic} ${t.url ? `<a href="${t.url}">${s}</a>` : `<b>${s}</b>`}${mk ? " · " + mk : t.status === "dead" ? " · no market" : ""}${when ? " · " + when : ""}${r.family === "evm" && r.chains.length > 1 ? " · " + chainName(t.chain) : ""}`);
+    }
+    if (C.length > 10) L.push(`…and ${C.length - 10} more`);
+  } else {
+    L.push("🆕 No tokens created by this wallet found.");
+    if (r.family === "evm") L.push("<i>Counts tokens it deployed itself. Launches through a factory (four.meme, Clanker…) show up as buys.</i>");
+  }
+  const E = r.events, k = (t) => E.filter((e) => e.type === t).length;
+  L.push("", `<b>Last 7 days:</b> 🟢 ${k("buy") + k("swap")} buys · 🔴 ${k("sell")} sells · 📤 ${k("transfer")} transfers`);
+  for (const e of E.filter((x) => x.type !== "create").slice(0, 6)) {
+    const s = esc(e.token.sym || (e.chain === "xrpl" ? String(e.token.id).split(".")[0] : shortA(e.token.id)));
+    const h = Math.max(1, Math.round((Date.now() / 1000 - e.ts) / 3600));
+    const what = e.type === "buy" ? `🟢 Bought ${amt(e.amt)} ${s} for ${assets(e.paid)}` : e.type === "sell" ? `🔴 Sold ${amt(e.amt)} ${s} for ${assets(e.got)}`
+      : e.type === "swap" ? `🔄 ${amt(e.from.amt)} ${esc(e.from.sym)} → ${amt(e.amt)} ${s}` : `📤 Sent ${amt(e.amt)} ${s}`;
+    L.push(`<a href="${txUrl(e.chain, e.hash)}">${h < 48 ? h + "h" : Math.round(h / 24) + "d"}</a> · ${what}`);
+  }
+  L.push("", "<i>From public chain data. Not financial advice.</i>");
+  const kb = [[tracked ? { text: "🔕 Untrack", callback_data: "x:" + cb(r.address) } : { text: "👤 Track this dev", callback_data: "t:" + cb(r.address) + (r.family === "evm" && r.chains.length === 1 ? "|" + r.chains[0] : "") }]];
+  const latest = C.find((t) => t.status !== "dead") || C[0];
+  if (latest) kb[0].push({ text: "🔍 Scan latest token", callback_data: "s:" + cb(latest.chain === "xrpl" ? String(latest.id).split(".")[1] : latest.id) });
+  return { text: L.join("\n").slice(0, 4000), reply_markup: { inline_keyboard: kb } };
+}
+
 const SEV = { critical: "🚨", high: "🔴", medium: "🟠" };
 function alertMsg(r, alerts, site) {
   const L = [`🚨 <b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${chainName(r.chain)}`, ""];
@@ -222,4 +261,4 @@ function auditCard(r, site) {
     ...(r.chain && CHAINS[r.chain] ? [{ text: "🔎 Explorer", url: CHAINS[r.chain][2] + r.address + "#code" }] : []),
   ]] } };
 }
-module.exports = { card, alertMsg, auditCard, HELP, esc, cb, uncb, walletAlert, walletReport, chainName, shortA };
+module.exports = { card, alertMsg, auditCard, HELP, esc, cb, uncb, walletAlert, walletReport, devReportMsg, chainName, shortA };
