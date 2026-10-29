@@ -1,6 +1,6 @@
 // LI.FI proxy: GET /api/li?p=/quote?...   The site calls LI.FI through here so the fee is added on the server and cannot be removed in the browser.
 // Env: LIFI_INTEGRATOR (your integrator ID from portal.li.fi), LIFI_FEE (decimal, 0.005 = 0.5%), LIFI_API_KEY (free, from the portal).
-const ORIGIN = /^https:\/\/(www\.)?(cryptobarlounge\.space|xrplabs\.fun)$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
+const ORIGIN = /^https:\/\/(www\.)?cryptobarlounge\.space$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
 const ALLOW = new Set(["/chains", "/token", "/quote", "/status"]);
 const hits = new Map();
 

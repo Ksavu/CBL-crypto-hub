@@ -20,7 +20,7 @@ function analyze(i) {
     if (rc && rc.risks) {
       rc.risks.slice(0, 8).forEach((r) =>
         add(r.level === "danger" ? "high" : r.level === "warn" ? "medium" : "info", r.name, r.description));
-      const bc = pair && (pair.curve || (/pump/i.test(pair.dexId || "") && !(pair.liquidity && pair.liquidity.usd)));
+      const bc = pair && /pump/i.test(pair.dexId || "") && !(pair.liquidity && pair.liquidity.usd);
       if (bc) add("info", "Still on the pump.fun bonding curve", "No liquidity pool yet, so LP lock does not apply. Risk is in the holders and the deployer.");
       else if (typeof rc.lpLockedPct === "number")
         add(rc.lpLockedPct >= 90 ? "ok" : rc.lpLockedPct >= 50 ? "medium" : "high",
@@ -165,17 +165,15 @@ function solGoPlus(s, add, skipHolders) {
 function marketChecks(p, add) {
   const liq = p.liquidity && p.liquidity.usd;
   const fmt = (n) => "$" + Math.round(n).toLocaleString("en-US");
-  // pump.fun curve: the curve itself is the liquidity and grows until migration, so don't apply pool penalties.
-  if (p.curve) { if (typeof liq === "number") add("info", `Bonding curve holds ${fmt(liq)}${typeof p.curveProgress === "number" ? ` (${Math.round(p.curveProgress)}% to migration)` : ""}`); }
-  else if (typeof liq === "number") add(liq < 5000 ? "high" : liq < 25000 ? "medium" : "ok", `Liquidity ${fmt(liq)} on ${p.dexId}`);
-  if (!p.curve && typeof liq === "number" && liq < 1000) add("medium", "Under $1,000 of liquidity", "Almost nothing to trade against. Any buy or sell moves the price heavily and exits may be impossible.");
+  if (typeof liq === "number") add(liq < 5000 ? "high" : liq < 25000 ? "medium" : "ok", `Liquidity ${fmt(liq)} on ${p.dexId}`);
+  if (typeof liq === "number" && liq < 1000) add("medium", "Under $1,000 of liquidity", "Almost nothing to trade against. Any buy or sell moves the price heavily and exits may be impossible.");
   if (p.pairCreatedAt) {
     const days = (Date.now() - p.pairCreatedAt) / 864e5;
     if (days < 1) add("high", "Pair is less than 24 hours old");
     else if (days < 7) add("low", `New pair (${Math.round(days)} days old)`);
   }
   const fdv = p.fdv || p.marketCap;
-  if (!p.curve && liq && fdv && liq / fdv < 0.005) add("medium", "Very thin liquidity compared to market cap");
+  if (liq && fdv && liq / fdv < 0.005) add("medium", "Very thin liquidity compared to market cap");
   const ch = p.priceChange && p.priceChange.h24;
   if (typeof ch === "number" && ch <= -50) add("high", `Price down ${Math.abs(ch).toFixed(0)}% in 24h`);
 }

@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>CBL Wallet Tracker | CBL Crypto Hub</title><style>
+:root{--ink:#10142c;--muted:#69718b;--purple:#7138e9;--blue:#2767e8;--pink:#df42ad;--line:#e6e8f1;--paper:#fff;--sub:#f7f7fc;--shadow:0 16px 48px rgba(50,36,107,.075)}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#fff;color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5}button,input,select,textarea{font:inherit}button{cursor:pointer}a{text-decoration:none;color:inherit}.container{width:min(1180px,calc(100% - 40px));margin:auto}.topbar{background:#11162d;color:#dadcf2;text-align:center;padding:8px;font-size:12px;letter-spacing:.015em}.topbar span{color:#bda1ff}.nav{height:82px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.94);position:sticky;top:0;z-index:20;backdrop-filter:blur(18px)}.navinner{height:100%;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{display:flex;align-items:center;gap:11px;font-size:20px;font-weight:900;letter-spacing:-.8px;white-space:nowrap}.brandmark{display:grid;place-items:center;border-radius:15px;width:42px;height:42px;color:white;background:linear-gradient(135deg,#8649ff 0%,#366ef6 55%,#e744ac 100%);font-weight:950;box-shadow:0 7px 18px #7749de33}.brand em{font-style:normal;color:var(--purple)}.links{display:flex;gap:30px;align-items:center;color:#40445e;font-size:13px;font-weight:700}.links a:hover{color:var(--purple)}.btn{border:0;border-radius:16px;padding:14px 22px;font-size:14px;font-weight:800;display:inline-flex;justify-content:center;align-items:center;gap:8px;transition:transform .2s,box-shadow .2s}.btn:hover{transform:translateY(-2px)}.primary{background:linear-gradient(115deg,#7035e8,#4567f2);color:#fff;box-shadow:0 10px 25px rgba(99,69,221,.24)}.secondary{background:#f2edff;color:#5c32c5}.outline{border:1px solid var(--line);background:#fff;color:var(--ink)}.tiny{padding:10px 16px;border-radius:12px}.menu{display:none;border:1px solid var(--line);background:white;border-radius:10px;padding:8px 12px}.hero{padding:65px 0 42px;position:relative;overflow:hidden}.hero:before{content:"";position:absolute;z-index:-1;width:600px;height:420px;right:-240px;top:-150px;background:radial-gradient(ellipse,#eee5ff 0,transparent 68%);pointer-events:none}.hero .pill,.tag{display:inline-flex;align-items:center;gap:8px;background:#f4efff;color:#6530d6;border:1px solid #e9dcff;padding:7px 13px;border-radius:30px;font-size:11px;letter-spacing:.09em;font-weight:900;text-transform:uppercase}.dot{width:7px;height:7px;border-radius:50%;background:#8d4aea}.hero h1{font-size:clamp(43px,6vw,76px);letter-spacing:-.068em;line-height:1.05;margin:20px 0 17px;max-width:950px}.grad{background:linear-gradient(90deg,#8136dc 5%,#3970ec 56%,#dc47ad);-webkit-background-clip:text;background-clip:text;color:transparent}.hero p{max-width:680px;color:var(--muted);font-size:17px;margin:0 0 24px}.heroactions{display:flex;flex-wrap:wrap;gap:11px}.proof{display:flex;gap:20px;flex-wrap:wrap;margin-top:24px;color:#71788d;font-weight:650;font-size:12px}.proof span:before{content:'✓';margin-right:7px;color:#7142dd}.section{padding:52px 0}.sectionheading{display:flex;justify-content:space-between;gap:20px;align-items:end;margin-bottom:24px}.eyebrow{font-weight:900;color:#7b47df;font-size:12px;letter-spacing:.12em;text-transform:uppercase}.sectionheading h2{font-size:clamp(30px,3.5vw,45px);line-height:1.1;letter-spacing:-.05em;margin:9px 0}.sectionheading p{color:var(--muted);margin:0;max-width:565px;font-size:15px}.tools{display:grid;grid-template-columns:1fr 1fr;gap:20px}.tool{background:white;border:1px solid #e7e5f0;border-radius:30px;padding:28px;box-shadow:var(--shadow);position:relative;overflow:hidden}.tool:before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#8244f4,#4985fa)}.tool.swap:before{background:linear-gradient(90deg,#3e76fa,#d84aaf)}.toolhead{display:flex;align-items:center;gap:14px;margin-bottom:20px}.toolicon{display:grid;place-items:center;width:55px;height:55px;border-radius:18px;background:#f1eaff;color:#723bde;font-size:26px}.swap .toolicon{background:#e9f0ff;color:#306be7}.tool h3{font-size:24px;letter-spacing:-.035em;margin:0}.toolhead p{font-size:13px;color:var(--muted);margin:2px 0}.fieldlabel{font-size:12px;font-weight:800;margin:0 0 8px;color:#303650}.inputrow{display:flex;gap:8px}.input,select,textarea{border:1px solid #e1e3ed;outline:0;border-radius:14px;background:#fbfbff;color:#262a45;padding:15px;width:100%;min-width:0}.input:focus,select:focus,textarea:focus{border-color:#996af4;box-shadow:0 0 0 3px #996af41c}.inputrow .btn{flex-shrink:0}.hint{font-size:12px;color:var(--muted);margin:11px 0 0}.result{margin-top:20px;border:1px solid var(--line);border-radius:18px;background:#f9f9fd;padding:17px;min-height:110px}.result .empty{text-align:center;color:#7c8297;font-size:13px;padding-top:10px}.statrow{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:13px 0}.stat{background:white;padding:12px;border:1px solid #e9e9f2;border-radius:12px}.stat strong{display:block;font-size:17px}.stat small{color:var(--muted);font-size:11px}.assetbox{background:#f9f9ff;border:1px solid #e8e8f3;border-radius:20px;padding:18px;margin-bottom:10px}.assetbox .assethead{display:flex;align-items:center;justify-content:space-between;color:#727a90;font-size:12px;font-weight:700;margin-bottom:10px}.assetbox input{border:0;background:transparent;outline:0;font-size:30px;font-weight:800;width:60%;color:#222641}.assetbox select{width:auto;padding:10px 12px;border-radius:12px;font-weight:800;background:#fff}.switcher{display:grid;place-items:center;margin:-5px auto 6px;background:white;box-shadow:0 3px 10px #28185422;border:1px solid var(--line);border-radius:13px;width:37px;height:37px;position:relative;z-index:2;color:#6637dc;font-size:20px}.swapnote{border:1px solid #e9defe;background:#faf7ff;border-radius:14px;padding:13px 15px;color:#5c5380;font-size:12px;margin:12px 0 17px}.full{width:100%}.belowtools{margin-top:14px;text-align:center;color:#9195a6;font-size:11px}.servicesbg{background:linear-gradient(180deg,#faf9fe,#fff)}.servicesgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.service{padding:22px;border:1px solid #e9e7f2;border-radius:26px;background:white;box-shadow:0 10px 30px #33226908;transition:transform .2s,border-color .2s}.service:hover{transform:translateY(-3px);border-color:#cbb7fc}.serviceicon{font-size:24px;display:grid;place-items:center;width:49px;height:49px;border-radius:15px;background:#f5f0ff;margin-bottom:18px}.service h3{font-size:18px;letter-spacing:-.03em;line-height:1.2;margin:0 0 8px}.service p{font-size:13px;color:var(--muted);min-height:38px;margin:0 0 15px}.price{font-size:23px;font-weight:900;letter-spacing:-.045em;margin-bottom:13px}.price small{font-size:12px;color:#868ca1;font-weight:650;letter-spacing:0}.expander{border:1px solid #e9e6f1;border-radius:14px;overflow:hidden}.expander summary{list-style:none;padding:13px 15px;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:800;cursor:pointer;background:#fbfaff}.expander summary:after{content:'⌄';font-size:18px;color:#7137d9}.expander[open] summary:after{content:'⌃'}.choices{padding:9px 12px 12px}.choice{display:flex;align-items:start;gap:9px;padding:9px 0;font-size:12px}.choice input{accent-color:#7139e5;margin-top:3px}.choice label{flex:1;cursor:pointer}.choice b{font-size:12px}.quote{display:grid;grid-template-columns:1.1fr .9fr;gap:30px;margin-top:24px;border:1px solid #e4dff5;border-radius:30px;padding:29px;background:linear-gradient(120deg,#f9f6ff,#fff 70%)}.quote h3{font-size:28px;letter-spacing:-.04em;margin:5px 0 8px}.quote p{color:var(--muted);font-size:14px;margin:0}.quotearea{display:flex;flex-direction:column;justify-content:center;gap:9px}.quoteitem{display:flex;justify-content:space-between;color:#49516d;font-size:13px;gap:10px}.quotefooter{display:flex;justify-content:space-between;border-top:1px solid #dedced;padding-top:12px;font-weight:900;font-size:19px}.note{color:#9698a7;font-size:11px}.flowbox{border:1px solid var(--line);border-radius:27px;padding:25px;background:white}.howgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.stepnum{background:#f1ebff;border-radius:13px;color:#713bdc;width:34px;height:34px;display:grid;place-items:center;font-weight:900;margin-bottom:12px}.flowbox h3{margin:0 0 7px;font-size:18px}.flowbox p{color:var(--muted);font-size:13px;margin:0}.cta{margin:35px 0 65px;border-radius:32px;background:#14142f;color:#fff;padding:44px;display:flex;justify-content:space-between;align-items:center;gap:20px;position:relative;overflow:hidden}.cta:after{content:'';position:absolute;right:-50px;top:-180px;width:400px;height:400px;border-radius:50%;background:radial-gradient(ellipse,#7139e97a,transparent 70%);pointer-events:none}.cta h2{font-size:clamp(27px,3vw,39px);letter-spacing:-.05em;margin:0}.cta p{color:#c2c2d6;margin:7px 0 0;font-size:14px}.cta .btn{z-index:1;white-space:nowrap}.footer{border-top:1px solid var(--line);padding:29px 0 37px}.footerinner{display:flex;justify-content:space-between;flex-wrap:wrap;gap:15px;color:#858a9e;font-size:12px}.footer a{color:#6b43dc}.modalwrap{position:fixed;inset:0;background:#0b092d9e;display:none;align-items:center;justify-content:center;z-index:40;padding:20px}.modalwrap.visible{display:flex}.modal{background:white;border-radius:27px;padding:26px;width:min(530px,100%);max-height:90vh;overflow:auto;box-shadow:0 25px 100px #100b3f44}.modaltop{display:flex;justify-content:space-between;align-items:center}.modaltop h2{margin:0;letter-spacing:-.04em}.x{border:0;background:#f2effa;border-radius:12px;padding:8px 12px}.modal form{display:grid;gap:12px;margin-top:16px}.modal label{font-size:12px;font-weight:800}.modal form input,.modal form textarea{margin-top:6px}.modal textarea{resize:vertical;min-height:90px}.muted{color:var(--muted)}.status{font-size:12px;color:#6544c9;margin-top:10px;min-height:18px}.sr{position:absolute;width:1px;height:1px;clip:rect(0,0,0,0);overflow:hidden}@media(max-width:900px){.links{gap:14px}.servicesgrid{grid-template-columns:repeat(2,1fr)}.tool{padding:22px}.tools{gap:14px}.hero{padding-top:45px}}@media(max-width:680px){.container{width:min(100% - 28px,1180px)}.nav{height:69px}.brand{font-size:17px}.brandmark{width:37px;height:37px}.links{display:none;position:absolute;top:69px;left:0;right:0;padding:18px 22px;background:white;box-shadow:0 10px 20px #100a3219;flex-direction:column;align-items:flex-start}.links.show{display:flex}.menu{display:block}.nav .btn.tiny{display:none}.hero{padding-top:39px}.hero h1{font-size:45px}.hero p{font-size:15px}.tools,.servicesgrid,.quote,.howgrid{grid-template-columns:1fr}.section{padding:35px 0}.sectionheading{display:block}.tool{border-radius:24px}.quote{padding:22px}.cta{padding:28px;display:block}.cta .btn{margin-top:18px}.inputrow{flex-direction:column}.service p{min-height:0}}
+
+/* CBL color correction — rich branded neon accents + white contrast */
+:root{--ink:#0B1026;--muted:#515A72;--purple:#7125E8;--blue:#155AF5;--pink:#EA249F;--line:#DCDFF0;--paper:#fff;--sub:#F5F3FF;--shadow:0 18px 46px rgba(46,20,120,.13)}
+body{background:#fff;color:var(--ink)}
+.topbar{background:#0A0E23;color:#EDF0FF}.topbar span{color:#D19CFF}
+.brandmark{background:linear-gradient(135deg,#7021E9 0%,#1E5DF4 53%,#E42CA8 100%);box-shadow:0 9px 26px rgba(102,42,214,.3)}
+.brand em{color:#6A20DA}.nav{border-bottom-color:#DADBED;background:rgba(255,255,255,.97)}
+.links{color:#19213C}.links a:hover{color:#7323DA}
+.primary{background:linear-gradient(115deg,#6920D6 0%,#7022E8 43%,#195CF1 100%);box-shadow:0 12px 26px rgba(95,32,219,.29)}
+.secondary{background:#E9DFFF;color:#5313C4}.outline{border-color:#CFCFE2;color:#151A32}
+.hero:before{background:radial-gradient(ellipse,rgba(135,69,255,.18) 0,rgba(226,85,200,.07) 42%,transparent 72%)}
+.hero .pill,.tag{background:#EDE5FF;color:#5719CB;border-color:#D8C7FF}.dot{background:#A12AFF}
+.grad{background:linear-gradient(90deg,#7921E5 2%,#1C5CF1 56%,#E72C9F 98%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.proof{color:#4D5874}.proof span:before{color:#7421E9}.eyebrow{color:#7221DC}
+.tool{border-color:#CEC9E5;box-shadow:0 19px 46px rgba(70,27,150,.13);background:#fff}
+.tool:before{height:7px;background:linear-gradient(90deg,#741CE8,#3558FF,#AC36FF)}
+.tool.swap:before{background:linear-gradient(90deg,#185BF4,#7723E5,#E92D9F)}
+.toolicon{background:#E6DAFF;color:#6220D3}.swap .toolicon{background:#E0E9FF;color:#1555DD}
+.input,select,textarea{background:#fff;border-color:#CFCFE7;color:#111833}.input:focus,select:focus,textarea:focus{border-color:#7624F2;box-shadow:0 0 0 4px rgba(118,36,242,.13)}
+.result{background:#F6F4FF;border-color:#DCD5F5}.stat{border-color:#DCD9EC}
+.assetbox{background:#F6F5FF;border-color:#D5D4EE}.swapnote{background:#EEE7FF;border-color:#D8CAFF;color:#41316F}
+.servicesbg{background:linear-gradient(180deg,#F4F1FF 0%,#FAF9FF 48%,#fff 100%)}
+.service{border-color:#D8D0EB;box-shadow:0 12px 32px rgba(58,26,134,.09)}.service:hover{border-color:#8D50F5;box-shadow:0 20px 40px rgba(84,31,177,.15)}
+.serviceicon{background:linear-gradient(135deg,#EEE4FF,#E3EDFF);color:#6221D3}
+.expander{border-color:#D7D1E6}.expander summary{background:#F0EAFF}.expander summary:after{color:#6B1CDD}.choice input{accent-color:#7122E4}
+.quote{border-color:#C9B8EF;background:linear-gradient(115deg,#EDE4FF 0%,#F7F3FF 42%,#fff 100%)}
+.stepnum{background:#E6D8FF;color:#631BD4}.cta{background:linear-gradient(120deg,#080C1E,#151033 75%)}
+.cta:after{background:radial-gradient(ellipse,rgba(114,29,239,.65),rgba(24,80,242,.16) 52%,transparent 72%)}
+.footer a{color:#621BD3}
+
+/* Refined CBL brand: bright white canvas, rich violet, vivid cobalt, neon pink. */
+:root{--ink:#0A0B1A;--muted:#52536A;--purple:#7227EA;--blue:#1259F7;--pink:#EB2BB6;--line:#DAD5EC;--sub:#FAF8FF;--shadow:0 16px 44px rgba(61,25,122,.11)}
+.topbar{background:#100B22}.brandmark{background:linear-gradient(130deg,#8F32F3 0%,#5B30EE 34%,#1765FF 70%,#F02CAF 100%)}
+.brand em{color:#7621E8}.grad{background:linear-gradient(95deg,#8B24EA 2%,#4B31F3 43%,#1869FB 72%,#E825B4 100%);background-clip:text;-webkit-background-clip:text;color:transparent}
+.primary{background:linear-gradient(105deg,#8B25EA,#622AEC 48%,#175AF7);box-shadow:0 11px 29px rgba(108,35,231,.26)}
+.secondary{background:#EEE5FF;color:#5A15C9}.tool{border-radius:34px;border-color:#D6CCE9}.tool:before{background:linear-gradient(90deg,#9226F0,#4F41F5,#166BFF)}.tool.swap:before{background:linear-gradient(90deg,#185BFA,#7E25EC,#EF2EB0)}
+.servicesbg{background:linear-gradient(180deg,#FBFAFF,#F7F3FF 46%,#fff)}.service{border-radius:30px;border-color:#D9D2EB}.serviceicon{background:linear-gradient(140deg,#F2E7FF,#E7EAFF)}
+.quote{background:linear-gradient(112deg,#F3EAFE,#FCFAFF 56%,#fff)}.cta{background:linear-gradient(120deg,#100922,#1A1041)}
+.navdropdown{position:relative}.navdropbtn{font-size:12px;font-weight:900;color:#6620D5;background:#F0E7FF;border:1px solid #DEC8FF;padding:12px 14px;border-radius:14px;white-space:nowrap}.navdropbtn:hover,.navdropbtn[aria-expanded="true"]{color:white;background:#7227EA}.navdropmenu{display:none;position:absolute;z-index:35;right:0;top:calc(100% + 8px);min-width:215px;padding:8px;background:#fff;border:1px solid #E1D7F0;border-radius:17px;box-shadow:0 22px 48px rgba(28,12,81,.15)}.navdropdown.open .navdropmenu{display:grid;gap:3px}.navdropmenu a{padding:11px 12px;border-radius:10px;color:#24203F;font-size:13px}.navdropmenu a:hover{background:#F0E8FF;color:#6520CC}
+@media(max-width:1000px){.navdropdown{width:100%}.navdropbtn{width:100%;text-align:left}.navdropmenu{position:static;box-shadow:none;min-width:0;margin-top:6px}}
+.launchgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.launchcard{background:#fff;border:1px solid #D8C9EE;border-radius:34px;padding:32px;box-shadow:var(--shadow)}.launchcard h2{font-size:28px;margin:15px 0 9px}.launchcard p{color:var(--muted)}.launchbadge{display:inline-flex;background:#F0E5FF;color:#6C1FCF;padding:8px 14px;border-radius:100px;font-size:12px;font-weight:850}.launchcard .btn{margin-top:20px}.launchnotice{padding:15px 18px;margin:25px 0;border-radius:18px;background:#F6F1FF;border:1px solid #E1D4F5;color:#4C3B74;font-size:13px}@media(max-width:700px){.launchgrid{grid-template-columns:1fr}}
+
+/* CBL original-inspired DARK luminous gradient bubbles — white overall canvas. */
+:root{--purple:#7925ED;--blue:#145DFF;--pink:#F12BAF;--shadow:0 22px 55px rgba(27,10,76,.2)}
+body{background:#FFFFFF}
+.servicesbg{background:linear-gradient(180deg,#FFFFFF 0%,#F8F6FF 50%,#FFFFFF 100%)}
+.tool,.service,.launchcard{position:relative;isolation:isolate;overflow:hidden;color:#FFFFFF;border:1px solid rgba(186,150,255,.35);box-shadow:0 22px 55px rgba(34,13,104,.23),inset 0 1px 0 rgba(255,255,255,.12);transition:transform .25s,box-shadow .25s}
+.tool{background:radial-gradient(ellipse at 5% 0%,rgba(142,52,255,.54),transparent 50%),radial-gradient(ellipse at 100% 95%,rgba(17,91,255,.36),transparent 55%),linear-gradient(132deg,#1C1048 0%,#100C34 50%,#071B49 100%);border-radius:36px;padding:30px}
+.tool.swap{background:radial-gradient(ellipse at 100% 0%,rgba(248,35,165,.38),transparent 52%),radial-gradient(ellipse at 0% 80%,rgba(32,101,255,.55),transparent 56%),linear-gradient(135deg,#091E50 0%,#17104C 60%,#270E45 100%)}
+.tool:before,.tool.swap:before{height:4px;background:linear-gradient(90deg,#A541FF,#397DFF,#F53BBA)}
+.tool h3,.service h3,.launchcard h2,.tool .fieldlabel,.tool .assetbox .assethead{color:#FFFFFF}
+.toolhead p,.tool .hint,.tool .belowtools,.service p,.launchcard p{color:#D7D0F2}
+.toolicon,.swap .toolicon,.serviceicon{background:rgba(255,255,255,.13);color:#FFF;border:1px solid rgba(255,255,255,.16);backdrop-filter:blur(8px)}
+.tool .result{background:rgba(255,255,255,.96);color:#1C1A39;border-color:rgba(255,255,255,.3)}
+.tool .result .hint{color:#64627C}.tool .result .empty{color:#65647A}
+.tool .stat{background:#FFFFFF;color:#141530;border-color:#E6E0F3}.tool .stat small{color:#77718A}
+.tool .input,.tool select{background:#FFFFFF;color:#161935;border:1px solid #E5DFF3}
+.tool .assetbox{background:rgba(255,255,255,.11);border-color:rgba(255,255,255,.22)}
+.tool .assetbox input{color:#FFFFFF}.tool .assetbox select{background:#FFFFFF;color:#15162F}
+.tool .swapnote{background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.22);color:#F1EAFE}
+.tool .switcher{background:#FBF8FF;color:#6720D8}
+.service{background:radial-gradient(ellipse at 100% 0%,rgba(135,44,248,.4),transparent 55%),linear-gradient(145deg,#231451,#15103C 58%,#101E4A);border-radius:32px;min-height:285px;padding:24px}
+.service:nth-child(3n+2){background:radial-gradient(ellipse at 100% 0%,rgba(38,99,255,.46),transparent 65%),linear-gradient(140deg,#101B52,#181345 65%,#231144)}
+.service:nth-child(3n){background:radial-gradient(ellipse at 100% 0%,rgba(236,46,170,.32),transparent 60%),linear-gradient(140deg,#2A114D,#1B1343 56%,#111F4E)}
+.service:hover,.launchcard:hover{transform:translateY(-5px);box-shadow:0 27px 60px rgba(37,15,109,.34);border-color:#B17CFF}
+.service .price{color:#FFFFFF}.service .price small{color:#C5BCE5}.service .expander{border-color:rgba(255,255,255,.25)}
+.service .expander summary{background:rgba(255,255,255,.14);color:#FFFFFF}.service .expander summary:after{color:#EBCBFF}
+.service .choices{background:#F9F7FF;color:#181333}.service .choice{color:#211C3A}
+.service .choice input{accent-color:#7327EC}
+.quote{background:radial-gradient(ellipse at 90% 0%,rgba(94,63,241,.38),transparent 60%),linear-gradient(110deg,#1A103F,#102357);color:#FFFFFF;border:1px solid rgba(170,133,249,.4);box-shadow:0 20px 50px rgba(34,13,104,.2);border-radius:34px}
+.quote h3,.quote .quotefooter{color:#FFFFFF}.quote p,.quote .quoteitem,.quote .note{color:#DCD6F3}.quote .quotefooter{border-color:rgba(255,255,255,.25)}
+.launchcard{background:radial-gradient(ellipse at 100% 0%,rgba(123,42,251,.44),transparent 57%),linear-gradient(145deg,#251052,#101741 68%,#071D4B)}
+.launchcard:nth-child(2){background:radial-gradient(ellipse at 100% 0%,rgba(37,103,255,.5),transparent 57%),linear-gradient(145deg,#0C2051,#171142 68%,#301046)}
+.launchbadge{background:rgba(255,255,255,.14);color:#FFFFFF;border:1px solid rgba(255,255,255,.2)}
+@media(max-width:720px){.tool{padding:22px}.service{min-height:0}.launchcard{padding:24px}}
+
+
+/* Refinement: rich CBL gradients belong on interactive service cards, not tool forms. */
+.tool,.tool.swap{background:#fff;color:var(--ink);border:1px solid #e7e5f0;box-shadow:0 16px 48px rgba(50,36,107,.075)}
+.tool h3,.tool .fieldlabel,.tool .assetbox .assethead{color:var(--ink)}
+.toolhead p,.tool .hint,.tool .belowtools{color:var(--muted)}
+.toolicon{background:#f1eaff;color:#723bde;border:0}
+.swap .toolicon{background:#e9f0ff;color:#306be7}
+.tool .assetbox{background:#f9f9ff;border-color:#e8e8f3}
+.tool .assetbox input{color:#222641}
+.tool .swapnote{background:#faf7ff;border-color:#e9defe;color:#5c5380}
+.quote{background:linear-gradient(120deg,#f9f6ff,#fff 70%);color:var(--ink);border:1px solid #e4dff5;box-shadow:none}
+.quote h3,.quote .quotefooter{color:var(--ink)}
+.quote p,.quote .quoteitem{color:var(--muted)}.quote .note{color:#9698a7}.quote .quotefooter{border-color:#dedced}
+.service,.service:nth-child(3n+2),.service:nth-child(3n){background:#fff;color:var(--ink);border:1px solid #e9e7f2;box-shadow:0 10px 30px #33226908;transition:background .25s,transform .25s,box-shadow .25s,border-color .25s}
+.service h3,.service .price{color:var(--ink)}.service p{color:var(--muted)}.service .price small{color:#868ca1}
+.serviceicon{background:#f5f0ff;color:#6733d9;border:0}
+.service .expander{border-color:#e9e6f1}.service .expander summary{background:#fbfaff;color:var(--ink)}.service .expander summary:after{color:#7137d9}
+.service:is(:hover,:focus-within,:has(details[open])){background:radial-gradient(ellipse at 100% 0%,rgba(135,44,248,.40),transparent 55%),linear-gradient(145deg,#231451,#15103C 58%,#101E4A);color:white;border-color:#a47bff;transform:translateY(-4px);box-shadow:0 23px 54px rgba(37,15,109,.26)}
+.service:nth-child(3n+2):is(:hover,:focus-within,:has(details[open])){background:radial-gradient(ellipse at 100% 0%,rgba(38,99,255,.46),transparent 65%),linear-gradient(140deg,#101B52,#181345 65%,#231144)}
+.service:nth-child(3n):is(:hover,:focus-within,:has(details[open])){background:radial-gradient(ellipse at 100% 0%,rgba(236,46,170,.32),transparent 60%),linear-gradient(140deg,#2A114D,#1B1343 56%,#111F4E)}
+.service:is(:hover,:focus-within,:has(details[open])) h3,.service:is(:hover,:focus-within,:has(details[open])) .price{color:#fff}
+.service:is(:hover,:focus-within,:has(details[open])) p,.service:is(:hover,:focus-within,:has(details[open])) .price small{color:#d7d0f2}
+.service:is(:hover,:focus-within,:has(details[open])) .serviceicon{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.16)}
+.service:is(:hover,:focus-within,:has(details[open])) .expander{border-color:rgba(255,255,255,.25)}
+.service:is(:hover,:focus-within,:has(details[open])) .expander summary{background:rgba(255,255,255,.14);color:#fff}
+.service:is(:hover,:focus-within,:has(details[open])) .expander summary:after{color:#ebcbff}
+.service .choices{background:#f9f7ff;color:#181333}
+@media(hover:none){.service:has(details[open]){transform:none}}
+@media(prefers-reduced-motion:reduce){.service{transition:none}}
+
+
+/* Live markets ticker and community chat */
+.marketstrip{display:flex;align-items:center;background:#0d1230;color:white;min-height:38px;overflow:hidden;border-bottom:1px solid #292257}
+.marketlabel{z-index:2;flex:none;padding:13px 17px 13px 24px;background:linear-gradient(100deg,#22134d,#171b48);font-weight:900;font-size:11px;letter-spacing:.09em;white-space:nowrap;box-shadow:12px 0 20px #0d1230}
+.marketlabel i{display:inline-block;width:7px;height:7px;border-radius:100%;background:#7dffa2;margin-right:7px;box-shadow:0 0 8px #7dffa2}
+.marketviewport{min-width:0;overflow:hidden;flex:1;mask-image:linear-gradient(90deg,transparent,#000 2%,#000 98%,transparent)}
+.markettrack{display:flex;align-items:center;gap:22px;width:max-content;animation:marquee 55s linear infinite;padding:5px 16px}
+.marketstrip:hover .markettrack{animation-play-state:paused}
+.marketcoin{display:flex;align-items:center;gap:10px;min-width:175px;white-space:nowrap;font-size:12px}
+.marketcoin strong{font-size:13px}.marketcoin .coinprice{font-weight:700;color:#f1edff}.marketcoin .pos{color:#73ecc0}.marketcoin .neg{color:#ff8fb3}
+.marketspark{width:65px;height:27px;flex:none}.marketmeta{font-size:10px;color:#c0bbdf;padding-right:15px;white-space:nowrap}
+@keyframes marquee{to{transform:translateX(-50%)}}
+.communitytoggle{position:fixed;right:24px;bottom:22px;z-index:60;border:0;border-radius:21px;padding:14px 19px;background:linear-gradient(125deg,#4e22aa,#2564ea 75%,#bb2caa);box-shadow:0 13px 40px #27145d69;color:white;font-weight:900;display:flex;align-items:center;gap:9px;cursor:pointer}
+.communitypanel{display:none;position:fixed;right:22px;bottom:87px;width:min(375px,calc(100vw - 28px));height:min(530px,calc(100dvh - 115px));z-index:61;background:#fff;border:1px solid #dcd6f6;border-radius:25px;overflow:hidden;box-shadow:0 24px 75px #19114360;flex-direction:column}
+.communitypanel.open{display:flex}.communityhead{background:radial-gradient(circle at 95% 0%,#8a38bf70,transparent 60%),linear-gradient(120deg,#241450,#132457);color:#fff;padding:17px 18px;display:flex;align-items:center;justify-content:space-between;gap:9px}
+.communityhead b{font-size:16px}.communityhead small{display:block;color:#d1c9ed;font-size:11px;margin-top:3px}.communityhead button{color:white;background:#ffffff22;border:0;border-radius:10px;padding:7px 11px;cursor:pointer}
+.communitybody{padding:18px;flex:1;min-height:0;display:flex;flex-direction:column;gap:12px}.communitybody p{font-size:13px;color:#505773;margin:0;line-height:1.5}.communitybody iframe{border:0;width:100%;height:100%;flex:1;border-radius:12px}.communityplaceholder{background:linear-gradient(145deg,#f6f2ff,#eef3ff);border:1px solid #e2daf9;border-radius:16px;padding:17px;display:grid;gap:8px}.communityplaceholder b{font-size:15px}.communityplaceholder span{font-size:12px;color:#5c5875}.communitybody .communitynote{margin-top:auto;color:#8e91a4;font-size:11px}
+@media(max-width:700px){.marketlabel{padding:12px;font-size:10px}.marketmeta{display:none}.marketcoin{min-width:152px;gap:7px}.communitytoggle{right:12px;bottom:12px}.communitypanel{right:12px;bottom:76px}}
+@media(prefers-reduced-motion:reduce){.markettrack{animation:none;overflow-x:auto}}
+
+/* CBL Coin Sniffer: readable white canvas, interactive luminous pill borders */
+.sniffergrid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(300px,.7fr);gap:20px}
+.snifferpanel{border:1px solid #ded9ee;border-radius:32px;background:#fff;padding:26px;box-shadow:0 15px 40px rgba(32,15,90,.07)}
+.snifferpanel h3{font-size:23px;letter-spacing:-.04em;margin:0 0 8px}
+.snifferpanel p{font-size:13px;color:#626780;margin:0 0 16px}
+.snifferform{display:flex;gap:10px;flex-wrap:wrap}.snifferform select{width:155px;flex:none}.snifferform input{flex:1;min-width:200px}
+.snifferresults{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}.snifferblock{background:#faf9ff;border:1px solid #e7e1f5;border-radius:20px;padding:18px;min-width:0}.snifferblock h4{font-size:15px;margin:0 0 8px}.snifferblock p{font-size:12px;margin:0 0 7px}.snifferkv{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #e7e1f5;padding:8px 0;font-size:12px}.snifferkv b{text-align:right;overflow-wrap:anywhere}.snifferlabel{display:inline-flex;border-radius:100px;padding:5px 10px;background:#eae4ff;color:#5726bb;font-size:11px;font-weight:850}.snifferwarn{background:#fff4e8;color:#79441d}.snifferdanger{background:#fee8ec;color:#9c213c}.snifferok{background:#e9f9f2;color:#176b4e}.sniffermuted{font-size:11px;color:#77758c}.walletrow{display:flex;justify-content:space-between;align-items:center;gap:8px;background:#faf9ff;border:1px solid #e7e1f5;border-radius:13px;padding:9px;margin-top:7px}.walletrow code{overflow-wrap:anywhere;font-size:11px}.walletrow button{border:0;border-radius:9px;padding:6px 10px;background:#eee7ff;color:#5f24c8}.snifferbtn{border:0;background:linear-gradient(110deg,#23114f,#162967 65%,#64259a);color:#fff;border-radius:15px;padding:13px 18px;font-weight:850;cursor:pointer}.snifferbtn:hover{filter:brightness(1.2)}
+@media(max-width:760px){.sniffergrid,.snifferresults{grid-template-columns:1fr}.snifferpanel{padding:20px}.snifferform select{width:100%}}
+
+/* CBL logo-inspired deep violet, cobalt blue and electric pink. Clean bright canvas. */
+:root{--purple:#7131e8;--blue:#2155ea;--pink:#e02c9e;--ink:#111229}
+.brandmark,.primary{background:linear-gradient(118deg,#4c1b97 0%,#7327ce 35%,#2458dc 76%,#dd269c 100%)}
+.grad{background:linear-gradient(95deg,#6922c6 0%,#294ddd 65%,#c52ca3 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.tools{grid-template-columns:1.15fr .85fr;align-items:stretch;gap:22px}
+.tool,.snifferpanel{border-radius:34px;padding:30px}
+.coin-tool .snifferform{margin-top:18px}
+.coin-tool:before{background:linear-gradient(95deg,#4d187a,#7323ca,#2857e9,#c92d9b)}
+.tool.swap:before{background:linear-gradient(95deg,#12377c,#254cce,#b12b9e)}
+.coin-tool .snifferresults{grid-template-columns:1fr 1fr}
+.walletcta{margin-top:20px;border:1px solid #e3dcef;border-radius:29px;background:linear-gradient(120deg,#f8f5ff,#fff 45%,#f6f8ff);padding:22px 26px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+.walletcta strong{font-size:20px;letter-spacing:-.035em}.walletcta p{margin:3px 0 0;font-size:13px;color:#69718b;max-width:620px}
+/* Only clickable service cards get the deep gradients on hover/selection. */
+.service:hover,.service:focus-within,.service:has(details[open]){background:linear-gradient(137deg,#341264 0%,#4b1b91 36%,#163e9e 78%,#76216c 100%);color:white;box-shadow:0 20px 40px #30156b35}
+.service:hover p,.service:focus-within p,.service:has(details[open]) p,.service:hover .price small,.service:focus-within .price small,.service:has(details[open]) .price small{color:#e5dfff}
+.service:hover .expander,.service:focus-within .expander,.service:has(details[open]) .expander{color:#18122d}
+.service:hover .serviceicon,.service:focus-within .serviceicon,.service:has(details[open]) .serviceicon{background:#ffffff28}
+@media(max-width:870px){.tools{grid-template-columns:1fr}.walletcta{flex-direction:column;align-items:stretch}.walletcta .btn{width:100%}}
+@media(max-width:600px){.coin-tool .snifferresults{grid-template-columns:1fr}.tool,.snifferpanel{padding:21px}}
+ .walletpage{padding:65px 0 110px;background:linear-gradient(180deg,#fcfaff,#fff 50%)} .wallethero{max-width:840px;margin-bottom:26px}.wallethero h1{font-size:clamp(36px,5vw,66px);letter-spacing:-.065em;line-height:1.08;margin:12px 0}.wallethero p{color:#656b85;font-size:16px;max-width:680px}.walletsolo{max-width:920px}.walletsolo .snifferpanel{border-radius:32px}.walletsolo .snifferform{margin-top:15px}/* CBL 2026 additions */
+.marketstrip{min-height:40px!important}.marketlabel{padding-top:5px!important;padding-bottom:5px!important}.markettrack{padding:5px 16px!important}.marketcoin{white-space:nowrap}.marketstatus{font-size:10px}
+.contact-footer{display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding-top:10px;padding-bottom:20px;font-size:13px;font-weight:750}
+.contact-email{color:#6121d7}.telegram-link{color:#66708b;border:1px solid #ded9ec;border-radius:100px;padding:8px 13px;background:#f8f6fc}
+.contact-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px}.contact-actions a{white-space:nowrap}
+.trendsection{padding:34px 0 43px;background:linear-gradient(180deg,#faf9ff,#fff);border-block:1px solid #eee9f7}.trendheader{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:17px}.trendheader h2{font-size:clamp(24px,3vw,35px);margin:5px 0;letter-spacing:-.045em}.trendheader p{font-size:13px;color:#636981;margin:0;max-width:740px}.trends{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.trendcard{min-width:0;background:#fff;border:1px solid #e3daef;border-radius:23px;padding:16px 18px;box-shadow:0 7px 25px #4020800c}.trendcard strong{display:block;font-size:16px}.trendcard .symbol{font-size:11px;font-weight:900;color:#7433df}.trendcard small{display:block;font-size:11px;color:#767c91;margin-top:5px}.trendcard a{font-size:12px;color:#6025d6;font-weight:750}.trendmeta{font-size:11px;color:#888a9c;margin-top:12px}.cta .contact-actions .btn{position:relative;z-index:2}
+@media(max-width:750px){.trends{grid-template-columns:repeat(2,minmax(0,1fr))}.marketstrip .marketmeta#marketstatus{display:none}.contact-footer{gap:10px}}
+@media(max-width:420px){.trends{grid-template-columns:1fr 1fr}.trendcard{padding:13px}}
+</style><style id="cbl-living-bubbles">
+/* CBL LIVING BUBBLE VISUAL SYSTEM — distinct zones, depth, and tactile interactions */
+:root{--ink:#101024;--purple:#7f27f5;--blue:#2376ff;--pink:#fa35ad;--cbl-deep:#170b35;--cbl-violet:#4b1a98;--bubble-shadow:0 24px 58px rgba(32,14,86,.12),0 4px 12px rgba(20,20,55,.055);}
+body{background:#fff;color:var(--ink)}
+.hero{padding:84px 0 76px;background:radial-gradient(ellipse at 84% 16%,rgba(126,39,245,.12),transparent 37%),radial-gradient(ellipse at 3% 90%,rgba(35,118,255,.08),transparent 35%),#fff;border-bottom:1px solid #e7e2f3}
+.hero .pill{box-shadow:0 7px 23px #852eff1a}
+.hero h1{filter:drop-shadow(0 8px 24px #643bd10b)}
+.heroactions .btn,.contact-actions .btn{min-height:51px;border-radius:999px;box-shadow:0 12px 27px rgba(55,22,128,.14)}
+section#tools,section#market-discovery,section#members,section#services,section#process{position:relative;isolation:isolate;scroll-margin-top:108px}
+section#tools{padding:95px 0 105px;background:linear-gradient(180deg,#f8f5ff 0%,#fff 78%)}
+section#market-discovery{padding:83px 0 92px;background:radial-gradient(ellipse at 95% 8%,rgba(230,57,169,.17),transparent 35%),linear-gradient(130deg,#1c0d3d 0%,#20144b 38%,#10245e 100%);color:#fff;border:0;overflow:hidden}
+section#market-discovery .trendheader p,section#market-discovery .trendmeta{color:#c9c9e3}
+section#market-discovery .eyebrow{color:#e9adff}
+section#market-discovery .grad{background-image:linear-gradient(100deg,#e0a6ff,#8cb8ff,#ff93d6)}
+section#market-discovery .trendcard{background:rgba(255,255,255,.1);color:white;border:1px solid rgba(255,255,255,.19);box-shadow:0 15px 35px #0002;backdrop-filter:blur(9px);border-radius:24px}
+section#market-discovery .trendcard *{max-width:100%}
+section#market-discovery .btn{background:#fff;color:#331264;border-radius:999px}
+section#members{padding:100px 0 111px;background:linear-gradient(180deg,#fff 0%,#f5f7ff 100%);border-bottom:1px solid #e7e5f4}
+section#services{padding:100px 0 110px;background:radial-gradient(ellipse at 8% 18%,rgba(127,39,245,.11),transparent 34%),radial-gradient(ellipse at 94% 80%,rgba(35,118,255,.08),transparent 37%),#fff}
+section#process{padding:87px 0 65px;background:linear-gradient(180deg,#f8f6ff,#fff)}
+.sectionheading,.trendheader{margin-bottom:36px}
+.sectionheading h2,.trendheader h2{font-size:clamp(34px,3.9vw,50px);line-height:1.11;letter-spacing:-.055em}
+.eyebrow{display:inline-flex;align-items:center;gap:9px;background:#f0e8ff;color:#6121bc;padding:10px 15px;border-radius:999px;letter-spacing:.075em}
+.eyebrow:before{content:'';width:9px;height:9px;border-radius:50%;background:linear-gradient(135deg,#a64cff,#ee33b5);box-shadow:0 0 0 4px #a953ff20}
+section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
+.tools{gap:26px;align-items:stretch}
+.tools>.tool{border-radius:42px;padding:36px;background:linear-gradient(156deg,#fff 50%,#f7f1ff);box-shadow:var(--bubble-shadow);border:1px solid #e4dbf6;transition:transform .32s cubic-bezier(.2,1.45,.32,1),box-shadow .32s,border-color .32s}
+.tools>.tool:hover{transform:translateY(-7px);box-shadow:0 35px 70px #34116a2e,0 5px 14px #080d3a0d;border-color:#cbb0ff}
+.tools>.tool:before{height:8px;background:linear-gradient(90deg,#260d63,#8b2aff,#ef38bd,#2a7cff)}
+.tools>.tool h3{font-size:28px;display:flex;align-items:center;gap:16px;line-height:1.2;margin-bottom:16px}
+.tools>.tool h3:before{position:static;flex:0 0 72px;width:72px!important;height:72px!important;display:grid;place-items:center;border-radius:25px;background:linear-gradient(135deg,#34136c 0%,#8b2afa 48%,#ee37b5 100%);color:white;box-shadow:inset 0 2px 2px #ffffff57,inset 0 -6px 12px #10094c50,0 10px 22px #8426da66;font-size:33px;content:'✦';transform:rotate(-5deg)}
+.tools>.tool.swap h3:before{content:'⇄';background:linear-gradient(135deg,#11194d,#235cf6,#b12dee);transform:rotate(4deg)}
+.tools>.tool p{line-height:1.65}
+.tools>.tool .input,.tools>.tool input,.tools>.tool select{border-radius:19px;min-height:49px;background:#fff;border:1px solid #ddd5ed;box-shadow:inset 0 2px 5px #160e3710}
+.tools>.tool button{border-radius:19px;min-height:48px;transition:transform .25s,filter .25s,box-shadow .25s}
+.tools>.tool button:hover{transform:translateY(-2px);filter:saturate(1.17);box-shadow:0 11px 23px #4b21a932}
+.snifferblock{border-radius:24px!important;background:linear-gradient(145deg,#fff,#f6f3ff)!important;border:1px solid #e9e1f7!important}
+.hub-grid{gap:22px}
+.hub-tile{border:1px solid #e1def1;border-radius:33px;padding:30px;background:linear-gradient(155deg,#fff,#f8f6ff);box-shadow:var(--bubble-shadow);transition:transform .3s cubic-bezier(.22,1.45,.3,1),box-shadow .3s;overflow:hidden;position:relative}
+.hub-tile:hover{transform:translateY(-8px);box-shadow:0 32px 60px #31117330}
+.hub-tile:after{content:'';position:absolute;width:145px;height:145px;border-radius:50%;background:radial-gradient(circle,#ac76ff22,transparent 75%);right:-44px;top:-52px;pointer-events:none}
+.hub-tile .mini-gradient{width:83px;height:83px;border-radius:28px;font-size:39px;margin-bottom:25px;background:linear-gradient(138deg,#26105b,#8d2af6,#f13eaf);box-shadow:inset 0 3px 3px #ffffff66,inset 0 -8px 16px #19092c59,0 13px 20px #5826bd42;transform:rotate(-5deg)}
+.hub-tile:nth-child(2) .mini-gradient{background:linear-gradient(135deg,#111343,#315fff,#9b2dff);transform:rotate(5deg)}
+.hub-tile:nth-child(3) .mini-gradient{background:linear-gradient(135deg,#431254,#d52faf,#6c27f8)}
+.hub-tile h3{font-size:24px;letter-spacing:-.04em}.hub-tile .btn{border-radius:100px}
+.servicesgrid{gap:20px}
+.service{border-radius:29px!important;box-shadow:0 15px 35px #30106917!important;transition:transform .29s cubic-bezier(.2,1.4,.3,1),box-shadow .29s,background .29s!important}
+.service:hover{transform:translateY(-6px)!important;box-shadow:0 24px 44px #32116c30!important}
+.serviceicon{width:64px!important;height:64px!important;border-radius:21px!important;background:linear-gradient(135deg,#38157c,#8e2cff,#ee38b1)!important;color:#fff!important;box-shadow:inset 0 2px 2px #ffffff50,0 10px 20px #702ac64d!important;font-size:26px!important}
+.quote,.flowbox{border-radius:31px;box-shadow:0 17px 38px #27105f12}
+.flowbox{background:white;border:1px solid #e7e2f4;padding:28px}
+.stepnum{display:grid;place-items:center;width:61px;height:61px;border-radius:21px;background:linear-gradient(135deg,#361069,#8a29ef,#ee43b2);color:white;font-size:21px;font-weight:900;box-shadow:0 12px 22px #6e25c640}
+.cta{border-radius:39px;background:linear-gradient(125deg,#170d37,#391777 50%,#102c76);box-shadow:0 25px 55px #26135c36}
+.btn.primary,.snifferbtn{background:linear-gradient(110deg,#6121cb,#8830f6 45%,#265dfa);box-shadow:0 12px 28px #5521b93b}
+.btn,.snifferbtn{transition:transform .25s cubic-bezier(.2,1.4,.3,1),box-shadow .25s}
+.btn:hover,.snifferbtn:hover{transform:translateY(-3px) scale(1.02)}
+@media(max-width:800px){section#tools,section#members,section#services{padding:66px 0 77px}section#market-discovery{padding:63px 0 72px}.tools{grid-template-columns:1fr}.tools>.tool{padding:25px;border-radius:31px}.tools>.tool h3:before{width:58px!important;height:58px!important;flex-basis:58px;border-radius:20px;font-size:26px}.hub-tile{border-radius:28px}.sectionheading h2,.trendheader h2{font-size:clamp(30px,7vw,42px)}}
+@media(prefers-reduced-motion:reduce){.hub-tile,.tools>.tool,.service,.btn,.snifferbtn{transition:none!important;transform:none!important}}
+</style>
+</head><body><header class="nav"><div class="container navinner"><a class="brand" href="index.html"><span class="brandmark">CBL</span> CRYPTO <em>HUB</em></a><nav class="links"><a href="index.html#sniffer">Coin Sniffer</a><a href="index.html#swap">Swap</a><a href="index.html#services">Services</a><a href="launch.html">LAUNCH TOKEN NOW</a></nav></div></header><main class="walletpage"><div class="container"><div class="wallethero"><span class="eyebrow">Dedicated wallet workspace</span><h1>CBL <span class="grad">Wallet Tracker.</span></h1><p>Save and review deployer wallet addresses in one place. Follow blockchain explorer links for manual research. Automatic discovery of past launches and reputation signals requires an indexed blockchain data integration.</p><a class="btn outline tiny" href="index.html">← Back to CBL Crypto Hub</a></div><div class="walletsolo"><aside class="snifferpanel"><h3>Tracked launch wallets</h3><p>Keep a local watchlist of deployer wallets for further research. Historical token launches require a dedicated indexing integration and are not available from this static website.</p><div class="snifferform"><select aria-label="Tracked wallet blockchain" id="watchchain"><option value="solana">Solana</option><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option></select><input aria-label="Deployer wallet address" class="input" id="watchaddress" placeholder="Deployer wallet address"/><button class="snifferbtn" id="watchadd">Track</button></div><div aria-live="polite" class="sniffermuted" id="watchmessage" style="margin-top:10px"></div><div aria-live="polite" id="watchlist"></div><div class="snifferblock" style="margin-top:18px"><h4>Previous launches &amp; wallet reputation</h4><span class="snifferlabel snifferwarn">Data source needed</span><p style="margin-top:12px">Future connected analysis: previous deployed tokens, number of launches, liquidity events and historical risk flags. Wallet explorer links are provided for manual verification now.</p></div></aside></div></div></main><footer class="footer"><div class="container footerinner">© CBL Crypto Hub · Wallet research only — not investment advice. <a href="index.html">Back to homepage</a></div><!-- CBL CONTACT LINKS --><div class="container contact-footer" id="contact"><a href="mailto:cryptobarlounge@gmail.com" class="contact-email">✉ cryptobarlounge@gmail.com</a><a class="telegram-link" data-telegram-link href="#contact" aria-label="Telegram community link pending" title="Telegram link not yet configured">Telegram · Link coming soon</a></div></footer><script>const SNIFF_CHAINS={solana:{},ethereum:{},bsc:{},base:{}};function sniffValid(chain,addr){return chain==='solana'?/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(addr):/^0x[a-fA-F0-9]{40}$/.test(addr)};
+const WATCH_STORAGE='cblTrackedWalletsV1';let wallets=[];try{const parsed=JSON.parse(localStorage.getItem(WATCH_STORAGE)||'[]');wallets=Array.isArray(parsed)?parsed.filter(x=>x&&SNIFF_CHAINS[x.chain]&&sniffValid(x.chain,x.address)).slice(0,30):[]}catch(e){};
+function walletExplorer(chain,address){const root={solana:'https://solscan.io/account/',ethereum:'https://etherscan.io/address/',bsc:'https://bscscan.com/address/',base:'https://basescan.org/address/'};return root[chain]+encodeURIComponent(address)}
+function renderWatch(){const target=document.getElementById('watchlist');target.textContent='';if(!wallets.length){const p=document.createElement('p');p.className='sniffermuted';p.style.marginTop='18px';p.textContent='No wallets tracked on this device yet.';target.append(p)}wallets.forEach((w,i)=>{const row=document.createElement('div');row.className='walletrow';const info=document.createElement('div'),name=document.createElement('b'),link=document.createElement('a');name.textContent=w.chain.toUpperCase()+' · ';link.href=walletExplorer(w.chain,w.address);link.textContent=w.address.slice(0,7)+'…'+w.address.slice(-5)+' ↗';link.target='_blank';link.rel='noopener noreferrer';link.style.color='#6332d5';info.append(name,link);const del=document.createElement('button');del.textContent='Remove';del.setAttribute('aria-label','Remove tracked wallet');del.onclick=()=>{wallets.splice(i,1);saveWatch()};row.append(info,del);target.append(row)})}
+function saveWatch(){try{localStorage.setItem(WATCH_STORAGE,JSON.stringify(wallets))}catch(e){}renderWatch()}
+document.getElementById('watchadd').addEventListener('click',()=>{const chain=document.getElementById('watchchain').value,address=document.getElementById('watchaddress').value.trim(),msg=document.getElementById('watchmessage');if(!sniffValid(chain,address)){msg.textContent='Enter a valid wallet address for the selected chain.';return}if(wallets.some(w=>w.chain===chain&&w.address.toLowerCase()===address.toLowerCase())){msg.textContent='Wallet already tracked.';return}if(wallets.length>=30){msg.textContent='Watchlist full (30 wallets).';return}wallets.push({chain,address});saveWatch();document.getElementById('watchaddress').value='';msg.textContent='Wallet saved on this browser. Historical launch discovery still requires an external indexing service.'});renderWatch();
+</script></body></html>

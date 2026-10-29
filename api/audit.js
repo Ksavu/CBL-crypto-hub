@@ -3,7 +3,7 @@
 const { audit } = require("./_lib/audit");
 const { fetchSource, CHAIN_ID, CHAINS } = require("./_lib/source");
 
-const ORIGIN = /^https:\/\/(www\.)?(cryptobarlounge\.space|xrplabs\.fun)$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
+const ORIGIN = /^https:\/\/(www\.)?cryptobarlounge\.space$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
 const hits = new Map(), cache = new Map();
 const EVM = /^0x[a-fA-F0-9]{40}$/;
 const fail = (status, message) => Object.assign(new Error(message), { status });

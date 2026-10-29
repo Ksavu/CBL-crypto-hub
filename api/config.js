@@ -1,16 +1,5 @@
-// Public front-end settings from Vercel env vars. All values here are public by design
-// (WalletConnect project ID, Xaman API key, XRPL fee wallet address and rate).
-const clean = (v) => (v || "").trim().replace(/^["']|["']$/g, "");
+// Public front-end settings from Vercel env vars (the WalletConnect project ID is public by design).
 module.exports = (req, res) => {
   res.setHeader("cache-control", "public, max-age=300");
-  const bps = parseInt(clean(process.env.XRPL_FEE_BPS) || "50", 10);
-  res.status(200).json({
-    wc: clean(process.env.WC_PROJECT_ID),
-    xaman: clean(process.env.XAMAN_API_KEY),
-    xrplFee: clean(process.env.XRPL_FEE_ACCOUNT),
-    xrplFeeBps: Number.isFinite(bps) ? Math.min(Math.max(bps, 0), 300) : 50,
-    launchFee: (() => { const f = parseFloat(clean(process.env.LAUNCH_FEE_XRP) || "5"); return Number.isFinite(f) && f >= 0 ? f : 5; })(),
-    launchFeeAccount: clean(process.env.LAUNCH_FEE_ACCOUNT) || clean(process.env.XRPL_FEE_ACCOUNT),
-    thorBps: clean(process.env.THOR_AFFILIATE) ? Math.min(Math.max(parseInt(clean(process.env.THOR_AFFILIATE_BPS) || "50", 10) || 0, 0), 300) : 0,
-  });
+  res.status(200).json({ wc: (process.env.WC_PROJECT_ID || "").trim().replace(/^["']|["']$/g, "") });
 };
