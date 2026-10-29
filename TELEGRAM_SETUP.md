@@ -34,6 +34,25 @@ Never paste the bot token in chat or commit it to Git. If it leaks, revoke it in
 Alerts: liquidity drop of 50%+ in an hour, price down 40%+ in an hour, deployer sells half or more (Solana, needs HELIUS_API_KEY), mint or freeze authority active (Solana), honeypot flag, sell tax jump of 10+ points, owner change, risk score down 20+ points. Each type repeats at most once per 3 hours per token. Limit: 10 tokens per user, 30 tokens checked per run.
 
 ---
+## Wallet tracker (/track, /wallet, 👤 Track dev)
+
+Users follow any wallet and get a DM when it **buys, sells, swaps, creates a new token or sends tokens out**. Chains: all EVM chains the scanner supports, Solana, XRP Ledger and Terra Classic.
+
+Commands: `/track <wallet> [chain] [name]`, `/untrack <wallet>`, `/wallets`, `/wallet <wallet>` (last 7 days). Scan results show a **👤 Track dev** button when the token's creator is known. If someone pastes a wallet instead of a token, the bot offers to show or track it. Max 10 wallets per user.
+
+Setup:
+1. **Supabase:** run the `wallets` and `tracked` part at the end of `supabase.sql`.
+2. **GitHub workflow:** `.github/workflows/alerts.yml` now also calls `/api/cron?job=wallets` every 5 minutes (same `CRON_SECRET`). Upload the updated file.
+3. **Keys** (Vercel env):
+   - `ETHERSCAN_API_KEY` (free at etherscan.io): one key for every EVM chain. The free plan does not cover **BNB Chain, Base, Optimism and Avalanche**. Base, Optimism and Avalanche fall back to free Blockscout/Routescan automatically; **BNB Chain wallets need a paid Etherscan plan** (otherwise BSC is skipped).
+   - `HELIUS_API_KEY`: Solana (already used by the deep scan).
+   - XRPL and Terra Classic need no keys.
+4. Optional: in BotFather, `/setcommands` and add `track`, `wallet`, `wallets`, `untrack` so they show in the menu.
+
+How it decides: each transaction is reduced to how the wallet's balances changed. Token in + native coin or stablecoin out = buy, the reverse = sell, token for token = swap, a contract deploy / new Solana mint / new XRPL AMM pool = new token, tokens leaving with nothing back = transfer. EVM wallets are checked on the chains they used in the last 180 days (up to 6); add one with `/track <wallet> <chain>`. Alerts never replay anything older than 30 minutes.
+
+Limits: on EVM chains, tokens created through a launchpad factory (e.g. four.meme, Clanker) are reported as a buy or transfer, not as "new token", because the dev didn't deploy the contract. Alerts arrive within about 5 minutes, not instantly.
+
 ## Solana swap (Jupiter) and swap links from the bot
 
 1. Get a free Jupiter API key: developers.jup.ag/portal, sign in, create a key.

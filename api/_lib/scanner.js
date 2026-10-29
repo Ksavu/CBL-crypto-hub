@@ -140,6 +140,8 @@ async function runScan(caIn, selIn, opts) {
              pairCreatedAt: pair.pairCreatedAt || (deep && deep.launchTs ? deep.launchTs * 1000 : null), dex: pair.dexId, url: pair.url,
              curve: pair.curve || false, curveProgress: typeof pair.curveProgress === "number" ? Math.round(pair.curveProgress) : null, curveSol: pair.curveSol || null } : null,
     links, flags, dex: dexInfo, deep: deep ? { supply: deep.supply || null, deployerAmt: deep.deployerAmt != null ? deep.deployerAmt : null, deployer: deep.deployer || null, deployerPct: deep.deployerPct, traced: deep.traced, debug: deep.debug || null, holders: deep.holderCount, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, notes: deep.notes } : null,
+    creator: (deep && deep.deployer) || (ex && ex.creator) || (gp && typeof gp.creator_address === "string" && /^0x[a-fA-F0-9]{40}$/.test(gp.creator_address) ? gp.creator_address.toLowerCase() : null)
+      || (kind === "sol" && gp && Array.isArray(gp.creators) && gp.creators[0] && gp.creators[0].address) || null,
     score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };
   cache.set(key, { t: now, v: out });
@@ -147,4 +149,4 @@ async function runScan(caIn, selIn, opts) {
   return out;
 }
 
-module.exports = { runScan, detect, OK_CHAINS };
+module.exports = { runScan, detect, OK_CHAINS, EVM };

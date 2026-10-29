@@ -93,7 +93,10 @@ function card(r, site, opt) {
     { text: "👁 Watch", callback_data: "w:" + cb(r.address) },
     ...(r.chain === "terraclassic" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=terraclassic#swap` }] : r.chain === "xrpl" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.hex || r.address.split(".")[0]}.${r.issuer}&chain=xrpl#swap` }] : SWAP_CHAINS.includes(r.chain) ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }] : []),
   ]];
-  if (r.chain !== "solana" && r.chain !== "xrpl" && r.chain !== "terraclassic") rows.push([{ text: "🛡 Audit contract", callback_data: "a:" + r.address }]);
+  const last = [];
+  if (r.chain !== "solana" && r.chain !== "xrpl" && r.chain !== "terraclassic") last.push({ text: "🛡 Audit contract", callback_data: "a:" + r.address });
+  if (r.creator && (r.chain === "solana" || /^0x[a-f0-9]{40}$/i.test(r.creator))) last.push({ text: "👤 Track dev", callback_data: "t:" + cb(r.creator) + (r.chain === "solana" ? "" : "|" + r.chain) });
+  if (last.length) rows.push(last);
   const so = [];
   if (r.links && r.links.web) so.push({ text: "🌐 Website", url: r.links.web });
   if (r.links && r.links.x) so.push({ text: "𝕏", url: r.links.x });
@@ -115,11 +118,82 @@ const HELP = [
   "/watch &lt;address&gt; – get alerts in DM (rug signals)",
   "/unwatch &lt;address&gt;",
   "/list – your watchlist",
+  "",
+  "<b>Wallet tracker</b> 👤",
+  "/track &lt;wallet&gt; [chain] [name] – alerts in DM when a wallet buys, sells, creates a token or moves tokens (EVM, Solana, XRPL, Terra)",
+  "/wallet &lt;wallet&gt; – last 7 days of buys, sells and new tokens",
+  "/wallets – your tracked wallets",
+  "/untrack &lt;wallet&gt;",
+  "Tip: tap 👤 Track dev on a scan to follow the token's deployer.",
+  "",
   "/help",
   "",
   "In groups I also scan any contract address posted in chat.",
   "<i>I never ask for keys or seed phrases and I never DM first.</i>",
 ].join("\n");
+
+
+// ---------- wallet tracker ----------
+const TXURL = { solana: "https://solscan.io/tx/", xrpl: "https://xrpscan.com/tx/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/tx/" };
+const ADDRURL = { solana: "https://solscan.io/account/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
+const txUrl = (c, h) => (TXURL[c] || (CHAINS[c] ? CHAINS[c][2].replace(/\/(address|account)\/$/, "/tx/") : "")) + h;
+const addrUrl = (c, a) => (ADDRURL[c] || (CHAINS[c] ? CHAINS[c][2] : "")) + a;
+const shortA = (a) => (a ? String(a).slice(0, 6) + "…" + String(a).slice(-4) : "");
+function amt(n) {
+  n = Math.abs(Number(n)); if (!isFinite(n)) return "?";
+  if (n >= 1e9) return (n / 1e9).toFixed(2).replace(/\.?0+$/, "") + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(2).replace(/\.?0+$/, "") + "M";
+  if (n >= 1e4) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+  if (n >= 1) return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return n ? Number(n.toPrecision(3)).toString() : "0";
+}
+const assets = (L) => L.map((x) => `${amt(x.amt)} ${esc(x.sym)}`).join(" + ");
+const tokSym = (e, info) => esc((info && info.sym) || e.token.sym || (e.chain === "xrpl" ? String(e.token.id).split(".")[0] : shortA(e.token.id)));
+const swapLink = (site, e) => e.chain === "xrpl" ? `${site}/?swap=${e.token.id}&chain=xrpl#swap` : `${site}/?swap=${e.token.id}&chain=${e.chain}#swap`;
+const scanId = (e) => (e.chain === "xrpl" ? String(e.token.id).split(".")[1] : e.token.id);
+
+/** One alert for one wallet event. who: label or short address. */
+function walletAlert(w, who, e, info, site) {
+  const head = { buy: "🟢 <b>BUY</b>", sell: "🔴 <b>SELL</b>", swap: "🔄 <b>SWAP</b>", create: "🆕 <b>NEW TOKEN</b>", transfer: "📤 <b>TRANSFER</b>" }[e.type];
+  const s = tokSym(e, info), L = [`${head} · 👤 <b>${esc(who)}</b> · ${chainName(e.chain)}`];
+  if (e.type === "buy") L.push(`Bought <b>${amt(e.amt)} ${s}</b> for <b>${assets(e.paid)}</b>`);
+  else if (e.type === "sell") L.push(`Sold <b>${amt(e.amt)} ${s}</b> for <b>${assets(e.got)}</b>`);
+  else if (e.type === "swap") L.push(`Swapped ${amt(e.from.amt)} ${esc(e.from.sym)} → <b>${amt(e.amt)} ${s}</b>`);
+  else if (e.type === "transfer") L.push(`Sent <b>${amt(e.amt)} ${s}</b>${e.to ? ` to <a href="${addrUrl(e.chain, e.to)}">${shortA(e.to)}</a>` : ""}`);
+  else if (e.type === "create") {
+    const known = (info && info.sym) || e.token.sym;
+    if (e.chain === "xrpl") L.push(`Opened an XRP pool for <b>${s}</b>`);
+    else L.push(known ? `Created <b>${s}</b>${(info && info.name) || e.token.name ? ` (${esc((info && info.name) || e.token.name)})` : ""}` : e.chain === "solana" || e.chain === "terraclassic" ? "Created a new token" : "Deployed a new contract");
+    if (e.amt) L.push(`Dev holds ${amt(e.amt)} ${s} from launch`);
+  }
+  if (info && (info.mcap || info.liq)) L.push(`💰 MC ${usd(info.mcap)} · 💧 Liq ${usd(info.liq)}`);
+  L.push(`<code>${esc(e.chain === "xrpl" && e.token.sym ? e.token.sym + "." + String(e.token.id).split(".")[1] : e.token.id)}</code>`, `<a href="${txUrl(e.chain, e.hash)}">View tx</a> · <a href="${addrUrl(e.chain, w.address)}">${shortA(w.address)}</a>`);
+  const row1 = [{ text: "🔍 Scan", callback_data: "s:" + cb(scanId(e)) }];
+  if (info && info.url) row1.push({ text: "📈 Chart", url: info.url });
+  if (SWAP_CHAINS.includes(e.chain) || e.chain === "xrpl" || e.chain === "terraclassic") row1.push({ text: "💱 Buy", url: swapLink(site, e) });
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: [row1, [{ text: "🔕 Untrack wallet", callback_data: "x:" + cb(w.address) }]] } };
+}
+
+/** /wallet report: recent activity summary. */
+function walletReport(r, site, tracked) {
+  const n = (t) => r.events.filter((e) => e.type === t).length;
+  const where = r.chains.map(chainName).join(", ") || "no active EVM chains found";
+  const L = [`👤 <b>Wallet</b> <code>${esc(r.address)}</code>`, `Chains: ${esc(where)}`, "",
+    `Last 7 days: 🟢 ${n("buy") + n("swap")} buys · 🔴 ${n("sell")} sells · 🆕 ${n("create")} new tokens · 📤 ${n("transfer")} transfers`];
+  const top = r.events.slice(0, 10);
+  if (top.length) {
+    L.push("");
+    for (const e of top) {
+      const s = esc(e.token.sym || (e.chain === "xrpl" ? String(e.token.id).split(".")[0] : shortA(e.token.id)));
+      const when = Math.max(1, Math.round((Date.now() / 1000 - e.ts) / 3600));
+      const what = e.type === "buy" ? `🟢 Bought ${amt(e.amt)} ${s} for ${assets(e.paid)}` : e.type === "sell" ? `🔴 Sold ${amt(e.amt)} ${s} for ${assets(e.got)}`
+        : e.type === "swap" ? `🔄 ${amt(e.from.amt)} ${esc(e.from.sym)} → ${amt(e.amt)} ${s}` : e.type === "create" ? (e.token.sym || e.chain !== "evm" && !/^0x/.test(e.token.id) ? `🆕 Created ${s}` : "🆕 Deployed a contract") : `📤 Sent ${amt(e.amt)} ${s}`;
+      L.push(`<a href="${txUrl(e.chain, e.hash)}">${when < 48 ? when + "h" : Math.round(when / 24) + "d"}</a> · ${what}${r.chains.length > 1 ? " · " + chainName(e.chain) : ""}`);
+    }
+  } else L.push("", "No buys, sells or new tokens found in the last 7 days.");
+  L.push("", "<i>Based on public explorer data. Not financial advice.</i>");
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[tracked ? { text: "🔕 Untrack", callback_data: "x:" + cb(r.address) } : { text: "👤 Track this wallet", callback_data: "t:" + cb(r.address) + (r.family === "evm" && r.chains.length === 1 ? "|" + r.chains[0] : "") }]] } };
+}
 
 const SEV = { critical: "🚨", high: "🔴", medium: "🟠" };
 function alertMsg(r, alerts, site) {
@@ -148,4 +222,4 @@ function auditCard(r, site) {
     ...(r.chain && CHAINS[r.chain] ? [{ text: "🔎 Explorer", url: CHAINS[r.chain][2] + r.address + "#code" }] : []),
   ]] } };
 }
-module.exports = { card, alertMsg, auditCard, HELP, esc, cb, uncb };
+module.exports = { card, alertMsg, auditCard, HELP, esc, cb, uncb, walletAlert, walletReport, chainName, shortA };

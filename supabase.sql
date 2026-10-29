@@ -41,3 +41,24 @@ create table if not exists launches (
 );
 create index if not exists launches_created_idx on launches (created_at desc);
 alter table launches enable row level security;
+
+-- Wallet tracker (Telegram /track): who tracks what, and the polling state per wallet.
+create table if not exists wallets (
+  address text primary key,
+  family text not null,              -- evm | solana | xrpl | terraclassic
+  chains jsonb default '[]'::jsonb,  -- EVM chains to poll (auto-detected)
+  cursor jsonb default '{}'::jsonb,  -- per chain: last seen time + tx ids
+  checked_at timestamptz default now(),
+  created_at timestamptz default now()
+);
+create table if not exists tracked (
+  user_id bigint not null,
+  address text not null references wallets(address) on delete cascade,
+  label text,
+  created_at timestamptz default now(),
+  primary key (user_id, address)
+);
+create index if not exists wallets_checked_idx on wallets (checked_at);
+create index if not exists tracked_address_idx on tracked (address);
+alter table wallets enable row level security;
+alter table tracked enable row level security;

@@ -1,7 +1,8 @@
 // Telegram webhook: POST /api/telegram  (set with setWebhook + secret_token, see TELEGRAM_SETUP.md)
 const crypto = require("crypto");
 const { runScan, detect } = require("./_lib/scanner");
-const { card, auditCard, HELP, esc, cb, uncb } = require("./_lib/format");
+const { card, auditCard, HELP, esc, cb, uncb, walletReport, shortA, chainName } = require("./_lib/format");
+const WT = require("./_lib/wallets");
 const { runAudit } = require("./audit");
 const db = require("./_lib/db");
 const W = require("./_lib/watch");
@@ -58,6 +59,33 @@ async function watchFlow(user, ca, chain, say) {
   } catch (e) { return say(e.status ? e.message : "Could not add it. Try again."); }
 }
 
+// Wallet tracker: alerts go to the user's DM.
+const walletArg = (args) => args.find((a) => WT.familyOf(a));
+async function trackFlow(user, addr, chain, label, say) {
+  if (!db.on()) return say("Alerts are not set up yet.");
+  if (limited(user.id)) return say("Slow down a little.");
+  const ok = await tg("sendMessage", { chat_id: user.id, text: "👤 Setting up wallet tracking… (checking which chains it uses)" });
+  if (!ok || !ok.ok) return say("I can't message you privately yet. Open the bot, press Start, then try again.");
+  try {
+    const r = await WT.addTrack(user.id, addr, label, chain);
+    if (r.dup) return void (await tg("sendMessage", { chat_id: user.id, text: "You already track this wallet." }));
+    if (r.full) return void (await tg("sendMessage", { chat_id: user.id, text: `You track ${r.max} wallets already. Use /wallets to remove one.` }));
+    const where = r.family === "evm" ? r.chains.map(chainName).join(", ") : chainName(r.family);
+    await tg("sendMessage", { chat_id: user.id, parse_mode: "HTML", disable_web_page_preview: true, text: `✅ Tracking ${label ? "<b>" + esc(label) + "</b> " : ""}<code>${esc(r.address)}</code>\nChains: ${esc(where)}\n\nI'll message you here when it buys, sells, creates a new token or sends tokens out. Checks run every few minutes.${r.family === "evm" ? "\n<i>Wrong chain? Use</i> <code>/track " + esc(r.address) + " base</code> <i>to add one.</i>" : ""}` });
+    return say("Tracking. Alerts will arrive in your DM.");
+  } catch (e) { if (!e.status) console.error("track error", e && e.stack || e); return say(e.status ? e.message : "Could not track it. Try again."); }
+}
+async function doWallet(msg, addr, chain) {
+  if (limited(msg.from.id)) return void (await reply(msg, "⏳ Slow down a little. Try again in a minute."));
+  tg("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
+  try {
+    const r = await WT.activity(addr, 7, chain, Date.now() + 20000);
+    const tracked = db.on() ? (await WT.listTracks(msg.from.id).catch(() => [])).some((t) => t.address === r.address) : false;
+    const c = walletReport(r, SITE(), tracked);
+    await reply(msg, c.text, { reply_markup: c.reply_markup });
+  } catch (e) { if (!e.status) console.error("wallet error", e && e.stack || e); await reply(msg, "⚠️ " + esc(e.status ? e.message : "Could not load this wallet. Try again.")); }
+}
+
 async function doAudit(msg, ca, chain) {
   if (limited(msg.from.id)) return void (await reply(msg, "⏳ Slow down a little. Try again in a minute."));
   tg("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
@@ -88,6 +116,8 @@ async function doScan(msg, ca, chain, explicit) {
     }
   } catch (e) {
     if (!e.status) console.error("scan error", e && e.stack || e);
+    if (e.status === 404 && WT.familyOf(ca) && (!group || explicit)) return void (await reply(msg, `⚠️ ${esc(e.message)}\n\nIf <code>${esc(shortA(ca))}</code> is a <b>wallet</b>, not a token, I can show its activity or track it.`,
+      { reply_markup: { inline_keyboard: [[{ text: "📊 Wallet activity", callback_data: "v:" + cb(WT.normAddr(ca)) }, { text: "👤 Track wallet", callback_data: "t:" + cb(WT.normAddr(ca)) }]] } }));
     if (!group || explicit) await reply(msg, "⚠️ " + esc(e.status ? e.message : "Scan failed. Try again."));
   }
 }
@@ -127,6 +157,32 @@ async function onMessage(msg) {
       await W.removeWatch(msg.from.id, ca);
       return void (await reply(msg, "Removed from your watchlist."));
     }
+    if (name === "track" || name === "follow") {
+      let w = walletArg(args);
+      if (!w && msg.reply_to_message) w = ((msg.reply_to_message.text || "").split(/\s+/)).find((a) => WT.familyOf(a));
+      if (!w) return void (await reply(msg, "Usage: <code>/track &lt;wallet&gt; [chain] [name]</code>\nExample: <code>/track 0xAbC… base Dev of PEPE</code>"));
+      const ch = args.map((a) => CHAIN[a.toLowerCase()]).find(Boolean);
+      const label = args.filter((a) => a !== w && !CHAIN[a.toLowerCase()]).join(" ").slice(0, 24) || null;
+      return void (await trackFlow(msg.from, w, ch, label, (m) => reply(msg, esc(m))));
+    }
+    if (name === "untrack" || name === "unfollow") {
+      const w = walletArg(args);
+      if (!w || !db.on()) return void (await reply(msg, "Usage: <code>/untrack &lt;wallet&gt;</code>"));
+      await WT.removeTrack(msg.from.id, w);
+      return void (await reply(msg, "Stopped tracking that wallet."));
+    }
+    if (name === "wallets" || name === "tracked") {
+      if (!db.on()) return void (await reply(msg, "Alerts are not set up yet."));
+      const ws = await WT.listTracks(msg.from.id);
+      if (!ws.length) return void (await reply(msg, "You don't track any wallets yet. Use <code>/track &lt;wallet&gt;</code> or tap 👤 Track dev on a scan."));
+      return void (await reply(msg, `<b>Tracked wallets</b> (${ws.length}/${WT.MAX_TRACK})\nTap to stop tracking:`, { reply_markup: { inline_keyboard:
+        ws.map((w) => [{ text: `❌ ${w.label ? w.label + " · " : ""}${shortA(w.address)} · ${WT.familyOf(w.address)}`, callback_data: "x:" + cb(w.address) }]) } }));
+    }
+    if (name === "wallet" || name === "w" || name === "dev") {
+      const w = walletArg(args) || (msg.reply_to_message && (msg.reply_to_message.text || "").split(/\s+/).find((a) => WT.familyOf(a)));
+      if (!w) return void (await reply(msg, "Usage: <code>/wallet &lt;wallet&gt; [chain]</code>"));
+      return void (await doWallet(msg, w, args.map((a) => CHAIN[a.toLowerCase()]).find(Boolean)));
+    }
     if (name === "list" || name === "watchlist") {
       if (!db.on()) return void (await reply(msg, "Alerts are not set up yet."));
       const ws = await W.listWatches(msg.from.id);
@@ -142,6 +198,24 @@ async function onMessage(msg) {
 
 async function onCallback(q) {
   const data = q.data || "";
+  if (/^[txvs]:/.test(data)) {
+    const [raw, chain] = data.slice(2).split("|"), a = uncb(raw), k = data[0];
+    if (k === "x") {
+      if (db.on()) await WT.removeTrack(q.from.id, a).catch(() => {});
+      return void (await tg("answerCallbackQuery", { callback_query_id: q.id, text: "Stopped tracking that wallet." }));
+    }
+    if (k === "t") {
+      if (!WT.familyOf(a)) return void (await tg("answerCallbackQuery", { callback_query_id: q.id }));
+      await tg("answerCallbackQuery", { callback_query_id: q.id, text: "Setting up wallet tracking..." });
+      return void (await trackFlow(q.from, a, chain || undefined, null, (m) => tg("sendMessage", { chat_id: q.from.id, text: m })));
+    }
+    if (!q.message) return void (await tg("answerCallbackQuery", { callback_query_id: q.id }));
+    const m = { chat: q.message.chat, from: q.from, message_id: q.message.message_id };
+    await tg("answerCallbackQuery", { callback_query_id: q.id, text: k === "v" ? "Loading wallet..." : "Scanning..." });
+    if (k === "v") return void (await doWallet(m, a, chain));
+    if (detect(a)) return void (await doScan(m, a, "auto", true));
+    return;
+  }
   if (data.startsWith("w:") || data.startsWith("u:")) {
     const ca = uncb(data.slice(2));
     if (!detect(ca)) return void (await tg("answerCallbackQuery", { callback_query_id: q.id }));
