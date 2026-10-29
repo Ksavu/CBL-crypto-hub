@@ -14,6 +14,37 @@ const GT_NET = { eth: "ethereum", bsc: "bsc", base: "base", solana: "solana", ar
 const SUPPORTED = new Set(OK_CHAINS);
 const SCORE_TTL = 30 * 60e3, MAX_ROWS = 150, FEED_ID = "feed";
 
+// Launchpad origin (best effort): DEX ids where the token trades + vanity address endings launchpads use.
+// Returns { n: name, k: short key, g: graduated (true/false, null = unknown) } or null.
+const LP_DEX = { pumpfun: ["Pump.fun", "pump"], pumpswap: ["Pump.fun", "pump"], moonshot: ["Moonshot", "moon"], fourmeme: ["Four.meme", "four"], four_meme: ["Four.meme", "four"],
+  virtuals: ["Virtuals", "virt"], zora: ["Zora", "zora"], apestore: ["Ape.store", "ape"], flaunch: ["Flaunch", "flaunch"], boop: ["Boop", "boop"], heaven: ["Heaven", "heaven"],
+  believe: ["Believe", "believe"], launchlab: ["LaunchLab", "launchlab"], bonkfun: ["LetsBonk", "bonk"], letsbonk: ["LetsBonk", "bonk"] };
+function launchpadOf(chain, ca, dexes, labels) {
+  const a = String(ca), d = dexes.map((x) => String(x || "").toLowerCase()), lb = labels.map((x) => String(x || "").toLowerCase());
+  const curve = (ids) => d.some((x) => ids.includes(x)), grad = (ids) => d.some((x) => !ids.includes(x)); // trades elsewhere = graduated
+  if (chain === "solana") {
+    if (/LoL$/.test(a)) return { n: "launched.lol", k: "lol", g: null };
+    if (/pump$/.test(a) || curve(["pumpfun", "pumpswap"])) return { n: "Pump.fun", k: "pump", g: !d.includes("pumpfun") || grad(["pumpfun"]) };
+    if (/bonk$/.test(a) || curve(["bonkfun", "letsbonk"])) return { n: "LetsBonk", k: "bonk", g: grad(["raydium", "bonkfun", "letsbonk"]) || null };
+    if (curve(["moonshot"])) return { n: "Moonshot", k: "moon", g: grad(["moonshot"]) };
+    if (lb.includes("launchlab")) return { n: "LaunchLab", k: "launchlab", g: null };
+    if (lb.includes("dbc")) return { n: "Meteora DBC", k: "dbc", g: null };
+  }
+  if (chain === "robinhood") { // no vanity suffix there: DEX ids here, on-chain launchpad check in robinhoodPads()
+    const hit = (re) => d.some((x) => re.test(x));
+    if (hit(/hood/)) return { n: "Hood.fun", k: "hood", g: grad(d.filter((x) => /hood/.test(x))) };
+    if (hit(/robin/)) return { n: "RobinFun", k: "robin", g: grad(d.filter((x) => /robin/.test(x))) };
+    for (const [re, n, k] of [[/klik/, "Klik", "klik"], [/printr/, "Printr", "printr"], [/dyor/, "DYOR.fun", "dyor"], [/realfun/, "RealFun", "realfun"], [/apestore/, "Ape.store", "ape"]]) if (hit(re)) return { n, k, g: null };
+  }
+  if (chain === "bsc" && (/4444$/i.test(a) || curve(["fourmeme", "four_meme"]))) return { n: "Four.meme", k: "four", g: grad(["fourmeme", "four_meme"]) };
+  if (chain === "base") {
+    if (/b07$/i.test(a)) return { n: "Clanker", k: "clanker", g: null };
+    for (const x of ["virtuals", "zora", "apestore", "flaunch"]) if (d.includes(x)) return { n: LP_DEX[x][0], k: LP_DEX[x][1], g: grad([x]) };
+  }
+  for (const x of d) if (LP_DEX[x]) return { n: LP_DEX[x][0], k: LP_DEX[x][1], g: null };
+  return null;
+}
+
 async function jget(u, ms = 7000) {
   const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
   try { const r = await fetch(u, { signal: c.signal, headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; CBLRadar/1.0; +https://cryptobarlounge.space)" } }); return r.ok ? await r.json() : null; }
@@ -69,6 +100,7 @@ async function market(list, deadline) {
           buys24: (tx.h24 && tx.h24.buys) || 0, sells24: (tx.h24 && tx.h24.sells) || 0, buys1h: (tx.h1 && tx.h1.buys) || 0, sells1h: (tx.h1 && tx.h1.sells) || 0,
           created: p.pairCreatedAt || null, dex: p.dexId || "", url: p.url || null, boosts: (p.boosts && p.boosts.active) || 0,
           profile: !!(p.info && (p.info.imageUrl || (p.info.websites && p.info.websites.length) || (p.info.socials && p.info.socials.length))),
+          lp: launchpadOf(chain, t.ca, ps.map((x) => x.dexId), [].concat(...ps.map((x) => x.labels || []))), dexes: [...new Set(ps.map((x) => x.dexId))].slice(0, 5),
         });
       }
     }
@@ -111,6 +143,11 @@ async function build(budgetMs = 23000) {
   rows.forEach((r) => (r.trend = trend(r)));
   rows.sort((a, b) => b.trend - a.trend);
   rows = rows.slice(0, MAX_ROWS);
+  // Robinhood Chain: launchpad origin from the launchpads' own contracts, cached per token (it never changes).
+  const lpc = (prev && prev.lpc) || {};
+  const rh = rows.filter((r) => r.chain === "robinhood" && !r.lp && !(r.ca in lpc)).slice(0, 60).map((r) => r.ca);
+  Object.assign(lpc, await robinhoodPads(rh).catch(() => ({})));
+  rows.forEach((r) => { if (r.chain === "robinhood" && !r.lp && lpc[r.ca]) r.lp = Object.assign({}, lpc[r.ca], { g: rhGrad(r) }); });
   // Score: most active first, plus everything brand new; reuse scores younger than 30 minutes.
   const todo = rows.filter((r) => { const s = scores[key(r.chain, r.ca)]; return !s || Date.now() - s.t > SCORE_TTL; })
     .sort((a, b) => (b.created && Date.now() - b.created < 6 * 3600e3 ? 1 : 0) - (a.created && Date.now() - a.created < 6 * 3600e3 ? 1 : 0) || b.trend - a.trend);
@@ -128,7 +165,8 @@ async function build(budgetMs = 23000) {
   const keep = new Set(rows.map((r) => key(r.chain, r.ca)));
   for (const k of Object.keys(scores)) if (!keep.has(k) && Date.now() - scores[k].t > 6 * 3600e3) delete scores[k];
   for (const k of Object.keys(seen)) if (!keep.has(k) && Date.now() - seen[k] > 24 * 3600e3) delete seen[k];
-  const snap = { t: Date.now(), rows, scores, seen };
+  for (const k of Object.keys(lpc)) if (!rows.find((r) => r.ca === k) && Object.keys(lpc).length > 800) delete lpc[k];
+  const snap = { t: Date.now(), rows, scores, seen, lpc };
   if (db.on()) await db.upsert("radar_cache", [{ id: FEED_ID, data: snap, updated_at: new Date().toISOString() }], "id").catch(() => {});
   return { snap, stats: { candidates: cands.length, rows: rows.length, scored, withScore: rows.filter((r) => r.s).length, ms: Date.now() - t0 } };
 }
@@ -142,9 +180,32 @@ async function read(opts = {}) {
     snap = (await build(opts.budget || 16000)).snap;
   } else if (opts.refresh !== false) {
     const mk = await market(snap.rows, Date.now() + 6000);
-    for (const r of snap.rows) { const m = mk.get(key(r.chain, r.ca)); if (m) Object.assign(r, m, { trend: trend(Object.assign({}, r, m)) }); }
+    for (const r of snap.rows) { const m = mk.get(key(r.chain, r.ca)); if (m) { if (!m.lp && r.lp) delete m.lp; Object.assign(r, m, { trend: trend(Object.assign({}, r, m)) }); } }
   }
   return { ok: true, t: snap.t, now: Date.now(), rows: snap.rows };
 }
 
-module.exports = { build, read, candidates, market, trend, GT_NET };
+// Robinhood Chain launchpads, checked on-chain (their contracts expose a lookup; tokens have no vanity suffix).
+// Hood.fun: isHoodToken(token) on its launchpad contract. RobinFun: curves(token) on its factory (non-empty = its token).
+const RH_RPC = "https://rpc.mainnet.chain.robinhood.com";
+const RH_PADS = [
+  { n: "Hood.fun", k: "hood", to: "0x5fcc1df0dc020cf454e742e9a8ae2554c37a452c", sel: "0xf7c40209", ok: (r) => /^0x0*1$/.test(r) },
+  { n: "RobinFun", k: "robin", to: "0xd861cb5dc71a0171e8f0f6586cadb069f3a35e4d", sel: "0x2cc3dc6e", ok: (r) => typeof r === "string" && r.length > 2 && /[1-9a-f]/i.test(r.slice(2)) },
+];
+async function robinhoodPads(tokens) {
+  const out = {}; if (!tokens.length) return out;
+  const calls = [];
+  tokens.forEach((t) => RH_PADS.forEach((p, j) => calls.push({ jsonrpc: "2.0", id: calls.length, method: "eth_call", params: [{ to: p.to, data: p.sel + t.slice(2).toLowerCase().padStart(64, "0") }, "latest"], _t: t, _p: j })));
+  const c = new AbortController(), tm = setTimeout(() => c.abort(), 6000);
+  try {
+    const r = await fetch(RH_RPC, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(calls.map(({ _t, _p, ...x }) => x)) });
+    const j = r.ok ? await r.json() : null;
+    if (!Array.isArray(j)) return out;
+    tokens.forEach((t) => (out[t] = false));
+    for (const res of j) { const q = calls[res.id]; if (q && !res.error && RH_PADS[q._p].ok(res.result) && !out[q._t]) out[q._t] = { n: RH_PADS[q._p].n, k: RH_PADS[q._p].k }; }
+  } catch (e) { /* RPC down: try again next run */ } finally { clearTimeout(tm); }
+  return out;
+}
+const rhGrad = (r) => (r.dexes && r.dexes.length ? r.dexes.some((x) => !/hood|robin/.test(String(x))) || null : null);
+
+module.exports = { robinhoodPads, build, read, candidates, market, trend, launchpadOf, GT_NET };

@@ -18,6 +18,7 @@
 .rd-sc{display:flex;gap:5px;flex-wrap:wrap;align-items:center}.rd-badge{border-radius:10px;padding:4px 9px;font-weight:850;font-size:13px}.s-g{background:#DCFCE7;color:#166534}.s-y{background:#FEF9C3;color:#854D0E}.s-o{background:#FFEDD5;color:#9A3412}.s-r{background:#FFE4E6;color:#9F1239}.s-n{background:#F1F1F5;color:#6B7280;font-weight:700;font-size:11.5px}
 .rd-fl{font-size:10.5px;font-weight:750;border-radius:6px;padding:2px 6px;background:#F6F5FF;color:#4C3B74}.rd-fl.bad{background:#FFE4E6;color:#9F1239}
 .rd-act{display:grid;grid-template-columns:1fr 1fr;gap:5px}.rd-act a{text-align:center}.rd-act a{border:1px solid #D5D4EE;border-radius:10px;padding:5px 8px;font-size:12px;font-weight:750;color:#2b2f55;background:#fff}.rd-act a.p{border:0;color:#fff;background:linear-gradient(110deg,#9226F0,#4F41F5 60%,#166BFF)}
+.lp{display:inline-flex;align-items:center;gap:3px;border-radius:6px;padding:1px 6px;font-size:10.5px;font-weight:800;white-space:nowrap}span.lp.lp-pump{background:#DCFCE7;color:#15803D}span.lp.lp-bonk{background:#FFEDD5;color:#C2410C}span.lp.lp-four{background:#FEF9C3;color:#A16207}span.lp.lp-clanker{background:#EDE9FE;color:#6D28D9}span.lp.lp-virt{background:#CCFBF1;color:#0F766E}span.lp.lp-zora{background:#18181B;color:#fff}span.lp.lp-lol{background:#FCE7F3;color:#BE185D}span.lp.lp-moon{background:#E0E7FF;color:#4338CA}span.lp.lp-hood{background:#ECFCCB;color:#3F6212}span.lp.lp-robin{background:#DCFCE7;color:#166534}span.lp.lp-x{background:#F1F5F9;color:#334155}
 .rd-empty{padding:40px 20px;text-align:center;color:#686880}.rd-note{font-size:12.5px;color:#686880;margin-top:14px}.rd code{background:#F1ECFF;color:#5B21B6;border-radius:6px;padding:1px 6px}
 .rd-more{display:block;margin:0 auto;border:1px solid #D5D4EE;background:#fff;border-radius:14px;padding:10px 18px;font-weight:750;margin-top:12px}
 .rd-skel{height:54px;margin:8px 16px;border-radius:12px;background:linear-gradient(90deg,#F1ECFF,#fff,#F1ECFF);background-size:200% 100%;animation:rdsk 1.2s infinite}@keyframes rdsk{to{background-position:-200% 0}}
@@ -96,6 +97,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 <label>Liquidity<select id="rdLiq"><option value="0">Any</option><option value="10000" selected>$10K+</option><option value="50000">$50K+</option><option value="100000">$100K+</option><option value="500000">$500K+</option></select></label>
 <label>24h volume<select id="rdVol"><option value="0" selected>Any</option><option value="50000">$50K+</option><option value="250000">$250K+</option><option value="1000000">$1M+</option></select></label>
 <label>Age<select id="rdAge"><option value="0" selected>Any</option><option value="3600">Under 1h</option><option value="21600">Under 6h</option><option value="86400">Under 24h</option><option value="604800">Under 7d</option></select></label>
+<label>Launchpad<select id="rdLp"><option value="">Any</option><option value="*">Launchpad tokens</option><option value="-">Not from a launchpad</option></select></label>
 <label class="rd-chk"><input type="checkbox" id="rdHide" checked> Hide high risk</label>
 </div>
 </div>
@@ -114,26 +116,29 @@ var price=function(p){p=Number(p);if(!p)return"—";if(p>=1)return"$"+p.toLocale
 var pct=function(v){if(v==null||!isFinite(v))return'<span>—</span>';return'<span class="'+(v>=0?"up":"dn")+'">'+(v>=0?"+":"")+(Math.abs(v)>=100?Math.round(v):v.toFixed(1))+"%</span>"};
 var age=function(ms){if(!ms)return"";var m=(Date.now()-ms)/60000;return m<60?Math.max(1,Math.round(m))+"m":m<1440?Math.round(m/60)+"h":Math.round(m/1440)+"d"};
 var ago=function(t){var s=Math.round((Date.now()-t)/1000);return s<60?s+"s ago":Math.round(s/60)+"m ago"};
+function lpb(l){if(!l)return"";var ic={pump:"💊",bonk:"🐕",four:"4️⃣",clanker:"🔨",virt:"🤖",zora:"🌀",lol:"😂",moon:"🌙",hood:"🪶",robin:"🏹",klik:"🖱",printr:"🖨"}[l.k]||"🚀",cl={pump:1,bonk:1,four:1,clanker:1,virt:1,zora:1,lol:1,moon:1,hood:1,robin:1}[l.k]?"lp-"+l.k:"lp-x";return'<span class="lp '+cl+'" title="Launched on '+esc(l.n)+(l.g===false?" · still on the bonding curve":l.g?" · graduated":"")+'">'+ic+" "+esc(l.n)+(l.g===false?" · curve":l.g?" 🎓":"")+'</span>'}
 function scoreBadge(s){if(!s||s.score==null)return'<span class="rd-badge s-n">Not scored yet</span>';var c=s.score>=80?"s-g":s.score>=60?"s-y":s.score>=40?"s-o":"s-r";return'<span class="rd-badge '+c+'" title="'+esc(s.verdict||"")+'">'+(s.score>=80?"🟢":s.score>=60?"🟡":s.score>=40?"🟠":"🔴")+" "+s.score+"</span>"}
 function flags(r){var s=r.s||{},f=[];if(s.honeypot)f.push('<span class="rd-fl bad">Honeypot</span>');if(s.sellTax>=10)f.push('<span class="rd-fl bad">Sell tax '+Math.round(s.sellTax)+'%</span>');else if(s.sellTax>=3)f.push('<span class="rd-fl">Tax '+Math.round(s.sellTax)+'%</span>');if(s.mint)f.push('<span class="rd-fl bad">Mintable</span>');if(s.freeze)f.push('<span class="rd-fl bad">Freezable</span>');if(s.curve!=null)f.push('<span class="rd-fl">Curve '+Math.round(s.curve)+'%</span>');if(s.paid)f.push('<span class="rd-fl">🦅 DEX paid</span>');return f.join("")}
 function pass(r){
  var liq=+$("rdLiq").value,vol=+$("rdVol").value,ag=+$("rdAge").value;
  if(CHAIN!=="all"&&r.chain!==CHAIN)return false;if(r.liq<liq||r.vol24<vol)return false;if(ag&&(!r.created||Date.now()-r.created>ag*1000))return false;
  if($("rdHide").checked&&r.s&&(r.s.score<40||r.s.honeypot))return false;
+ var lpv=$("rdLp").value;if(lpv==="*"&&!r.lp)return false;if(lpv==="-"&&r.lp)return false;if(lpv&&lpv!=="*"&&lpv!=="-"&&(!r.lp||r.lp.n!==lpv))return false;
  if(TAB==="new")return r.created&&Date.now()-r.created<864e5;
  if(TAB==="gainers")return r.ch1h!=null&&r.ch1h>0&&r.liq>=5000;
  if(TAB==="safe")return r.s&&r.s.score>=70&&!r.s.honeypot&&r.liq>=20000;
  return true;
 }
 function sorted(L){var f=TAB==="new"?function(a,b){return(b.created||0)-(a.created||0)}:TAB==="gainers"?function(a,b){return(b.ch1h||0)-(a.ch1h||0)}:function(a,b){return(b.trend||0)-(a.trend||0)};return L.slice().sort(f)}
-function chips(){var cnt={};ROWS.forEach(function(r){cnt[r.chain]=(cnt[r.chain]||0)+1});var ks=Object.keys(cnt).sort(function(a,b){return cnt[b]-cnt[a]});
+function lpOpts(){var s=$("rdLp"),v=s.value,c={};ROWS.forEach(function(r){if(r.lp)c[r.lp.n]=(c[r.lp.n]||0)+1});s.innerHTML='<option value="">Any</option><option value="*">Launchpad tokens</option><option value="-">Not from a launchpad</option>'+Object.keys(c).sort(function(a,b){return c[b]-c[a]}).map(function(n){return'<option value="'+esc(n)+'">'+esc(n)+" ("+c[n]+")</option>"}).join("");s.value=[].some.call(s.options,function(o){return o.value===v})?v:""}
+function chips(){lpOpts();var cnt={};ROWS.forEach(function(r){cnt[r.chain]=(cnt[r.chain]||0)+1});var ks=Object.keys(cnt).sort(function(a,b){return cnt[b]-cnt[a]});
  $("rdChains").innerHTML='<button data-c="all" aria-pressed="'+(CHAIN==="all")+'">All<small>'+ROWS.length+'</small></button>'+ks.map(function(k){return'<button data-c="'+k+'" aria-pressed="'+(CHAIN===k)+'">'+esc(NM[k]||k)+'<small>'+cnt[k]+'</small></button>'}).join("");
  [].forEach.call($("rdChains").querySelectorAll("button"),function(b){b.onclick=function(){CHAIN=b.dataset.c;SHOW=40;chips();draw()}})}
 function draw(){
  var L=sorted(ROWS.filter(pass)),h='<div class="rd-row h"><span>#</span><span>Token</span><span>Price · 5m · 1h · 24h</span><span>24h vol</span><span>Liquidity</span><span class="c-mc">Mkt cap</span><span class="c-bs">Buys / sells</span><span>CBL score</span><span></span></div>';
  if(!L.length)h+='<div class="rd-empty">'+(ROWS.length?"No tokens match these filters. Try another tab or lower the liquidity filter.":"No radar data yet. It fills within a few minutes after setup.")+'</div>';
  L.slice(0,SHOW).forEach(function(r,i){
-  var fresh=r.first&&Date.now()-r.first<10*60e3,tags=[];if(fresh)tags.push('<span class="rd-tag t-fresh">NEW</span>');if(r.boosts)tags.push('<span class="rd-tag t-boost">⚡'+r.boosts+'</span>');if(r.src&&r.src.indexOf("trending")>-1)tags.push('<span class="rd-tag t-trend">Trending</span>');if(r.created&&Date.now()-r.created<864e5)tags.push('<span class="rd-tag t-new">'+age(r.created)+' old</span>');if(r.s&&r.s.cto)tags.push('<span class="rd-tag t-cto">CTO</span>');
+  var fresh=r.first&&Date.now()-r.first<10*60e3,tags=[];if(r.lp)tags.push(lpb(r.lp));if(fresh)tags.push('<span class="rd-tag t-fresh">NEW</span>');if(r.boosts)tags.push('<span class="rd-tag t-boost">⚡'+r.boosts+'</span>');if(r.src&&r.src.indexOf("trending")>-1)tags.push('<span class="rd-tag t-trend">Trending</span>');if(r.created&&Date.now()-r.created<864e5)tags.push('<span class="rd-tag t-new">'+age(r.created)+' old</span>');if(r.s&&r.s.cto)tags.push('<span class="rd-tag t-cto">CTO</span>');
   var lg=r.logo?'<img src="'+esc(r.logo)+'" alt="" loading="lazy" onerror="this.outerHTML=\'<span class=rd-lg>'+esc((r.sym||"?")[0])+'</span>\'">':'<span class="rd-lg">'+esc((r.sym||"?")[0])+'</span>';
   var tot=(r.buys24||0)+(r.sells24||0),bp=tot?Math.round(r.buys24/tot*100):50;
   var dev=r.s&&r.s.creator?'<a href="/wallet?w='+encodeURIComponent(r.s.creator)+(r.chain!=="solana"?"&chain="+r.chain:"")+'">Dev</a>':"";
@@ -153,7 +158,7 @@ async function load(first){
  catch(e){if(first||!ROWS.length){$("rdList").innerHTML='<div class="rd-empty">⚠️ '+esc(e.message||"Radar unavailable")+'. Retrying in a minute.</div>'}$("rdStatus").textContent="Offline · retrying"}
 }
 [].forEach.call(document.querySelectorAll(".rd-tabs button"),function(b){b.onclick=function(){TAB=b.dataset.tab;SHOW=40;[].forEach.call(document.querySelectorAll(".rd-tabs button"),function(x){x.setAttribute("aria-selected",x===b)});draw()}});
-["rdLiq","rdVol","rdAge","rdHide"].forEach(function(i){$(i).onchange=function(){SHOW=40;draw()}});
+["rdLiq","rdVol","rdAge","rdHide","rdLp"].forEach(function(i){$(i).onchange=function(){SHOW=40;draw()}});
 var q=new URLSearchParams(location.search);if(q.get("tab"))(document.querySelector('.rd-tabs [data-tab="'+q.get("tab")+'"]')||{click:function(){}}).click();
 load(true);setInterval(load,60000);setInterval(status,10000);
 })();

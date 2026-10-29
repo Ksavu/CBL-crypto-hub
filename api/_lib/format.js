@@ -249,7 +249,8 @@ function radarMsg(rows, mode, site) {
   const L = [`📡 <b>CBL Token Radar</b> · ${title}`, ""];
   pick.slice(0, 10).forEach((r, i) => {
     const sc = r.s ? `${r.s.score >= 80 ? "🟢" : r.s.score >= 60 ? "🟡" : r.s.score >= 40 ? "🟠" : "🔴"} ${r.s.score}` : "⚪ n/a";
-    L.push(`${i + 1}. <a href="${site}/?ca=${encodeURIComponent(r.ca)}#scanner">${esc(r.sym || "?")}</a> · ${chainName(r.chain)} · ${sc}`,
+    const lp = r.lp ? ` · ${{ pump: "💊", bonk: "🐕", four: "4️⃣", clanker: "🔨", virt: "🤖", zora: "🌀", lol: "😂", moon: "🌙", hood: "🪶", robin: "🏹", klik: "🖱", printr: "🖨" }[r.lp.k] || "🚀"} ${esc(r.lp.n)}${r.lp.g === false ? " (curve)" : ""}` : "";
+    L.push(`${i + 1}. <a href="${site}/?ca=${encodeURIComponent(r.ca)}#scanner">${esc(r.sym || "?")}</a> · ${chainName(r.chain)} · ${sc}${lp}`,
       `    MC ${usd(r.mcap)} · Liq ${usd(r.liq)} · 1h ${pc(r.ch1h)} · Vol ${usd(r.vol24)}`);
   });
   if (!pick.length) L.push("Nothing matches right now. Try /radar trending.");
