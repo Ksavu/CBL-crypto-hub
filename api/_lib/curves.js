@@ -62,7 +62,7 @@ async function pump() {
 const GUESS = { solana: ["pump-fun", "moonshot", "raydium-launchlab", "meteora-dbc"], bsc: ["four-meme"], base: [] };
 async function discover(prev, rhId) {
   if (rhId) GT_NETS[rhId] = "robinhood";
-  if (prev && prev.t && now() - prev.t < DISCOVER_TTL && prev.ids && Object.values(prev.ids).some((l) => l.length)) return prev;
+  if (prev && prev.t && now() - prev.t < DISCOVER_TTL && prev.ids && (prev.ids.solana || []).length) return prev;
   const ids = {};
   await Promise.all(Object.keys(GT_NETS).map(async (net) => {
     const found = [];
@@ -73,8 +73,10 @@ async function discover(prev, rhId) {
     }
     ids[net] = found.slice(0, 6);
   }));
-  const ok = Object.values(ids).some((l) => l.length);
-  return ok ? { t: now(), ids } : { t: 0, ids: GUESS }; // t:0 = try discovery again next run
+  // Always include the known ids too: one chain's discovery succeeding must not leave another chain empty.
+  for (const [net, g] of Object.entries(GUESS)) ids[net] = [...new Set([...(g || []), ...(ids[net] || [])])].slice(0, 7);
+  const ok = Object.keys(ids).some((n) => (ids[n] || []).length > (GUESS[n] || []).length);
+  return { t: ok ? now() : 0, ids }; // t:0 = try discovery again next run
 }
 async function gtCurves(ids, budget, withPump) {
   const rows = [], jobs = [];
@@ -124,16 +126,25 @@ async function rhFromChain(budget) {
   const latest = head && head.result ? parseInt(head.result, 16) : 0;
   if (!latest) return [];
   const found = new Map(); // address -> { f, n }
+  // Walk back from the newest block in chunks; shrink the chunk when the RPC says the range is too big.
+  // Looks back up to ~400k blocks (about a day on Robinhood Chain), stops early once 30 tokens are found.
+  const per = Math.max(2500, Math.floor((budget - now()) / RH_FACTORIES.length));
   for (const f of RH_FACTORIES) {
-    for (let k = 0; k < 4 && now() < budget; k++) { // 4 x 10k blocks (Robinhood Chain makes several blocks a second)
-      const to = latest - k * 10000, from = Math.max(0, to - 9999);
+    const stop = now() + per;
+    let to = latest, step = 10000, calls = 0, logs = 0;
+    while (to > 0 && latest - to < 400000 && calls < 40 && now() < Math.min(stop, budget)) {
+      const from = Math.max(0, to - step + 1);
       const r = await rpc({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{ address: f.a, fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16), ...(f.k === "pons" ? { topics: [PONS_LAUNCH] } : {}) }] });
-      for (const l of (r && r.result) || []) for (const a of addrsFromLog(l)) {
+      calls++;
+      if (!r || r.error) { const d = DIAG["rpc.robinhood"]; if (d && r && r.error) d.last = String(r.error.message || "").slice(0, 60); if (step > 1000) { step = Math.floor(step / 2); continue; } break; }
+      for (const l of r.result || []) { logs++; for (const a of addrsFromLog(l)) {
         if (RH_FACTORIES.some((x) => x.a === a)) continue;
         const e = found.get(a) || { f, n: 0, block: parseInt(l.blockNumber, 16) }; e.n++; found.set(a, e);
-      }
+      } }
       if ([...found.values()].filter((x) => x.f === f).length >= 30) break;
+      to = from - 1;
     }
+    DIAG["logs." + f.k] = { calls, logs, found: [...found.values()].filter((x) => x.f === f).length, lookback: latest - to };
   }
   const cands = [...found.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 60);
   if (!cands.length) return [];
@@ -153,6 +164,12 @@ async function rhFromChain(budget) {
 }
 
 async function robinhood(budget) {
+  const [rows, chain] = await Promise.all([rhExplorer(budget).catch(() => []), rhFromChain(budget + 4000).catch(() => [])]);
+  // Merge with what the chain itself says (fills gaps when the explorer returns nothing or can't decode).
+  for (const r of chain) { const have = rows.find((x) => x.ca === r.ca); if (have) { have.tx1h = have.tx1h || r.tx1h; } else rows.push(r); }
+  return rows;
+}
+async function rhExplorer(budget) {
   const rows = [];
   for (const f of RH_FACTORIES) {
     if (now() > budget) break;
@@ -172,9 +189,6 @@ async function robinhood(budget) {
         created: x.ts, url: DS("robinhood", x.t), pad: PAD_URL[f.k] ? PAD_URL[f.k](x.t) : null, src: "blockscout" });
     }));
   }
-  // Merge with what the chain itself says (fills gaps when the explorer returns nothing or can't decode).
-  const chain = await rhFromChain(budget + 4000).catch(() => []);
-  for (const r of chain) { const have = rows.find((x) => x.ca === r.ca); if (have) { have.tx1h = have.tx1h || r.tx1h; } else rows.push(r); }
   return rows;
 }
 

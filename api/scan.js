@@ -20,6 +20,15 @@ module.exports = async (req, res) => {
 
   const url = new URL(req.url, "http://x");
   res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
+  // Diagnostics: /api/scan?curvesdiag=1 runs one live refresh of the bonding-curve feed and shows what each source returned.
+  if (url.searchParams.get("curvesdiag")) {
+    h.n += 10; res.setHeader("Cache-Control", "no-store");
+    try {
+      const r = await require("./_lib/curves").build(22000);
+      const by = {}; for (const x of r.snap.rows) { const k = x.chain + " · " + ((x.lp && x.lp.n) || "?"); by[k] = (by[k] || 0) + 1; }
+      return res.status(200).json({ ok: true, ...r.stats, perLaunchpad: by, sample: r.snap.rows.slice(0, 5).map((x) => ({ chain: x.chain, sym: x.sym, lp: x.lp && x.lp.n, src: x.src })) });
+    } catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
+  }
   if (url.searchParams.get("radar")) {
     try {
       const [r, cv] = await Promise.all([require("./_lib/radar").read(), require("./_lib/curves").read().catch(() => ({ rows: [] }))]);
