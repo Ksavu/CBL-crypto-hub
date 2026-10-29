@@ -23,10 +23,15 @@ const RH_FACTORIES = [
   { n: "RobinFun", k: "robin", a: "0xd861cb5dc71a0171e8f0f6586cadb069f3a35e4d" },
 ];
 
-async function jget(u, ms = 7000) {
-  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
-  try { const r = await fetch(u, { signal: c.signal, headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; CBLRadar/1.0; +https://cryptobarlounge.space)" } }); return r.ok ? await r.json() : null; }
-  catch (e) { return null; } finally { clearTimeout(t); }
+const DIAG = {};
+async function jget(u, ms = 7000, headers) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms), host = u.split("/")[2];
+  try {
+    const r = await fetch(u, { signal: c.signal, headers: Object.assign({ accept: "application/json", "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" }, headers || {}) });
+    const d = DIAG[host] || (DIAG[host] = { ok: 0, fail: 0 });
+    if (!r.ok) { d.fail++; d.last = "HTTP " + r.status; return null; }
+    d.ok++; return await r.json();
+  } catch (e) { const d = DIAG[host] || (DIAG[host] = { ok: 0, fail: 0 }); d.fail++; d.last = String((e && e.name) || e).slice(0, 30); return null; } finally { clearTimeout(t); }
 }
 const num = (x) => { const v = Number(x); return Number.isFinite(v) ? v : null; };
 const now = () => Date.now();
@@ -40,33 +45,39 @@ function pumpRow(c, tag) {
 }
 async function pump() {
   const list = (j) => (Array.isArray(j) ? j : (j && (j.coins || j.data)) || []);
+  const H = { origin: "https://pump.fun", referer: "https://pump.fun/" }; // pump.fun's API refuses requests without its own origin
   const base = "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&includeNsfw=false&order=DESC&sort=";
-  const [live, cap, koth] = await Promise.all([jget(base + "last_trade_timestamp"), jget(base + "market_cap"), jget("https://frontend-api-v3.pump.fun/coins/king-of-the-hill?includeNsfw=false")]);
+  const [live, cap, koth, cur] = await Promise.all([jget(base + "last_trade_timestamp", 7000, H), jget(base + "market_cap", 7000, H),
+    jget("https://frontend-api-v3.pump.fun/coins/king-of-the-hill?includeNsfw=false", 7000, H), jget("https://frontend-api-v3.pump.fun/coins/currently-live?offset=0&limit=50&includeNsfw=false", 7000, H)]);
   const out = new Map();
-  for (const c of [...list(live), ...list(cap)]) if (c && c.mint && !c.complete) out.set(c.mint, pumpRow(c));
+  for (const c of [...list(live), ...list(cap), ...list(cur)]) if (c && c.mint && !c.complete) out.set(c.mint, pumpRow(c));
   if (koth && koth.mint && !koth.complete) out.set(koth.mint, pumpRow(koth, "koth"));
   return [...out.values()];
 }
 
 // ---------- GeckoTerminal launchpad DEXes ----------
+// Likely GeckoTerminal ids, used until discovery succeeds (wrong guesses just return nothing).
+const GUESS = { solana: ["pump-fun", "moonshot", "raydium-launchlab", "meteora-dbc"], bsc: ["four-meme"], base: [] };
 async function discover(prev) {
-  if (prev && prev.t && now() - prev.t < DISCOVER_TTL && prev.ids) return prev;
+  if (prev && prev.t && now() - prev.t < DISCOVER_TTL && prev.ids && Object.values(prev.ids).some((l) => l.length)) return prev;
   const ids = {};
-  for (const net of Object.keys(GT_NETS)) {
+  await Promise.all(Object.keys(GT_NETS).map(async (net) => {
     const found = [];
-    for (let p = 1; p <= 3; p++) {
+    for (let p = 1; p <= 2; p++) {
       const j = await jget(`${GT}/networks/${net}/dexes?page=${p}`, 6000);
       const d = (j && j.data) || []; if (!d.length) break;
       d.forEach((x) => { const id = x.id || ""; if (CURVE_DEX.test(id) && !NOT_CURVE.test(id)) found.push(id); });
     }
     ids[net] = found.slice(0, 6);
-  }
-  return { t: now(), ids };
+  }));
+  const ok = Object.values(ids).some((l) => l.length);
+  return ok ? { t: now(), ids } : { t: 0, ids: GUESS }; // t:0 = try discovery again next run
 }
-async function gtCurves(ids, budget) {
+async function gtCurves(ids, budget, withPump) {
   const rows = [], jobs = [];
-  for (const [net, list] of Object.entries(ids || {})) for (const dex of list) if (!/pump/i.test(dex)) jobs.push([net, dex]); // pump.fun comes from its own API
-  for (const [net, dex] of jobs.slice(0, 8)) {
+  for (const [net, list] of Object.entries(ids || {})) for (const dex of list) if (withPump || !/pump/i.test(dex)) jobs.push([net, dex]); // pump.fun normally comes from its own API
+  jobs.sort((a, b) => (/pump/i.test(b[1]) ? 1 : 0) - (/pump/i.test(a[1]) ? 1 : 0));
+  for (const [net, dex] of jobs.slice(0, 7)) {
     if (now() > budget) break;
     const j = await jget(`${GT}/networks/${net}/dexes/${dex}/pools?page=1&sort=h24_tx_count_desc&include=base_token`, 6000);
     const toks = new Map(((j && j.included) || []).map((t) => [t.id, t.attributes || {}]));
@@ -89,6 +100,11 @@ function tokenFromLog(l) {
   const p = ps.find((x) => /^(token|memecoin|tokenAddress)$/i.test(x.name)) || ps.find((x) => /address/.test(x.type) && /token/i.test(x.name));
   return p && /^0x[a-fA-F0-9]{40}$/.test(p.value) ? p.value.toLowerCase() : null;
 }
+// Undecoded log (contract not verified on the explorer): every address-shaped word is a candidate; the caller keeps the ERC-20 ones.
+function addrsFromLog(l) {
+  const words = [...(l.topics || []).slice(1).filter(Boolean), ...((String(l.data || "").replace(/^0x/, "").match(/.{64}/g) || []).map((w) => "0x" + w))];
+  return [...new Set(words.filter((w) => /^0x0{24}[0-9a-f]{40}$/i.test(w) && !/^0x0{64}$/.test(w)).map((w) => "0x" + w.slice(-40).toLowerCase()))];
+}
 async function robinhood(budget) {
   const rows = [];
   for (const f of RH_FACTORIES) {
@@ -97,11 +113,13 @@ async function robinhood(budget) {
     const toks = [];
     for (const l of (j && j.items) || []) {
       if (l.decoded && !/launch|created/i.test(l.decoded.method_call || "")) continue;
-      const t = tokenFromLog(l); if (t && !toks.find((x) => x.t === t)) toks.push({ t, ts: l.timestamp ? Date.parse(l.timestamp) : null, block: l.block_number });
+      const ts = l.timestamp ? Date.parse(l.timestamp) : null, t = tokenFromLog(l);
+      const cands = t ? [t] : addrsFromLog(l).filter((a) => !RH_FACTORIES.some((f) => f.a === a));
+      for (const c of cands) if (!toks.find((x) => x.t === c)) toks.push({ t: c, ts, guess: !t });
     }
-    await Promise.all(toks.slice(0, 15).map(async (x) => {
+    await Promise.all(toks.slice(0, 16).map(async (x) => {
       const [tk, ctr] = await Promise.all([jget(`${BS}/tokens/${x.t}`, 4000), jget(`${BS}/tokens/${x.t}/counters`, 4000)]);
-      if (!tk) return;
+      if (!tk || (tk.type && !/ERC-20/i.test(tk.type))) return; // undecoded-log guesses that aren't tokens drop out here
       rows.push({ chain: "robinhood", ca: x.t, sym: tk.symbol || "", name: tk.name || "", logo: tk.icon_url || null, lp: { n: f.n, k: f.k, g: false }, progress: null,
         mcap: num(tk.circulating_market_cap) || null, holders: num(tk.holders_count || tk.holders) || 0, transfers: num(ctr && ctr.transfers_count) || 0,
         created: x.ts, url: `https://robinhoodchain.blockscout.com/token/${x.t}`, src: "blockscout" });
@@ -120,10 +138,18 @@ async function build(budgetMs = 23000) {
   const t0 = now(), deadline = t0 + budgetMs;
   let prev = null;
   try { prev = db.on() ? ((await db.select("radar_cache", "id=eq." + ROW_ID + "&select=data"))[0] || {}).data : null; } catch (e) { prev = null; }
-  const disc = await discover(prev && prev.disc).catch(() => (prev && prev.disc) || null);
-  const [p, g, rh] = await Promise.all([pump().catch(() => []), gtCurves(disc && disc.ids, t0 + 14000).catch(() => []), robinhood(t0 + 14000).catch(() => [])]);
+  for (const k of Object.keys(DIAG)) delete DIAG[k];
+  const [p, disc, rh] = await Promise.all([pump().catch(() => []), discover(prev && prev.disc).catch(() => ({ t: 0, ids: GUESS })), robinhood(t0 + 14000).catch(() => [])]);
+  const g = await gtCurves(disc && disc.ids, t0 + 15000, !p.length).catch(() => []); // no Pump.fun API? take Pump.fun pools from GeckoTerminal
+  // Tokens on the main Radar that still trade on a launchpad curve (DexScreener lists many pump.fun / moonshot curves).
+  let fromRadar = [];
+  try {
+    const rs = db.on() ? ((await db.select("radar_cache", "id=eq.feed&select=data"))[0] || {}).data : null;
+    fromRadar = ((rs && rs.rows) || []).filter((r) => r.lp && r.lp.g === false).map((r) => ({ chain: r.chain, ca: r.ca, sym: r.sym, name: r.name, logo: r.logo, lp: r.lp, progress: r.s && r.s.curve != null ? r.s.curve : null,
+      mcap: r.mcap, vol1h: r.vol1h, vol24: r.vol24, tx1h: (r.buys1h || 0) + (r.sells1h || 0), created: r.created, ch1h: r.ch1h, url: r.url, src: "radar", s: r.s }));
+  } catch (e) { fromRadar = []; }
   const seen = new Map();
-  for (const r of [...p, ...g, ...rh]) { const k = r.chain + "|" + r.ca; if (!seen.has(k)) seen.set(k, r); }
+  for (const r of [...p, ...g, ...rh, ...fromRadar]) { const k = r.chain + "|" + r.ca; if (!seen.has(k)) seen.set(k, r); }
   let rows = [...seen.values()];
   rows.forEach((r) => (r.heat = heat(r)));
   rows.sort((a, b) => b.heat - a.heat);
@@ -140,19 +166,19 @@ async function build(budgetMs = 23000) {
     }
   };
   await Promise.all([work(), work(), work(), work(), work()]);
-  rows.forEach((r) => { const s = scores[r.chain + "|" + r.ca]; r.s = s || null; if (r.progress == null && s && s.progress != null) r.progress = s.progress; });
+  rows.forEach((r) => { const s = scores[r.chain + "|" + r.ca]; r.s = s || r.s || null; if (r.progress == null && s && s.progress != null) r.progress = s.progress; });
   const keep = new Set(rows.map((r) => r.chain + "|" + r.ca));
   for (const k of Object.keys(scores)) if (!keep.has(k) && now() - scores[k].t > 6 * 3600e3) delete scores[k];
   const snap = { t: now(), rows, scores, disc };
   if (db.on()) await db.upsert("radar_cache", [{ id: ROW_ID, data: snap, updated_at: new Date().toISOString() }], "id").catch(() => {});
-  return { snap, stats: { pump: p.length, gecko: g.length, robinhood: rh.length, rows: rows.length, scored: rows.filter((r) => r.s).length, dexes: disc && disc.ids, ms: now() - t0 } };
+  return { snap, stats: { pump: p.length, gecko: g.length, robinhood: rh.length, radar: fromRadar.length, rows: rows.length, scored: rows.filter((r) => r.s).length, dexes: disc && disc.ids, sources: Object.assign({}, DIAG), ms: now() - t0 } };
 }
 
 /** For the page and bot: the snapshot, with the Pump.fun live list refreshed (it moves fastest). */
 async function read(opts = {}) {
   let snap = null;
   try { snap = db.on() ? ((await db.select("radar_cache", "id=eq." + ROW_ID + "&select=data"))[0] || {}).data : null; } catch (e) { snap = null; }
-  if (!snap || !snap.rows || now() - snap.t > 30 * 60e3) snap = (await build(opts.budget || 12000)).snap;
+  if (!snap || !snap.rows || now() - snap.t > 30 * 60e3 || (!snap.rows.length && now() - snap.t > 120e3)) snap = (await build(opts.budget || 12000)).snap;
   else if (opts.refresh !== false) {
     const live = await pump().catch(() => []);
     const by = new Map(snap.rows.map((r) => [r.chain + "|" + r.ca, r]));

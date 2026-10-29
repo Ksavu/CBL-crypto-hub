@@ -264,7 +264,7 @@ function radarMsg(rows, mode, site) {
       mode === "curve" ? `    MC ${usd(r.mcap)}${r.progress != null ? " · curve " + Math.round(r.progress) + "%" : ""}${r.tx1h ? " · " + r.tx1h + " trades/1h" : r.holders ? " · " + r.holders + " holders" : ""}\n    <code>${esc(r.ca)}</code>`
         : `    MC ${usd(r.mcap)} · Liq ${usd(r.liq)} · 1h ${pc(r.ch1h)} · Vol ${usd(r.vol24)}`);
   });
-  if (!pick.length) L.push("Nothing matches right now. Try /radar trending.");
+  if (!pick.length) L.push(mode === "curve" ? "No bonding-curve tokens loaded yet. The feed refreshes every 5 minutes; try again shortly or use /radar trending." : "Nothing matches right now. Try /radar trending.");
   L.push("", "<i>Scores flag common red flags, not guarantees. DYOR.</i>");
   const b = (m, t) => ({ text: (m === mode ? "• " : "") + t, callback_data: "rd:" + m });
   return { text: L.join("\n"), reply_markup: { inline_keyboard: [[b("safe", "🛡 Safer"), b("trending", "🔥 Trending"), b("new", "🆕 New")], [b("gainers", "🚀 Gainers"), b("curve", "🎢 Curves")], [{ text: "📡 Open Token Radar", url: `${site}/radar?tab=${mode}` }]] } };
