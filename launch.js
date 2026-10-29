@@ -19,9 +19,9 @@
   var busy = false;
 
   /* ---------- small helpers ---------- */
-  /* Runs on xrplabs.fun and on cryptobarlounge.space/launch. Swap and scanner live on the CBL site. */
+  /* Runs on xrplabs.fun and on cryptobarlounge.space/xrplabs. Swap and scanner live on the CBL site. */
   var MAIN = /(^|\.)cryptobarlounge\.space$/.test(location.hostname) || /localhost|127\.0\.0\.1/.test(location.hostname) ? "" : "https://cryptobarlounge.space";
-  var BASE = /^\/launch/.test(location.pathname) ? "/launch" : "/";
+  var BASE = /^\/xrplabs/.test(location.pathname) ? "/xrplabs" : "/";
   function trade(id) { if (window.cblSwapXrpl) window.cblSwapXrpl(id); else location.href = MAIN + "/?swap=" + id + "&chain=xrpl#swap" }
   function hex(s) { return Array.prototype.map.call(new TextEncoder().encode(s), function (b) { return b.toString(16).padStart(2, "0") }).join("").toUpperCase() }
   function esc(t) { return String(t == null ? "" : t).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] }) }

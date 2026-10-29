@@ -4,7 +4,7 @@ const { runScan, detect } = require("./scanner");
 const { deployerBalance } = require("./deep");
 
 const MAX_WATCH = 10;
-const norm = (ca) => (/^0x/i.test(ca) ? ca.toLowerCase() : ca);
+const norm = (ca) => (/^(0x|terra1)/i.test(ca) ? ca.toLowerCase() : ca);
 const num = (x) => { const n = Number(x); return Number.isFinite(n) ? n : null; };
 const COOLDOWN = 3 * 3600e3, REF_WINDOW = 60 * 60e3;
 
@@ -26,7 +26,10 @@ async function evaluate(prev, cur) {
   const A = [], now = Date.now(), al = { ...(prev.alerted || {}) };
   const add = (kind, sev, text) => { if (now - (al[kind] || 0) < COOLDOWN) return; al[kind] = now; A.push({ kind, sev, text }); };
   const pf = prev.flags || {}, cf = cur.flags || {};
-  if (cur.chain === "solana") {
+  if (cur.chain === "terraclassic") {
+    if (!pf.admin && cf.admin) add("admin", "critical", "The contract now has an admin. It can be migrated to new code.");
+    if (pf.mint === false && cf.mint === true) add("mint", "critical", "New tokens can be minted again.");
+  } else if (cur.chain === "solana") {
     if (pf.mint === false && cf.mint === true) add("mint", "critical", "Mint authority is active again. New tokens can be created.");
     if (pf.freeze === false && cf.freeze === true) add("freeze", "critical", "Freeze authority is active. Wallets can be frozen.");
   } else {

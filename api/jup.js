@@ -4,7 +4,7 @@
 //   GET  /api/jup?action=token&mint=                                    -> token decimals
 // Optional fee for you: JUP_REFERRAL_ACCOUNT + JUP_REFERRAL_FEE (50 to 255 bps). See TELEGRAM_SETUP.md.
 const BASE = "https://api.jup.ag/swap/v2";
-const ORIGIN = /^https:\/\/(www\.)?cryptobarlounge\.space$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
+const ORIGIN = /^https:\/\/(www\.)?(cryptobarlounge\.space|xrplabs\.fun)$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
 const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const hits = new Map(), decCache = new Map();
 
