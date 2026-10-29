@@ -11,6 +11,7 @@ module.exports = (req, res) => {
     xrplFeeBps: Number.isFinite(bps) ? Math.min(Math.max(bps, 0), 300) : 50,
     launchFee: (() => { const f = parseFloat(clean(process.env.LAUNCH_FEE_XRP) || "5"); return Number.isFinite(f) && f >= 0 ? f : 5; })(),
     launchFeeAccount: clean(process.env.LAUNCH_FEE_ACCOUNT) || clean(process.env.XRPL_FEE_ACCOUNT),
+    bot: clean(process.env.TELEGRAM_BOT_USERNAME).replace(/^@/, "") || "CBLScannerBot",
     thorBps: clean(process.env.THOR_AFFILIATE) ? Math.min(Math.max(parseInt(clean(process.env.THOR_AFFILIATE_BPS) || "50", 10) || 0, 0), 300) : 0,
   });
 };

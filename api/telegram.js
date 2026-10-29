@@ -136,6 +136,13 @@ async function onMessage(msg) {
   if (cmd) {
     if (cmd[2] && me && cmd[2].toLowerCase() !== me.toLowerCase().replace(/^@/, "")) return; // meant for another bot
     const name = cmd[1].toLowerCase(), args = (cmd[3] || "").trim().split(/\s+/).filter(Boolean);
+    // Deep links from the website: t.me/<bot>?start=track_<wallet>[_<chain>] or ?start=w_<wallet>
+    const sp = name === "start" && args[0] ? args[0].match(/^(track|w)_([A-Za-z0-9]{25,64})(?:_([a-z]+))?$/) : null;
+    if (sp && WT.familyOf(sp[2])) {
+      const ch = sp[3] && CHAIN[sp[3]] ? CHAIN[sp[3]] : undefined;
+      if (sp[1] === "w") return void (await doWallet(msg, sp[2], ch));
+      return void (await trackFlow(msg.from, sp[2], ch, null, (m) => reply(msg, esc(m))));
+    }
     if (name === "start" || name === "help") return void (await reply(msg, HELP));
     if (name === "scan" || name === "s" || name === "check") {
       let ca = args.map(findCA).find(Boolean);

@@ -1,5 +1,7 @@
 // Vercel serverless function: GET /api/scan?ca=<address>&chain=auto|ethereum|bsc|base|solana
+//                              GET /api/scan?wallet=<address>[&chain=base]  -> developer report (tokens created + recent trades)
 const { runScan } = require("./_lib/scanner");
+const WT = require("./_lib/wallets");
 
 const ORIGIN = /^https:\/\/(www\.)?(cryptobarlounge\.space|xrplabs\.fun)$|^https:\/\/[a-z0-9-]+\.vercel\.app$|^http:\/\/localhost(:\d+)?$/;
 const hits = new Map(); // simple per-IP rate limit
@@ -18,6 +20,17 @@ module.exports = async (req, res) => {
 
   const url = new URL(req.url, "http://x");
   res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
+  if (url.searchParams.get("wallet")) {
+    h.n += 2; // wallet reports cost more upstream calls
+    try {
+      const ch = url.searchParams.get("chain"), r = await WT.devReport(url.searchParams.get("wallet"), ch && ch !== "auto" ? ch : undefined, Date.now() + 22000);
+      res.setHeader("Cache-Control", "public, s-maxage=120, stale-while-revalidate=300");
+      return res.status(200).json({ ok: true, ...r, ts: Date.now() });
+    } catch (e) {
+      if (!e.status) console.error("wallet report error", e && e.stack || e);
+      return res.status(e.status || 502).json({ ok: false, error: e.status ? e.message : "Could not load this wallet. Try again." });
+    }
+  }
   try {
     const out = await runScan(url.searchParams.get("ca"), url.searchParams.get("chain"), url.searchParams.get("deep") === "0" ? { noDeep: true } : undefined);
     return res.status(200).json(out);
