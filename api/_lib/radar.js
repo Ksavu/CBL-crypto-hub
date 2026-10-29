@@ -45,7 +45,7 @@ function gtMarket(p, ca) {
     ch5m: n(a.price_change_percentage && a.price_change_percentage.m5), ch1h: n(a.price_change_percentage && a.price_change_percentage.h1), ch24: n(a.price_change_percentage && a.price_change_percentage.h24),
     buys24: (tx.h24 && tx.h24.buys) || 0, sells24: (tx.h24 && tx.h24.sells) || 0, buys1h: (tx.h1 && tx.h1.buys) || 0, sells1h: (tx.h1 && tx.h1.sells) || 0,
     created: a.pool_created_at ? Date.parse(a.pool_created_at) : null, dex: (p.relationships && p.relationships.dex && p.relationships.dex.data && p.relationships.dex.data.id) || "",
-    url: `https://www.geckoterminal.com/${p.relationships.network.data.id}/pools/${a.address}`, boosts: 0, profile: false, lp: null, dexes: [] };
+    url: `https://dexscreener.com/${gtChain(p.relationships.network.data.id)}/${ca}`, gt: true, boosts: 0, profile: false, lp: null, dexes: [] };
 }
 
 async function candidates(rhNet) {
@@ -128,7 +128,7 @@ async function build(budgetMs = 23000) {
   const rhNet = await gtRobinhoodNet(prev && prev.rhNet).catch(() => ({ t: 0, id: null }));
   const cands = await candidates(rhNet);
   // keep tokens from the last snapshot too, so a token doesn't vanish when it drops off one source for a few minutes
-  if (prev && prev.rows) for (const r of prev.rows) if (!cands.find((c) => c.chain === r.chain && c.ca === r.ca) && Date.now() - (seen[key(r.chain, r.ca)] || 0) < 3 * 3600e3) cands.push({ chain: r.chain, ca: r.ca, src: r.src.filter((s) => s !== "new"), gtm: /geckoterminal/.test(r.url || "") ? r : null });
+  if (prev && prev.rows) for (const r of prev.rows) if (!cands.find((c) => c.chain === r.chain && c.ca === r.ca) && Date.now() - (seen[key(r.chain, r.ca)] || 0) < 3 * 3600e3) cands.push({ chain: r.chain, ca: r.ca, src: r.src.filter((s) => s !== "new"), gtm: r.gt ? r : null });
   const mk = await market(cands, t0 + 9000);
   let rows = [];
   for (const c of cands) {

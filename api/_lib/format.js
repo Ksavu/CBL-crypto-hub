@@ -95,7 +95,8 @@ function card(r, site, opt) {
     { text: "👁 Watch", callback_data: "w:" + cb(r.address) },
     ...(r.chain === "terraclassic" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=terraclassic#swap` }] : r.chain === "xrpl" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.hex || r.address.split(".")[0]}.${r.issuer}&chain=xrpl#swap` }] : SWAP_CHAINS.includes(r.chain) ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }] : []),
   ]];
-  const last = [];
+  const last = [], pad = r.launchpad && r.onCurve ? require("./launchpads").padUrl(r.launchpad, r.address) : null;
+  if (pad) last.push({ text: `🛒 Buy on ${r.launchpad}`, url: pad });
   if (r.chain !== "solana" && r.chain !== "xrpl" && r.chain !== "terraclassic") last.push({ text: "🛡 Audit contract", callback_data: "a:" + r.address });
   if (r.creator && (r.chain === "solana" || /^0x[a-f0-9]{40}$/i.test(r.creator))) {
     const hint = r.chain === "solana" ? "" : "|" + r.chain;

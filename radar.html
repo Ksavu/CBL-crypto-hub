@@ -145,6 +145,8 @@ function cpass(r){var ag=+$("rdAge").value,lpv=$("rdLp").value;
  if($("rdHide").checked&&r.s&&(r.s.score<40||r.s.honeypot))return false;
  if(lpv&&lpv!=="*"&&lpv!=="-"&&(!r.lp||r.lp.n!==lpv))return false;if(CS==="grad"&&r.progress==null)return false;return true}
 function since(ms){if(!ms)return"";var s=(Date.now()-ms)/1000;return s<60?Math.max(1,Math.round(s))+"s ago":s<3600?Math.round(s/60)+"m ago":Math.round(s/3600)+"h ago"}
+// Buy for curve tokens: Solana curves trade through CBL Swap (Jupiter routes pump.fun curves); others on their launchpad until they graduate.
+function cbuy(r){if(r.chain==="solana")return'<a href="/?swap='+encodeURIComponent(r.ca)+'&chain=solana#swap">Buy</a>';if(r.pad)return'<a href="'+esc(r.pad)+'" target="_blank" rel="noopener" title="Buy on '+esc(r.lp?r.lp.n:"the launchpad")+' (still on its bonding curve)">Buy ↗</a>';return""}
 function drawCurve(){
  var L=CURVE.filter(cpass).sort(CS==="new"?function(a,b){return(b.created||0)-(a.created||0)}:CS==="grad"?function(a,b){return(b.progress||0)-(a.progress||0)}:function(a,b){return(b.heat||0)-(a.heat||0)});
  var h='<div class="rd-row cv h"><span>#</span><span>Token</span><span>Curve progress</span><span>Mkt cap</span><span>Activity</span><span>CBL score</span><span></span></div>';
@@ -157,7 +159,7 @@ function drawCurve(){
   var dev=r.s&&r.s.creator?'<a href="/wallet?w='+encodeURIComponent(r.s.creator)+(r.chain!=="solana"?"&chain="+r.chain:"")+'">Dev</a>':"";
   h+='<div class="rd-row cv"><span class="rd-n">'+(i+1)+'</span><div class="rd-tok">'+lg+'<div style="min-width:0"><b>'+esc(r.sym||"?")+' <small style="display:inline;font-weight:500">'+esc((r.name||"").slice(0,24))+'</small></b><small>'+esc(NM[r.chain]||r.chain)+" "+tags.join("")+'</small></div></div>'+
    '<div data-l="Curve">'+pg+'</div><div data-l="Mkt cap">'+usd(r.mcap)+'</div><div data-l="Activity" style="font-size:12.5px;color:#4C3B74">'+(act.join(" · ")||"—")+'</div><div class="rd-sc">'+scoreBadge(r.s)+(r.s&&r.s.mint?'<span class="rd-fl bad">Mintable</span>':"")+(r.s&&r.s.freeze?'<span class="rd-fl bad">Freezable</span>':"")+'</div>'+
-   '<div class="rd-act"><a class="p" href="/?ca='+encodeURIComponent(r.ca)+'#scanner">Scan</a>'+(r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+(r.lp&&r.lp.k==="pump"?"Pump.fun":"Open")+'</a>':"")+(r.chain==="solana"?'<a href="/?swap='+encodeURIComponent(r.ca)+'&chain=solana#swap">Buy</a>':"")+dev+'</div></div>';
+   '<div class="rd-act"><a class="p" href="/?ca='+encodeURIComponent(r.ca)+'#scanner">Scan</a>'+cbuy(r)+(r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">Chart</a>':"")+dev+'</div></div>';
  });
  $("rdList").innerHTML=h;var more=document.getElementById("rdMore");if(more)more.remove();
  if(L.length>SHOW){var b=document.createElement("button");b.id="rdMore";b.className="rd-more";b.textContent="Show more ("+(L.length-SHOW)+")";b.onclick=function(){SHOW+=40;drawCurve()};$("rdList").after(b)}

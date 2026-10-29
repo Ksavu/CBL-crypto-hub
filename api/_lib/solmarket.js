@@ -98,7 +98,7 @@ async function fillSol(ca, pair, budgetMs = 4500) {
   if (pf && pf.curve) { if (out) { out.liquidity = Object.assign({}, out.liquidity, { usd: liqOf(pf) || liqOf(out) }); } fill(pf); }
   fill(gt);
   fill(pf);
-  if (out && pf) { out.curve = pf.curve; out.curveProgress = pf.progress; out.curveSol = pf.curveSol; if (!out.url) out.url = "https://pump.fun/coin/" + ca; if (!out.info && pf.image) out.info = { imageUrl: pf.image, websites: pf.links.web ? [{ url: pf.links.web }] : [], socials: [pf.links.x && { type: "twitter", url: pf.links.x }, pf.links.tg && { type: "telegram", url: pf.links.tg }].filter(Boolean) }; }
+  if (out && pf) { out.curve = pf.curve; out.curveProgress = pf.progress; out.curveSol = pf.curveSol; if (!out.url) out.url = "https://dexscreener.com/solana/" + ca; if (!out.info && pf.image) out.info = { imageUrl: pf.image, websites: pf.links.web ? [{ url: pf.links.web }] : [], socials: [pf.links.x && { type: "twitter", url: pf.links.x }, pf.links.tg && { type: "telegram", url: pf.links.tg }].filter(Boolean) }; }
   if (out && !out.dexId) out.dexId = pf && pf.curve ? "pumpfun" : (gt && gt.dexId) || "";
   return out;
 }

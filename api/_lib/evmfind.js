@@ -21,7 +21,7 @@ function gtPair(p, chain, low) {
   const bt = rel.base_token && rel.base_token.data && rel.base_token.data.id, isBase = String(bt || "").toLowerCase().endsWith(low);
   const [bn, qn] = String(a.name || "").split(" / ");
   return {
-    chainId: chain, dexId: (rel.dex && rel.dex.data && rel.dex.data.id) || "geckoterminal", pairAddress: a.address, url: `https://www.geckoterminal.com/${net}/pools/${a.address}`,
+    chainId: chain, dexId: (rel.dex && rel.dex.data && rel.dex.data.id) || "geckoterminal", pairAddress: a.address, url: `https://dexscreener.com/${chain}/${low}`,
     baseToken: { address: low, name: isBase ? bn : qn, symbol: isBase ? bn : qn }, quoteToken: { address: "", symbol: isBase ? qn : bn },
     priceUsd: isBase ? a.base_token_price_usd : a.quote_token_price_usd, fdv: n(a.fdv_usd), marketCap: n(a.market_cap_usd) || n(a.fdv_usd),
     liquidity: { usd: n(a.reserve_in_usd) || 0 }, volume: { h24: n(a.volume_usd && a.volume_usd.h24) || 0 },

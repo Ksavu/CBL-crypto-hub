@@ -56,4 +56,8 @@ const PAD_INFO = {
 };
 const launchpadByCreator = (chain, creator) => (creator && BY_CREATOR[chain] && BY_CREATOR[chain][String(creator).toLowerCase()]) || null;
 
-module.exports = { launchpadOf, launchpadByCreator, PAD_INFO, BY_CREATOR, LP_DEX };
+// Where a token still on a launchpad curve can be bought (token page on the launchpad).
+const PAD_URL = { "Pump.fun": (ca) => "https://pump.fun/coin/" + ca, "Four.meme": (ca) => "https://four.meme/token/" + ca, Pons: (ca) => "https://ponsfamily.com/launchpad/" + ca };
+const padUrl = (name, ca) => (PAD_URL[name] ? PAD_URL[name](ca) : null);
+
+module.exports = { launchpadOf, launchpadByCreator, PAD_INFO, BY_CREATOR, LP_DEX, PAD_URL, padUrl };

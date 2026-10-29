@@ -11,6 +11,8 @@ const { runScan } = require("./scanner");
 const ROW_ID = "curve", MAX = 150, SCORE_TTL = 20 * 60e3, DISCOVER_TTL = 24 * 3600e3;
 const BS = "https://robinhoodchain.blockscout.com/api/v2";
 const GT = "https://api.geckoterminal.com/api/v2";
+const DS = (chain, ca) => `https://dexscreener.com/${chain}/${ca}`; // charts always open on DexScreener
+const PAD_URL = { pump: (ca) => "https://pump.fun/coin/" + ca, four: (ca) => "https://four.meme/token/" + ca, pons: (ca) => "https://ponsfamily.com/launchpad/" + ca }; // where curve tokens can be bought
 // Launchpad curve DEXes on GeckoTerminal (matched against discovered ids; graduated venues like pumpswap are excluded).
 const GT_NETS = { solana: "solana", bsc: "bsc", base: "base" };
 const CURVE_DEX = /pump-?fun|moonshot|launch-?lab|bonk|boop|believe|dbc|heaven|four-?meme|flap|virtuals|pons|hood|robin|klik|printr/i, NOT_CURVE = /pumpswap|amm|cpmm|clmm|dlmm|v2|v3|v4/i;
@@ -41,7 +43,7 @@ const pumpProgress = (c) => (num(c.virtual_token_reserves) != null ? Math.max(0,
 function pumpRow(c, tag) {
   return { chain: "solana", ca: c.mint, sym: c.symbol || "", name: c.name || "", logo: c.image_uri || null, lp: { n: "Pump.fun", k: "pump", g: false },
     progress: pumpProgress(c), mcap: num(c.usd_market_cap), created: num(c.created_timestamp), lastTrade: num(c.last_trade_timestamp), replies: num(c.reply_count) || 0,
-    koth: !!c.king_of_the_hill_timestamp || tag === "koth", url: "https://pump.fun/coin/" + c.mint, src: "pump.fun" };
+    koth: !!c.king_of_the_hill_timestamp || tag === "koth", url: DS("solana", c.mint), pad: PAD_URL.pump(c.mint), src: "pump.fun" };
 }
 async function pump() {
   const list = (j) => (Array.isArray(j) ? j : (j && (j.coins || j.data)) || []);
@@ -89,7 +91,7 @@ async function gtCurves(ids, budget, withPump) {
       rows.push({ chain: GT_NETS[net], ca, sym: t.symbol || String(a.name || "").split(" / ")[0], name: t.name || "", logo: t.image_url && !/missing/.test(t.image_url) ? t.image_url : null,
         lp: { n, k, g: false }, progress: null, mcap: num(a.market_cap_usd) || num(a.fdv_usd), vol1h: num(a.volume_usd && a.volume_usd.h1) || 0, vol24: num(a.volume_usd && a.volume_usd.h24) || 0,
         tx1h: (tx.buys || 0) + (tx.sells || 0), buys1h: tx.buys || 0, created: a.pool_created_at ? Date.parse(a.pool_created_at) : null, ch1h: num(a.price_change_percentage && a.price_change_percentage.h1),
-        url: `https://www.geckoterminal.com/${net}/pools/${a.address}`, src: "geckoterminal:" + dex });
+        url: DS(GT_NETS[net], ca), pad: PAD_URL[k] ? PAD_URL[k](ca) : null, src: "geckoterminal:" + dex });
     }
   }
   return rows;
@@ -145,7 +147,7 @@ async function rhFromChain(budget) {
     if (!sym || sym.error || !sym.result || sym.result === "0x") return; // not a token (curve, pair, user wallet...)
     const s = hexStr(sym.result); if (!s || s.length > 20) return;
     rows.push({ chain: "robinhood", ca: a, sym: s, name: nm && !nm.error ? hexStr(nm.result) : "", logo: null, lp: { n: e.f.n, k: e.f.k, g: false }, progress: null,
-      mcap: null, tx1h: e.f.k === "pons" ? 0 : e.n, holders: 0, created: null, block: e.block, url: `https://robinhoodchain.blockscout.com/token/${a}`, src: "rpc" });
+      mcap: null, tx1h: e.f.k === "pons" ? 0 : e.n, holders: 0, created: null, block: e.block, url: DS("robinhood", a), pad: PAD_URL[e.f.k] ? PAD_URL[e.f.k](a) : null, src: "rpc" });
   });
   return rows;
 }
@@ -167,7 +169,7 @@ async function robinhood(budget) {
       if (!tk || (tk.type && !/ERC-20/i.test(tk.type))) return; // undecoded-log guesses that aren't tokens drop out here
       rows.push({ chain: "robinhood", ca: x.t, sym: tk.symbol || "", name: tk.name || "", logo: tk.icon_url || null, lp: { n: f.n, k: f.k, g: false }, progress: null,
         mcap: num(tk.circulating_market_cap) || null, holders: num(tk.holders_count || tk.holders) || 0, transfers: num(ctr && ctr.transfers_count) || 0,
-        created: x.ts, url: `https://robinhoodchain.blockscout.com/token/${x.t}`, src: "blockscout" });
+        created: x.ts, url: DS("robinhood", x.t), pad: PAD_URL[f.k] ? PAD_URL[f.k](x.t) : null, src: "blockscout" });
     }));
   }
   // Merge with what the chain itself says (fills gaps when the explorer returns nothing or can't decode).
@@ -196,7 +198,7 @@ async function build(budgetMs = 23000) {
   try {
     const rs = db.on() ? ((await db.select("radar_cache", "id=eq.feed&select=data"))[0] || {}).data : null;
     fromRadar = ((rs && rs.rows) || []).filter((r) => r.lp && r.lp.g === false).map((r) => ({ chain: r.chain, ca: r.ca, sym: r.sym, name: r.name, logo: r.logo, lp: r.lp, progress: r.s && r.s.curve != null ? r.s.curve : null,
-      mcap: r.mcap, vol1h: r.vol1h, vol24: r.vol24, tx1h: (r.buys1h || 0) + (r.sells1h || 0), created: r.created, ch1h: r.ch1h, url: r.url, src: "radar", s: r.s }));
+      mcap: r.mcap, vol1h: r.vol1h, vol24: r.vol24, tx1h: (r.buys1h || 0) + (r.sells1h || 0), created: r.created, ch1h: r.ch1h, url: DS(r.chain, r.ca), pad: r.lp && PAD_URL[r.lp.k] ? PAD_URL[r.lp.k](r.ca) : null, src: "radar", s: r.s }));
   } catch (e) { fromRadar = []; }
   const seen = new Map();
   for (const r of [...p, ...g, ...rh, ...fromRadar]) { const k = r.chain + "|" + r.ca; if (!seen.has(k)) seen.set(k, r); }
