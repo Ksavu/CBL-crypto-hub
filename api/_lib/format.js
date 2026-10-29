@@ -129,6 +129,7 @@ const HELP = [
   "/untrack &lt;wallet&gt;",
   "Tip: on a scan, tap 📜 Dev history to see the deployer's other tokens, or 👤 Track dev to follow them.",
   "",
+  "/radar [safe|trending|new|gainers] – top tokens right now with CBL scores",
   "/help",
   "",
   "In groups I also scan any contract address posted in chat.",
@@ -234,6 +235,29 @@ function devReportMsg(r, site, tracked) {
   return { text: L.join("\n").slice(0, 4000), reply_markup: { inline_keyboard: kb } };
 }
 
+/** /radar: top tokens from the Token Radar snapshot. mode: safe | trending | new | gainers */
+function radarMsg(rows, mode, site) {
+  const ok = (r) => !(r.s && (r.s.honeypot || r.s.score < 40));
+  const pick = {
+    safe: rows.filter((r) => r.s && r.s.score >= 70 && !r.s.honeypot && r.liq >= 20000).sort((a, b) => b.trend - a.trend),
+    trending: rows.filter(ok).sort((a, b) => b.trend - a.trend),
+    new: rows.filter((r) => ok(r) && r.created && Date.now() - r.created < 864e5).sort((a, b) => b.created - a.created),
+    gainers: rows.filter((r) => ok(r) && r.ch1h > 0 && r.liq >= 5000).sort((a, b) => b.ch1h - a.ch1h),
+  }[mode] || [];
+  const title = { safe: "🛡 Safer trending picks", trending: "🔥 Trending now", new: "🆕 New pairs (under 24h)", gainers: "🚀 Top gainers (1h)" }[mode];
+  const pc = (v) => (v == null ? "—" : (v >= 0 ? "+" : "") + (Math.abs(v) >= 100 ? Math.round(v) : v.toFixed(1)) + "%");
+  const L = [`📡 <b>CBL Token Radar</b> · ${title}`, ""];
+  pick.slice(0, 10).forEach((r, i) => {
+    const sc = r.s ? `${r.s.score >= 80 ? "🟢" : r.s.score >= 60 ? "🟡" : r.s.score >= 40 ? "🟠" : "🔴"} ${r.s.score}` : "⚪ n/a";
+    L.push(`${i + 1}. <a href="${site}/?ca=${encodeURIComponent(r.ca)}#scanner">${esc(r.sym || "?")}</a> · ${chainName(r.chain)} · ${sc}`,
+      `    MC ${usd(r.mcap)} · Liq ${usd(r.liq)} · 1h ${pc(r.ch1h)} · Vol ${usd(r.vol24)}`);
+  });
+  if (!pick.length) L.push("Nothing matches right now. Try /radar trending.");
+  L.push("", "<i>Scores flag common red flags, not guarantees. DYOR.</i>");
+  const b = (m, t) => ({ text: (m === mode ? "• " : "") + t, callback_data: "rd:" + m });
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[b("safe", "🛡 Safer"), b("trending", "🔥 Trending"), b("new", "🆕 New"), b("gainers", "🚀 Gainers")], [{ text: "📡 Open Token Radar", url: `${site}/radar.html?tab=${mode === "safe" ? "safe" : mode}` }]] } };
+}
+
 const SEV = { critical: "🚨", high: "🔴", medium: "🟠" };
 function alertMsg(r, alerts, site) {
   const L = [`🚨 <b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${chainName(r.chain)}`, ""];
@@ -261,4 +285,4 @@ function auditCard(r, site) {
     ...(r.chain && CHAINS[r.chain] ? [{ text: "🔎 Explorer", url: CHAINS[r.chain][2] + r.address + "#code" }] : []),
   ]] } };
 }
-module.exports = { card, alertMsg, auditCard, HELP, esc, cb, uncb, walletAlert, walletReport, devReportMsg, chainName, shortA };
+module.exports = { card, alertMsg, auditCard, HELP, esc, cb, uncb, walletAlert, walletReport, devReportMsg, radarMsg, chainName, shortA };

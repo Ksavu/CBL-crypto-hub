@@ -53,6 +53,15 @@ How it decides: each transaction is reduced to how the wallet's balances changed
 
 Limits: on EVM chains, tokens created through a launchpad factory (e.g. four.meme, Clanker) are reported as a buy or transfer, not as "new token", because the dev didn't deploy the contract. Alerts arrive within about 5 minutes, not instantly.
 
+## Token Radar (radar.html and /radar)
+
+Trending, new and boosted tokens on all scanner chains, each with a CBL score. Sources: DexScreener (boosts, profiles, community takeovers, market data) and GeckoTerminal (trending and new pools). No keys needed.
+
+- `/api/cron?job=radar` (called by the same GitHub workflow every 5 minutes) builds a snapshot: ~150 tokens with $1K+ liquidity and volume, ranked by 1h momentum, and scores the most active ones with the Coin Sniffer engine (scores are reused for 30 minutes, about 30–50 new scores per run).
+- The page reads it from `/api/scan?radar=1` (market numbers refreshed, edge-cached 60s) and auto-refreshes every minute. Tabs: Trending, New pairs, Gainers, Safer picks (score 70+, $20K+ liquidity, no honeypot). Filters: chain, liquidity, volume, age, hide high risk.
+- Bot: `/radar` (safer picks), `/radar trending`, `/radar new`, `/radar gainers`, with buttons to switch.
+- **Setup:** run the `radar_cache` table at the end of `supabase.sql` and upload the updated workflow. The first snapshot appears after the next cron run (up to 5 minutes).
+
 ## Solana swap (Jupiter) and swap links from the bot
 
 1. Get a free Jupiter API key: developers.jup.ag/portal, sign in, create a key.

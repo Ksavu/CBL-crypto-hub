@@ -20,6 +20,13 @@ module.exports = async (req, res) => {
 
   const url = new URL(req.url, "http://x");
   res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
+  if (url.searchParams.get("radar")) {
+    try {
+      const r = await require("./_lib/radar").read();
+      res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=240");
+      return res.status(200).json(r);
+    } catch (e) { console.error("radar error", e && e.stack || e); return res.status(502).json({ ok: false, error: "Radar unavailable. Try again." }); }
+  }
   if (url.searchParams.get("wallet")) {
     h.n += 2; // wallet reports cost more upstream calls
     try {

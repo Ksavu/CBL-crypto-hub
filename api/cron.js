@@ -1,6 +1,7 @@
 // GET/POST /api/cron  (called every 5 minutes by .github/workflows/alerts.yml). Header: Authorization: Bearer <CRON_SECRET>
 //   /api/cron              token watchlist alerts
 //   /api/cron?job=wallets  wallet tracker alerts (buys, sells, new tokens, transfers)
+//   /api/cron?job=radar    rebuild the Token Radar snapshot (trending tokens + CBL scores)
 const crypto = require("crypto");
 const db = require("./_lib/db");
 const { runScan } = require("./_lib/scanner");
@@ -53,7 +54,9 @@ module.exports = async (req, res) => {
   if (!secret || !safeEq(req.headers.authorization, "Bearer " + secret)) return res.status(401).end();
   if (!db.on() || !process.env.TELEGRAM_BOT_TOKEN) return res.status(500).json({ ok: false, error: "Not configured" });
   const t0 = Date.now(), site = (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
-  if (new URL(req.url, "http://x").searchParams.get("job") === "wallets") return res.status(200).json(await walletJob(t0, site));
+  const job = new URL(req.url, "http://x").searchParams.get("job");
+  if (job === "wallets") return res.status(200).json(await walletJob(t0, site));
+  if (job === "radar") { const r = await require("./_lib/radar").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "radar", ...r.stats }); }
   const out = { checked: 0, alerts: 0, sent: 0, errors: 0 };
   try {
     const snaps = await db.select("snapshots", "select=*&order=checked_at.asc&limit=30");

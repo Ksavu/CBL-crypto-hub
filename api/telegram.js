@@ -1,7 +1,7 @@
 // Telegram webhook: POST /api/telegram  (set with setWebhook + secret_token, see TELEGRAM_SETUP.md)
 const crypto = require("crypto");
 const { runScan, detect } = require("./_lib/scanner");
-const { card, auditCard, HELP, esc, cb, uncb, devReportMsg, shortA, chainName } = require("./_lib/format");
+const { card, auditCard, HELP, esc, cb, uncb, devReportMsg, radarMsg, shortA, chainName } = require("./_lib/format");
 const WT = require("./_lib/wallets");
 const { runAudit } = require("./audit");
 const db = require("./_lib/db");
@@ -196,6 +196,13 @@ async function onMessage(msg) {
       if (!w) return void (await reply(msg, "Usage: <code>/wallet &lt;wallet&gt; [chain]</code>"));
       return void (await doWallet(msg, w, args.map((a) => CHAIN[a.toLowerCase()]).find(Boolean)));
     }
+    if (name === "radar" || name === "trending") {
+      if (limited(msg.from.id)) return void (await reply(msg, "⏳ Slow down a little. Try again in a minute."));
+      const mode = ["safe", "trending", "new", "gainers"].find((m) => (args[0] || "").toLowerCase().startsWith(m.slice(0, 3))) || (name === "trending" ? "trending" : "safe");
+      tg("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
+      try { const r = await require("./_lib/radar").read({ refresh: false }); const c = radarMsg(r.rows, mode, SITE()); return void (await reply(msg, c.text, { reply_markup: c.reply_markup })); }
+      catch (e) { console.error("radar error", e && e.stack || e); return void (await reply(msg, "Radar is unavailable right now. Try again in a minute.")); }
+    }
     if (name === "list" || name === "watchlist") {
       if (!db.on()) return void (await reply(msg, "Alerts are not set up yet."));
       const ws = await W.listWatches(msg.from.id);
@@ -211,6 +218,12 @@ async function onMessage(msg) {
 
 async function onCallback(q) {
   const data = q.data || "";
+  if (data.startsWith("rd:") && q.message) {
+    await tg("answerCallbackQuery", { callback_query_id: q.id });
+    try { const r = await require("./_lib/radar").read({ refresh: false }); const c = radarMsg(r.rows, data.slice(3), SITE());
+      await tg("editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text: c.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup }); } catch (e) { /* unchanged */ }
+    return;
+  }
   if (/^[txvs]:/.test(data)) {
     const [raw, chain] = data.slice(2).split("|"), a = uncb(raw), k = data[0];
     if (k === "x") {

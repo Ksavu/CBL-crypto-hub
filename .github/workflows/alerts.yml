@@ -20,4 +20,8 @@ jobs:
           echo "Wallet tracker HTTP status: $wcode"
           cat wbody.txt || true
           echo
+          rcode=$(curl -sS -m 40 -o rbody.txt -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" "https://cryptobarlounge.space/api/cron?job=radar" || true)
+          echo "Token Radar HTTP status: $rcode"
+          cat rbody.txt || true
+          echo
           case "$code" in 2*) exit 0 ;; *) exit 1 ;; esac

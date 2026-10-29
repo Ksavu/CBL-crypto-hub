@@ -62,3 +62,11 @@ create index if not exists wallets_checked_idx on wallets (checked_at);
 create index if not exists tracked_address_idx on tracked (address);
 alter table wallets enable row level security;
 alter table tracked enable row level security;
+
+-- Token Radar: one cached snapshot, rebuilt every 5 minutes by /api/cron?job=radar
+create table if not exists radar_cache (
+  id text primary key,
+  data jsonb not null,
+  updated_at timestamptz default now()
+);
+alter table radar_cache enable row level security;
