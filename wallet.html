@@ -244,7 +244,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 @media(max-width:800px){section#tools,section#members,section#services{padding:66px 0 77px}section#market-discovery{padding:63px 0 72px}.tools{grid-template-columns:1fr}.tools>.tool{padding:25px;border-radius:31px}.tools>.tool h3:before{width:58px!important;height:58px!important;flex-basis:58px;border-radius:20px;font-size:26px}.hub-tile{border-radius:28px}.sectionheading h2,.trendheader h2{font-size:clamp(30px,7vw,42px)}}
 @media(prefers-reduced-motion:reduce){.hub-tile,.tools>.tool,.service,.btn,.snifferbtn{transition:none!important;transform:none!important}}
 </style>
-</head><body><header class="nav"><div class="container navinner"><a class="brand" href="index.html"><span class="brandmark">CBL</span> CRYPTO <em>HUB</em></a><nav class="links"><a href="index.html#sniffer">Coin Sniffer</a><a href="index.html#swap">Swap</a><a href="index.html#services">Services</a><a href="launch.html">LAUNCH TOKEN NOW</a></nav></div></header><main class="walletpage wt">
+</head><body><header class="nav"><div class="container navinner"><a class="brand" href="/"><span class="brandmark">CBL</span> CRYPTO <em>HUB</em></a><nav class="links"><a href="/#sniffer">Coin Sniffer</a><a href="/#swap">Swap</a><a href="/#services">Services</a><a href="/launch">LAUNCH TOKEN NOW</a></nav></div></header><main class="walletpage wt">
 <div class="container">
 <section class="wt-hero">
 <span class="wt-eyebrow">CBL WALLET TRACKER</span>
@@ -272,7 +272,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 <p class="wt-note">EVM: tokens the wallet deployed itself are counted. Launches through a factory (four.meme, Clanker…) show up as buys. Data comes from public explorers and DexScreener and can lag a few minutes. Not financial advice.</p>
 </section>
 </div>
-</main><footer class="footer"><div class="container footerinner">© CBL Crypto Hub · Wallet research only — not investment advice. <a href="index.html">Back to homepage</a></div><!-- CBL CONTACT LINKS --><div class="container contact-footer" id="contact"><a href="mailto:cryptobarlounge@gmail.com" class="contact-email">✉ cryptobarlounge@gmail.com</a><a class="telegram-link" data-telegram-link href="#contact" aria-label="Telegram community link pending" title="Telegram link not yet configured">Telegram · Link coming soon</a></div></footer><script>
+</main><footer class="footer"><div class="container footerinner">© CBL Crypto Hub · Wallet research only — not investment advice. <a href="/">Back to homepage</a></div><!-- CBL CONTACT LINKS --><div class="container contact-footer" id="contact"><a href="mailto:cryptobarlounge@gmail.com" class="contact-email">✉ cryptobarlounge@gmail.com</a><a class="telegram-link" data-telegram-link href="#contact" aria-label="Telegram community link pending" title="Telegram link not yet configured">Telegram · Link coming soon</a></div></footer><script>
 (function(){
 var $=function(i){return document.getElementById(i)},esc=function(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
 var BOT="CBLScannerBot";fetch("/api/config").then(function(r){return r.json()}).then(function(c){if(c&&c.bot){BOT=c.bot;$("wtBotLink").href="https://t.me/"+BOT}}).catch(function(){});
@@ -319,7 +319,7 @@ function render(d,ch){
   C.slice(0,50).forEach(function(t){var c=t.chain||d.family,b=t.status==="live"?'<span class="wt-badge b-live">Live</span>':t.status==="new"?'<span class="wt-badge b-new">New</span>':'<span class="wt-badge b-dead">Dead</span>';
    var nm=t.url?'<a href="'+esc(t.url)+'" target="_blank" rel="noopener">'+esc(sym(t,c))+'</a>':'<b>'+esc(sym(t,c))+'</b>';
    var scanId=c==="xrpl"?String(t.id).split(".")[1]:t.id;
-   h+='<tr><td>'+b+(t.graduated?'<span class="wt-badge b-grad">🎓</span>':'')+'</td><td>'+nm+(t.name?' <small style="color:var(--muted)">'+esc(t.name)+'</small>':'')+'</td><td>'+usd(t.mcap)+'</td><td class="hm">'+usd(t.liq)+'</td><td>'+ago(t.ts)+'</td>'+(d.family==="evm"&&d.chains.length>1?'<td class="hm">'+esc(NM[c]||c)+'</td>':'')+'<td><a href="index.html?ca='+encodeURIComponent(scanId)+'#scanner">Scan ↗</a></td></tr>'});
+   h+='<tr><td>'+b+(t.graduated?'<span class="wt-badge b-grad">🎓</span>':'')+'</td><td>'+nm+(t.name?' <small style="color:var(--muted)">'+esc(t.name)+'</small>':'')+'</td><td>'+usd(t.mcap)+'</td><td class="hm">'+usd(t.liq)+'</td><td>'+ago(t.ts)+'</td>'+(d.family==="evm"&&d.chains.length>1?'<td class="hm">'+esc(NM[c]||c)+'</td>':'')+'<td><a href="/?ca='+encodeURIComponent(scanId)+'#scanner">Scan ↗</a></td></tr>'});
   h+='</tbody></table></div>'+(C.length>50?'<p class="wt-empty">Showing the 50 newest of '+C.length+'.</p>':'');
  }else h+='<p class="wt-empty">No tokens created by this wallet found.'+(d.family==="evm"?' EVM counts tokens it deployed itself; factory launches (four.meme, Clanker…) show up as buys below.':'')+'</p>';
  h+='<h3 class="wt-h3">Last 7 days</h3><p class="wt-empty" style="margin-top:0">🟢 '+(k("buy")+k("swap"))+' buys · 🔴 '+k("sell")+' sells · 📤 '+k("transfer")+' transfers · 🆕 '+k("create")+' new tokens</p>';

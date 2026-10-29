@@ -53,7 +53,7 @@ How it decides: each transaction is reduced to how the wallet's balances changed
 
 Limits: on EVM chains, tokens created through a launchpad factory (e.g. four.meme, Clanker) are reported as a buy or transfer, not as "new token", because the dev didn't deploy the contract. Alerts arrive within about 5 minutes, not instantly.
 
-## Token Radar (radar.html and /radar)
+## Token Radar (/radar)
 
 Trending, new and boosted tokens on all scanner chains, each with a CBL score. Sources: DexScreener (boosts, profiles, community takeovers, market data) and GeckoTerminal (trending and new pools). No keys needed.
 

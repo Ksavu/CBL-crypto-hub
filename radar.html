@@ -82,7 +82,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 @media(max-width:800px){section#tools,section#members,section#services{padding:66px 0 77px}section#market-discovery{padding:63px 0 72px}.tools{grid-template-columns:1fr}.tools>.tool{padding:25px;border-radius:31px}.tools>.tool h3:before{width:58px!important;height:58px!important;flex-basis:58px;border-radius:20px;font-size:26px}.hub-tile{border-radius:28px}.sectionheading h2,.trendheader h2{font-size:clamp(30px,7vw,42px)}}
 @media(prefers-reduced-motion:reduce){.hub-tile,.tools>.tool,.service,.btn,.snifferbtn{transition:none!important;transform:none!important}}
 </style>
-</head><body><div class="bar">CBL CRYPTO HUB ✦ Your Web3 tools & community</div><header class="nav"><div class="wrap"><a class="brand" href="index.html">CBL <span>CRYPTO HUB</span></a><nav class="links"><a href="index.html">Home</a><a href="index.html#sniffer">Coin Sniffer</a><a href="wallet.html">Wallet Tracker</a><a href="radar.html">Token Radar</a><a href="rewards.html">Rewards</a><a href="account.html">My Account</a></nav></div></header><main class="wrap rd">
+</head><body><div class="bar">CBL CRYPTO HUB ✦ Your Web3 tools & community</div><header class="nav"><div class="wrap"><a class="brand" href="/">CBL <span>CRYPTO HUB</span></a><nav class="links"><a href="/">Home</a><a href="/#sniffer">Coin Sniffer</a><a href="/wallet">Wallet Tracker</a><a href="/radar">Token Radar</a><a href="/rewards">Rewards</a><a href="/account">My Account</a></nav></div></header><main class="wrap rd">
 <span class="eyebrow">CBL TOKEN RADAR</span>
 <h1>Trending tokens, <span class="grad">scored.</span></h1>
 <p class="rd-lead">Live trending, new and boosted tokens across Solana, BNB Chain, Base, Ethereum and more, each with a CBL Coin Sniffer risk score. Refreshes every minute.</p>
@@ -101,7 +101,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 </div>
 <div class="rd-table" id="rdList" aria-live="polite"></div>
 <p class="rd-note">Scores come from CBL Coin Sniffer (GoPlus, honeypot.is, RugCheck and on-chain checks) and are refreshed every 30 minutes. They flag common red flags. They are not audits or guarantees. Market data: DexScreener and GeckoTerminal. Not financial advice.</p>
-<div class="callout" style="margin-top:20px"><b>Get it in Telegram</b><p>Send <code>/radar</code> to <a id="rdBot" href="https://t.me/CBLScannerBot" target="_blank" rel="noopener" style="color:#6A2AEA;font-weight:700">CBL Scanner Bot</a> for the top safer trending tokens, or paste any contract address for a full scan.</p><a class="btn soft" href="index.html#sniffer">Open CBL Coin Sniffer ↗</a></div>
+<div class="callout" style="margin-top:20px"><b>Get it in Telegram</b><p>Send <code>/radar</code> to <a id="rdBot" href="https://t.me/CBLScannerBot" target="_blank" rel="noopener" style="color:#6A2AEA;font-weight:700">CBL Scanner Bot</a> for the top safer trending tokens, or paste any contract address for a full scan.</p><a class="btn soft" href="/#sniffer">Open CBL Coin Sniffer ↗</a></div>
 </main><footer>CBL Crypto Hub · <a href="mailto:cryptobarlounge@gmail.com">cryptobarlounge@gmail.com</a> · Token data is informational, not investment advice.</footer><script>
 (function(){
 var $=function(i){return document.getElementById(i)},esc=function(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
@@ -136,11 +136,11 @@ function draw(){
   var fresh=r.first&&Date.now()-r.first<10*60e3,tags=[];if(fresh)tags.push('<span class="rd-tag t-fresh">NEW</span>');if(r.boosts)tags.push('<span class="rd-tag t-boost">⚡'+r.boosts+'</span>');if(r.src&&r.src.indexOf("trending")>-1)tags.push('<span class="rd-tag t-trend">Trending</span>');if(r.created&&Date.now()-r.created<864e5)tags.push('<span class="rd-tag t-new">'+age(r.created)+' old</span>');if(r.s&&r.s.cto)tags.push('<span class="rd-tag t-cto">CTO</span>');
   var lg=r.logo?'<img src="'+esc(r.logo)+'" alt="" loading="lazy" onerror="this.outerHTML=\'<span class=rd-lg>'+esc((r.sym||"?")[0])+'</span>\'">':'<span class="rd-lg">'+esc((r.sym||"?")[0])+'</span>';
   var tot=(r.buys24||0)+(r.sells24||0),bp=tot?Math.round(r.buys24/tot*100):50;
-  var dev=r.s&&r.s.creator?'<a href="wallet.html?w='+encodeURIComponent(r.s.creator)+(r.chain!=="solana"?"&chain="+r.chain:"")+'">Dev</a>':"";
+  var dev=r.s&&r.s.creator?'<a href="/wallet?w='+encodeURIComponent(r.s.creator)+(r.chain!=="solana"?"&chain="+r.chain:"")+'">Dev</a>':"";
   h+='<div class="rd-row'+(fresh?" fresh":"")+'"><span class="rd-n">'+(i+1)+'</span><div class="rd-tok">'+lg+'<div style="min-width:0"><b>'+esc(r.sym||"?")+' <small style="display:inline;font-weight:500">'+esc((r.name||"").slice(0,24))+'</small></b><small>'+esc(NM[r.chain]||r.chain)+(r.created&&Date.now()-r.created>=864e5?" · "+age(r.created):"")+" "+tags.join("")+'</small></div></div>'+
    '<div data-l="Price"><b>'+price(r.price)+'</b><div class="rd-ch">'+pct(r.ch5m)+pct(r.ch1h)+pct(r.ch24)+'</div></div><div data-l="24h vol">'+usd(r.vol24)+'</div><div data-l="Liquidity">'+usd(r.liq)+'</div><div class="c-mc" data-l="Mkt cap">'+usd(r.mcap)+'</div>'+
    '<div class="c-bs" data-l="Buys / sells">'+(r.buys24||0)+' / '+(r.sells24||0)+'<div class="rd-bs"><i style="width:'+bp+'%"></i></div></div><div class="rd-sc">'+scoreBadge(r.s)+flags(r)+'</div>'+
-   '<div class="rd-act"><a class="p" href="index.html?ca='+encodeURIComponent(r.ca)+'#scanner">Scan</a>'+(SWAP[r.chain]?'<a href="index.html?swap='+encodeURIComponent(r.ca)+'&chain='+r.chain+'#swap">Buy</a>':"")+(r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">Chart</a>':"")+dev+'</div></div>';
+   '<div class="rd-act"><a class="p" href="/?ca='+encodeURIComponent(r.ca)+'#scanner">Scan</a>'+(SWAP[r.chain]?'<a href="/?swap='+encodeURIComponent(r.ca)+'&chain='+r.chain+'#swap">Buy</a>':"")+(r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">Chart</a>':"")+dev+'</div></div>';
  });
  $("rdList").innerHTML=h+(L.length>SHOW?'':'');
  var more=document.getElementById("rdMore");if(more)more.remove();

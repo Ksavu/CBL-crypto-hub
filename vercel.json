@@ -1,19 +1,10 @@
 {
+ "cleanUrls": true,
  "functions": {
   "api/*.js": {
    "maxDuration": 30
   }
  },
- "rewrites": [
-  {
-   "source": "/launch",
-   "destination": "/launch.html"
-  },
-  {
-   "source": "/xrplabs",
-   "destination": "/xrplabs.html"
-  }
- ],
  "redirects": [
   {
    "source": "/launch",
@@ -25,6 +16,11 @@
    ],
    "destination": "/xrplabs",
    "permanent": false
+  },
+  {
+   "source": "/home",
+   "destination": "/",
+   "permanent": true
   }
  ]
 }

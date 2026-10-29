@@ -1,6 +1,6 @@
 // Host routing for XRPLabs (runs before Vercel serves static files, so it beats index.html).
 //   www.xrplabs.fun/*  -> 308 to xrplabs.fun/*
-//   xrplabs.fun/       -> serves xrplabs.html (URL stays xrplabs.fun)
+//   xrplabs.fun/       -> serves the XRPLabs page (URL stays xrplabs.fun)
 export const config = { matcher: ["/"] };
 
 export default function middleware(req) {
@@ -11,7 +11,7 @@ export default function middleware(req) {
     return Response.redirect(url.toString(), 308);
   }
   if (host === "xrplabs.fun" && url.pathname === "/") {
-    return new Response(null, { headers: { "x-middleware-rewrite": new URL("/xrplabs.html" + url.search, url).toString() } });
+    return new Response(null, { headers: { "x-middleware-rewrite": new URL("/xrplabs" + url.search, url).toString() } });
   }
-  // anything else: continue normally (vercel.json handles /launch and /xrplabs)
+  // anything else: continue normally (cleanUrls in vercel.json serves /radar, /wallet, /launch, /xrplabs...)
 }

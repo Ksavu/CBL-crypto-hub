@@ -255,7 +255,7 @@ function radarMsg(rows, mode, site) {
   if (!pick.length) L.push("Nothing matches right now. Try /radar trending.");
   L.push("", "<i>Scores flag common red flags, not guarantees. DYOR.</i>");
   const b = (m, t) => ({ text: (m === mode ? "• " : "") + t, callback_data: "rd:" + m });
-  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[b("safe", "🛡 Safer"), b("trending", "🔥 Trending"), b("new", "🆕 New"), b("gainers", "🚀 Gainers")], [{ text: "📡 Open Token Radar", url: `${site}/radar.html?tab=${mode === "safe" ? "safe" : mode}` }]] } };
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[b("safe", "🛡 Safer"), b("trending", "🔥 Trending"), b("new", "🆕 New"), b("gainers", "🚀 Gainers")], [{ text: "📡 Open Token Radar", url: `${site}/radar?tab=${mode === "safe" ? "safe" : mode}` }]] } };
 }
 
 const SEV = { critical: "🚨", high: "🔴", medium: "🟠" };
