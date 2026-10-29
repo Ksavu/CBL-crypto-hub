@@ -11,7 +11,9 @@ const SITE = () => (process.env.SITE_URL || "https://cryptobarlounge.space").rep
 const AUDIT_CHAIN = { poly: "polygon", matic: "polygon", polygon: "polygon", arb: "arbitrum", arbitrum: "arbitrum", op: "optimism", optimism: "optimism", avax: "avalanche", avalanche: "avalanche",
   linea: "linea", scroll: "scroll", zksync: "zksync", blast: "blast", mantle: "mantle", gnosis: "gnosis", xdai: "gnosis", celo: "celo", ftm: "fantom", fantom: "fantom", sonic: "sonic", opbnb: "opbnb",
   cronos: "cronos", mode: "mode", uni: "unichain", unichain: "unichain", bera: "berachain", berachain: "berachain", abstract: "abstract", ink: "ink", taiko: "taiko", moonbeam: "moonbeam", kaia: "kaia", hyper: "hyperevm", hyperevm: "hyperevm", zkevm: "polygonzkevm" };
-const CHAIN = { eth: "ethereum", ethereum: "ethereum", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", sol: "solana", solana: "solana", lunc: "terraclassic", terra: "terraclassic", terraclassic: "terraclassic" };
+const CHAIN = { eth: "ethereum", ethereum: "ethereum", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", sol: "solana", solana: "solana", lunc: "terraclassic", terra: "terraclassic", terraclassic: "terraclassic",
+  arb: "arbitrum", arbitrum: "arbitrum", poly: "polygon", matic: "polygon", polygon: "polygon", op: "optimism", optimism: "optimism", avax: "avalanche", avalanche: "avalanche",
+  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", uni: "unichain", unichain: "unichain", cro: "cronos", cronos: "cronos", xrpl: "xrpl", xrp: "xrpl" };
 const TERRA_RE = /\bterra1(?:[02-9ac-hj-np-z]{58}|[02-9ac-hj-np-z]{38})\b/i, XRPL_RE = /\b(?:[A-Za-z0-9]{1,20}\.)?r[1-9A-HJ-NP-Za-km-z]{24,34}\b/, EVM_RE = /\b0x[a-fA-F0-9]{40}\b/, SOL_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
 const seen = new Map(), users = new Map(); // per warm instance
 

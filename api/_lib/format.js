@@ -7,6 +7,7 @@ const chainName = (c) => (c && (NAMES[c] || (CHAINS[c] && CHAINS[c][1]))) || c;
 // Telegram callback_data is max 64 bytes; Terra contracts are 64 chars, so "terra1" travels as "~".
 const cb = (a) => (/^terra1/.test(a) ? "~" + a.slice(6) : a);
 const uncb = (a) => (a && a[0] === "~" ? "terra1" + a.slice(1) : a);
+const SWAP_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"]; // chains CBL Swap trades directly
 const ICON = { critical: "🚨", high: "🔴", medium: "🟠", low: "🟡" };
 
 function usd(n) {
@@ -27,7 +28,7 @@ function card(r, site, opt) {
   opt = opt || {};
   const dot = r.score === null ? "⚪" : r.score >= 80 ? "🟢" : r.score >= 60 ? "🟡" : r.score >= 40 ? "🟠" : "🔴";
   const L = [];
-  L.push(`<b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${NAMES[r.chain]}`);
+  L.push(`<b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${chainName(r.chain)}`);
   L.push(`${dot} <b>${r.score === null ? "n/a" : r.score + "/100"}</b> · ${esc(r.verdict)}`);
   if (r.market) {
     const m = r.market, ch = typeof m.change24h === "number" ? ` (${m.change24h >= 0 ? "+" : ""}${m.change24h}% 24h)` : "";
@@ -86,11 +87,11 @@ function card(r, site, opt) {
   const rows = [[
     { text: "📋 Full report", url: `${site}/?ca=${r.address}#scanner` },
     ...(r.market && r.market.url ? [{ text: "📈 Chart", url: r.market.url }] : []),
-    { text: "🔎 Explorer", url: EXPLORER[r.chain] + (r.chain === "xrpl" ? r.issuer : r.address) },
+    ...(EXPLORER[r.chain] || (CHAINS[r.chain] && CHAINS[r.chain][2]) ? [{ text: "🔎 Explorer", url: (EXPLORER[r.chain] || CHAINS[r.chain][2]) + (r.chain === "xrpl" ? r.issuer : r.address) }] : []),
   ], [
     { text: "🔄 Rescan", callback_data: "r:" + cb(r.address) },
     { text: "👁 Watch", callback_data: "w:" + cb(r.address) },
-    ...(r.chain === "terraclassic" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=terraclassic#swap` }] : r.chain === "xrpl" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.hex || r.address.split(".")[0]}.${r.issuer}&chain=xrpl#swap` }] : [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }]),
+    ...(r.chain === "terraclassic" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=terraclassic#swap` }] : r.chain === "xrpl" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.hex || r.address.split(".")[0]}.${r.issuer}&chain=xrpl#swap` }] : SWAP_CHAINS.includes(r.chain) ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }] : []),
   ]];
   if (r.chain !== "solana" && r.chain !== "xrpl" && r.chain !== "terraclassic") rows.push([{ text: "🛡 Audit contract", callback_data: "a:" + r.address }]);
   const so = [];
@@ -106,10 +107,10 @@ const HELP = [
   "<b>CBL Scanner</b> 🔍",
   "Paste a token contract address and I'll check it for common red flags.",
   "",
-  "Works on <b>Ethereum, BNB Chain, Base, Robinhood Chain, Solana, XRP Ledger and Terra Classic</b>.",
+  "Works on <b>Solana, XRP Ledger, Terra Classic</b> and EVM chains: <b>Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos and Robinhood Chain</b>.",
   "",
   "<b>Commands</b>",
-  "/scan &lt;address&gt; [eth|bsc|base|rh|xrpl|sol|lunc]",
+  "/scan &lt;address&gt; [eth|bsc|base|arb|poly|op|avax|linea|blast|zksync|scroll|mantle|sonic|uni|cro|rh|sol|xrpl|lunc]",
   "/audit &lt;0x address&gt; [network] – check the contract code on any EVM chain (eth, bsc, base, poly, arb, op, avax, ...)",
   "/watch &lt;address&gt; – get alerts in DM (rug signals)",
   "/unwatch &lt;address&gt;",
@@ -122,7 +123,7 @@ const HELP = [
 
 const SEV = { critical: "🚨", high: "🔴", medium: "🟠" };
 function alertMsg(r, alerts, site) {
-  const L = [`🚨 <b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${NAMES[r.chain]}`, ""];
+  const L = [`🚨 <b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${chainName(r.chain)}`, ""];
   alerts.forEach((a) => L.push(`${SEV[a.sev] || "⚠️"} ${esc(a.text)}`));
   L.push("", `<code>${esc(r.address)}</code>`, "<i>Automated check, can be delayed by a few minutes. Not financial advice.</i>");
   return { text: L.join("\n"), reply_markup: { inline_keyboard: [[

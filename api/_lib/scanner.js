@@ -5,8 +5,10 @@ const { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS } = require("./explorer");
 const { fillSol } = require("./solmarket");
 const { getOrders, dexPaid } = require("./dexpaid");
 
-const EVM = { ethereum: 1, bsc: 56, base: 8453, robinhood: 4663 };
-const OK_CHAINS = ["ethereum", "bsc", "base", "robinhood", "solana"];
+// DexScreener chain id -> EVM chain id (GoPlus / honeypot.is)
+const EVM = { ethereum: 1, bsc: 56, base: 8453, arbitrum: 42161, polygon: 137, optimism: 10, avalanche: 43114, linea: 59144, blast: 81457,
+  zksync: 324, scroll: 534352, mantle: 5000, sonic: 146, unichain: 130, cronos: 25, robinhood: 4663 };
+const OK_CHAINS = [...Object.keys(EVM), "solana"];
 const cache = new Map(); // best-effort, per warm instance
 
 async function j(url, ms = 4000) {
