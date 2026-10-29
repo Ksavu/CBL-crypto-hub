@@ -22,6 +22,7 @@ async function explorerEvm(chain, addr, pairAddr) {
   if (!tok && !ad && !hold && !own) return null;
   const out = { holders: null, verified: null, proxy: null, creator: null, creationTx: null, creatorPct: null, top1: null, top5: null, top10: null, owner: undefined, ownerKnown: false };
   if (tok && tok.holders_count != null) out.holders = parseInt(tok.holders_count, 10) || null;
+  if (tok) { out.name = tok.name || null; out.symbol = tok.symbol || null; }
   if (ad) {
     if (typeof ad.is_verified === "boolean") out.verified = ad.is_verified;
     out.proxy = !!(ad.proxy_type || (ad.implementations && ad.implementations.length));

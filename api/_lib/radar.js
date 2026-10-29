@@ -14,36 +14,7 @@ const GT_NET = { eth: "ethereum", bsc: "bsc", base: "base", solana: "solana", ar
 const SUPPORTED = new Set(OK_CHAINS);
 const SCORE_TTL = 30 * 60e3, MAX_ROWS = 150, FEED_ID = "feed";
 
-// Launchpad origin (best effort): DEX ids where the token trades + vanity address endings launchpads use.
-// Returns { n: name, k: short key, g: graduated (true/false, null = unknown) } or null.
-const LP_DEX = { pumpfun: ["Pump.fun", "pump"], pumpswap: ["Pump.fun", "pump"], moonshot: ["Moonshot", "moon"], fourmeme: ["Four.meme", "four"], four_meme: ["Four.meme", "four"],
-  virtuals: ["Virtuals", "virt"], zora: ["Zora", "zora"], apestore: ["Ape.store", "ape"], flaunch: ["Flaunch", "flaunch"], boop: ["Boop", "boop"], heaven: ["Heaven", "heaven"],
-  believe: ["Believe", "believe"], launchlab: ["LaunchLab", "launchlab"], bonkfun: ["LetsBonk", "bonk"], letsbonk: ["LetsBonk", "bonk"] };
-function launchpadOf(chain, ca, dexes, labels) {
-  const a = String(ca), d = dexes.map((x) => String(x || "").toLowerCase()), lb = labels.map((x) => String(x || "").toLowerCase());
-  const curve = (ids) => d.some((x) => ids.includes(x)), grad = (ids) => d.some((x) => !ids.includes(x)); // trades elsewhere = graduated
-  if (chain === "solana") {
-    if (/LoL$/.test(a)) return { n: "launched.lol", k: "lol", g: null };
-    if (/pump$/.test(a) || curve(["pumpfun", "pumpswap"])) return { n: "Pump.fun", k: "pump", g: !d.includes("pumpfun") || grad(["pumpfun"]) };
-    if (/bonk$/.test(a) || curve(["bonkfun", "letsbonk"])) return { n: "LetsBonk", k: "bonk", g: grad(["raydium", "bonkfun", "letsbonk"]) || null };
-    if (curve(["moonshot"])) return { n: "Moonshot", k: "moon", g: grad(["moonshot"]) };
-    if (lb.includes("launchlab")) return { n: "LaunchLab", k: "launchlab", g: null };
-    if (lb.includes("dbc")) return { n: "Meteora DBC", k: "dbc", g: null };
-  }
-  if (chain === "robinhood") { // no vanity suffix there: DEX ids here, on-chain launchpad check in robinhoodPads()
-    const hit = (re) => d.some((x) => re.test(x));
-    if (hit(/hood/)) return { n: "Hood.fun", k: "hood", g: grad(d.filter((x) => /hood/.test(x))) };
-    if (hit(/robin/)) return { n: "RobinFun", k: "robin", g: grad(d.filter((x) => /robin/.test(x))) };
-    for (const [re, n, k] of [[/klik/, "Klik", "klik"], [/printr/, "Printr", "printr"], [/dyor/, "DYOR.fun", "dyor"], [/realfun/, "RealFun", "realfun"], [/apestore/, "Ape.store", "ape"]]) if (hit(re)) return { n, k, g: null };
-  }
-  if (chain === "bsc" && (/4444$/i.test(a) || curve(["fourmeme", "four_meme"]))) return { n: "Four.meme", k: "four", g: grad(["fourmeme", "four_meme"]) };
-  if (chain === "base") {
-    if (/b07$/i.test(a)) return { n: "Clanker", k: "clanker", g: null };
-    for (const x of ["virtuals", "zora", "apestore", "flaunch"]) if (d.includes(x)) return { n: LP_DEX[x][0], k: LP_DEX[x][1], g: grad([x]) };
-  }
-  for (const x of d) if (LP_DEX[x]) return { n: LP_DEX[x][0], k: LP_DEX[x][1], g: null };
-  return null;
-}
+const { launchpadOf } = require("./launchpads");
 
 async function jget(u, ms = 7000) {
   const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
@@ -204,6 +175,13 @@ async function robinhoodPads(tokens) {
     tokens.forEach((t) => (out[t] = false));
     for (const res of j) { const q = calls[res.id]; if (q && !res.error && RH_PADS[q._p].ok(res.result) && !out[q._t]) out[q._t] = { n: RH_PADS[q._p].n, k: RH_PADS[q._p].k }; }
   } catch (e) { /* RPC down: try again next run */ } finally { clearTimeout(tm); }
+  // Pons (and any launchpad in evmfind.BY_CREATOR): the token contract was deployed by the launchpad.
+  const { launchpadByCreator } = require("./evmfind");
+  await Promise.all(tokens.filter((t) => out[t] === false).slice(0, 25).map(async (t) => {
+    const a = await jget(`https://robinhoodchain.blockscout.com/api/v2/addresses/${t}`, 4000);
+    const n = launchpadByCreator("robinhood", a && a.creator_address_hash);
+    if (n) out[t] = { n, k: n === "Pons" ? "pons" : n === "Hood.fun" ? "hood" : n === "RobinFun" ? "robin" : "x" };
+  }));
   return out;
 }
 const rhGrad = (r) => (r.dexes && r.dexes.length ? r.dexes.some((x) => !/hood|robin/.test(String(x))) || null : null);

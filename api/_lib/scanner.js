@@ -4,6 +4,8 @@ const { deepSol } = require("./deep");
 const { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS } = require("./explorer");
 const { fillSol } = require("./solmarket");
 const { getOrders, dexPaid } = require("./dexpaid");
+const EF = require("./evmfind");
+const LP = require("./launchpads");
 
 // DexScreener chain id -> EVM chain id (GoPlus / honeypot.is)
 const EVM = { ethereum: 1, bsc: 56, base: 8453, arbitrum: 42161, polygon: 137, optimism: 10, avalanche: 43114, linea: 59144, blast: 81457,
@@ -78,6 +80,12 @@ async function runScan(caIn, selIn, opts) {
     (kind === "sol" ? p.chainId === "solana" : p.baseToken.address.toLowerCase() === low || p.quoteToken.address.toLowerCase() === low));
   let chain = kind === "sol" ? "solana" : sel !== "auto" ? sel : null;
   if (!chain && pairs.length) chain = pairs.sort((a, b) => liq(b) - liq(a))[0].chainId;
+  // Not on DexScreener (yet): GeckoTerminal search, then "does this contract exist on Robinhood Chain?"
+  // Catches brand-new tokens and launchpad tokens still on their bonding curve (e.g. Pons on Robinhood).
+  if (kind === "evm" && !pairs.some((p) => !chain || p.chainId === chain)) {
+    const f = await EF.find(ca, chain || undefined).catch(() => null);
+    if (f) { chain = chain || f.chain; if (f.pair) pairs = [f.pair]; sources.geckoterminal = !!f.pair; }
+  }
   if (!chain) throw fail(404, "No trading pair found. Choose the network and try again.");
   pairs = pairs.filter((p) => p.chainId === chain).sort((a, b) => liq(b) - liq(a));
   let pair = pairs[0] || null;
@@ -129,18 +137,30 @@ async function runScan(caIn, selIn, opts) {
         owner: hasGp && gp.owner_address ? String(gp.owner_address).toLowerCase() : ex && ex.ownerKnown ? ex.owner : null };
   const links = extractLinks(pair);
   const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep });
+  // Launchpad origin: deployer contract (EVM), else DEX ids + vanity address endings (pump, bonk, LoL, 4444, b07...).
+  const lpHit = (kind === "evm" && EF.launchpadByCreator(chain, ex && ex.creator)) || null;
+  const lpGuess = LP.launchpadOf(chain, ca, pairs.map((p) => p.dexId).concat(pair && pair.curve ? ["pumpfun"] : []), [].concat(...pairs.map((p) => p.labels || [])));
+  const launchpad = lpHit || (lpGuess && lpGuess.n) || null;
+  const onCurve = pair ? !!pair.curve || (lpGuess && lpGuess.g === false) : !!launchpad;
+  // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
+  let dev = null;
+  if (launchpad && ex && ex.creationTx && chain === "robinhood") {
+    const tx = await j(`https://robinhoodchain.blockscout.com/api/v2/transactions/${ex.creationTx}`, 3500).catch(() => null);
+    dev = tx && tx.from && /^0x[a-fA-F0-9]{40}$/.test(tx.from.hash || "") ? tx.from.hash.toLowerCase() : null;
+  }
+  if (launchpad) a.reasons.unshift({ sev: "info", title: `Launched on ${launchpad}${onCurve ? " · still on the bonding curve" : ""}`, detail: EF.PAD_INFO[launchpad] || "" });
   const tok = pair ? (pair.baseToken.address.toLowerCase() === low ? pair.baseToken : pair.quoteToken) : {};
   const out = {
     ok: true, chain, address: ca, ts: now,
-    token: { name: tok.name || (gp && (gp.token_name || (gp.metadata && gp.metadata.name))) || "Unknown token",
-             symbol: tok.symbol || (gp && (gp.token_symbol || (gp.metadata && gp.metadata.symbol))) || "",
+    token: { name: tok.name || (gp && (gp.token_name || (gp.metadata && gp.metadata.name))) || (ex && ex.name) || "Unknown token",
+             symbol: tok.symbol || (gp && (gp.token_symbol || (gp.metadata && gp.metadata.symbol))) || (ex && ex.symbol) || "",
              logo: (pair && pair.info && pair.info.imageUrl) || null },
     market: pair ? { price: pair.priceUsd, liquidity: liq(pair), fdv: pair.fdv, marketCap: pair.marketCap,
              volume24h: pair.volume && pair.volume.h24, change24h: pair.priceChange && pair.priceChange.h24,
              pairCreatedAt: pair.pairCreatedAt || (deep && deep.launchTs ? deep.launchTs * 1000 : null), dex: pair.dexId, url: pair.url,
              curve: pair.curve || false, curveProgress: typeof pair.curveProgress === "number" ? Math.round(pair.curveProgress) : null, curveSol: pair.curveSol || null } : null,
     links, flags, dex: dexInfo, deep: deep ? { supply: deep.supply || null, deployerAmt: deep.deployerAmt != null ? deep.deployerAmt : null, deployer: deep.deployer || null, deployerPct: deep.deployerPct, traced: deep.traced, debug: deep.debug || null, holders: deep.holderCount, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, notes: deep.notes } : null,
-    creator: (deep && deep.deployer) || (ex && ex.creator) || (gp && typeof gp.creator_address === "string" && /^0x[a-fA-F0-9]{40}$/.test(gp.creator_address) ? gp.creator_address.toLowerCase() : null)
+    launchpad, onCurve, creator: (lpHit ? dev : (deep && deep.deployer) || (ex && ex.creator)) || (gp && typeof gp.creator_address === "string" && /^0x[a-fA-F0-9]{40}$/.test(gp.creator_address) ? gp.creator_address.toLowerCase() : null)
       || (kind === "sol" && gp && Array.isArray(gp.creators) && gp.creators[0] && gp.creators[0].address) || null,
     score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };

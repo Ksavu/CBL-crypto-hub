@@ -31,6 +31,7 @@ function card(r, site, opt) {
   L.push(`<b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${chainName(r.chain)}`);
   L.push(`${dot} <b>${r.score === null ? "n/a" : r.score + "/100"}</b> · ${esc(r.verdict)}`);
   if (opt.call) L.push(callLine(opt.call, r));
+  if (r.launchpad) L.push(`🚀 Launched on <b>${esc(r.launchpad)}</b>${r.onCurve ? ` · on the bonding curve${r.market && typeof r.market.curveProgress === "number" ? " (" + r.market.curveProgress + "% to migration)" : ""}` : " · graduated 🎓"}`);
   if (r.market) {
     const m = r.market, ch = typeof m.change24h === "number" ? ` (${m.change24h >= 0 ? "+" : ""}${m.change24h}% 24h)` : "";
     L.push("", m.curve ? `💧 Bonding curve ${usd(m.liquidity)}${typeof m.curveProgress === "number" ? ` (${m.curveProgress}% to migration)` : ""}   💰 MC ${usd(m.marketCap || m.fdv)}` : `💧 Liquidity ${usd(m.liquidity)}   💰 MC ${usd(m.marketCap || m.fdv)}`,
@@ -257,7 +258,7 @@ function radarMsg(rows, mode, site) {
   const L = [`📡 <b>CBL Token Radar</b> · ${title}`, ""];
   pick.slice(0, 10).forEach((r, i) => {
     const sc = r.s ? `${r.s.score >= 80 ? "🟢" : r.s.score >= 60 ? "🟡" : r.s.score >= 40 ? "🟠" : "🔴"} ${r.s.score}` : "⚪ n/a";
-    const lp = r.lp ? ` · ${{ pump: "💊", bonk: "🐕", four: "4️⃣", clanker: "🔨", virt: "🤖", zora: "🌀", lol: "😂", moon: "🌙", hood: "🪶", robin: "🏹", klik: "🖱", printr: "🖨" }[r.lp.k] || "🚀"} ${esc(r.lp.n)}${r.lp.g === false ? " (curve)" : ""}` : "";
+    const lp = r.lp ? ` · ${{ pump: "💊", bonk: "🐕", four: "4️⃣", clanker: "🔨", virt: "🤖", zora: "🌀", lol: "😂", moon: "🌙", hood: "🪶", robin: "🏹", pons: "🌉", klik: "🖱", printr: "🖨" }[r.lp.k] || "🚀"} ${esc(r.lp.n)}${r.lp.g === false ? " (curve)" : ""}` : "";
     L.push(`${i + 1}. <a href="${site}/?ca=${encodeURIComponent(r.ca)}#scanner">${esc(r.sym || "?")}</a> · ${chainName(r.chain)} · ${sc}${lp}`,
       `    MC ${usd(r.mcap)} · Liq ${usd(r.liq)} · 1h ${pc(r.ch1h)} · Vol ${usd(r.vol24)}`);
   });
