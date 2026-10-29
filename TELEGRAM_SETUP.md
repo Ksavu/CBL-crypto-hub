@@ -62,6 +62,14 @@ Trending, new and boosted tokens on all scanner chains, each with a CBL score. S
 - Bot: `/radar` (safer picks), `/radar trending`, `/radar new`, `/radar gainers`, with buttons to switch.
 - **Setup:** run the `radar_cache` table at the end of `supabase.sql` and upload the updated workflow. The first snapshot appears after the next cron run (up to 5 minutes).
 
+## Bonding curves on the Radar
+
+The Radar's **🎢 Bonding curves** tab (and the homepage "Curves" tab, and `/radar curves` in the bot) lists tokens still on a launchpad curve, before they hit a DEX: sort by 🔥 Hot now, 🆕 Newest or 🎓 Near graduation.
+- Pump.fun: its public coin lists (live trades, market cap, king of the hill), refreshed on every page load.
+- Moonshot, LetsBonk/LaunchLab, Meteora DBC, Boop, Four.meme, Flap, Virtuals: GeckoTerminal's pool lists for those launchpad DEXes. The DEX ids are discovered once a day, so new launchpads show up automatically.
+- Pons, Hood.fun, RobinFun (Robinhood Chain): launch events from their factory contracts on the Robinhood Blockscout explorer.
+- `/api/cron?job=curves` (same GitHub workflow) rebuilds the list every 5 minutes and scores the hottest 40 with the Coin Sniffer. Stored in `radar_cache` (no new table).
+
 ## Group first calls (like Phanes)
 
 In groups, the first person to post a token's contract address gets the **call**. The scan card shows it: "🎯 First call by @alice at $1.0M MC" for the first post, then "🏆 First call: @alice · $1.0M → $2.5M (2.5x)" whenever anyone posts it again.

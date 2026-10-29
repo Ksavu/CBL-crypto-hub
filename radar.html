@@ -19,6 +19,10 @@
 .rd-fl{font-size:10.5px;font-weight:750;border-radius:6px;padding:2px 6px;background:#F6F5FF;color:#4C3B74}.rd-fl.bad{background:#FFE4E6;color:#9F1239}
 .rd-act{display:grid;grid-template-columns:1fr 1fr;gap:5px}.rd-act a{text-align:center}.rd-act a{border:1px solid #D5D4EE;border-radius:10px;padding:5px 8px;font-size:12px;font-weight:750;color:#2b2f55;background:#fff}.rd-act a.p{border:0;color:#fff;background:linear-gradient(110deg,#9226F0,#4F41F5 60%,#166BFF)}
 .lp{display:inline-flex;align-items:center;gap:3px;border-radius:6px;padding:1px 6px;font-size:10.5px;font-weight:800;white-space:nowrap}span.lp.lp-pump{background:#DCFCE7;color:#15803D}span.lp.lp-bonk{background:#FFEDD5;color:#C2410C}span.lp.lp-four{background:#FEF9C3;color:#A16207}span.lp.lp-clanker{background:#EDE9FE;color:#6D28D9}span.lp.lp-virt{background:#CCFBF1;color:#0F766E}span.lp.lp-zora{background:#18181B;color:#fff}span.lp.lp-lol{background:#FCE7F3;color:#BE185D}span.lp.lp-moon{background:#E0E7FF;color:#4338CA}span.lp.lp-hood{background:#ECFCCB;color:#3F6212}span.lp.lp-robin{background:#DCFCE7;color:#166534}span.lp.lp-pons{background:#E0F2FE;color:#0369A1}span.lp.lp-x{background:#F1F5F9;color:#334155}
+.rd-csort{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0 0 12px}.rd-csort span{font-size:12px;color:#686880;font-weight:700}.rd-csort button{border:1px solid #D5D4EE;background:#fff;border-radius:999px;padding:6px 12px;font-size:12.5px;font-weight:750;color:#2b2f55}.rd-csort button[aria-pressed=true]{background:#10142c;color:#fff;border-color:#10142c}.rd-csort small{flex-basis:100%;color:#686880;font-size:12px;margin-top:4px}
+.rd-row.cv{grid-template-columns:30px minmax(190px,1.6fr) minmax(130px,1fr) 90px minmax(150px,1.1fr) minmax(120px,1fr) 124px}
+.rd-pg{height:8px;border-radius:6px;background:#F1ECFF;overflow:hidden;margin-top:5px}.rd-pg i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#9226F0)}.rd-koth{background:#FEF3C7;color:#92400E}
+@media(max-width:760px){.rd-row.cv{grid-template-columns:1fr 1fr}}
 .rd-empty{padding:40px 20px;text-align:center;color:#686880}.rd-note{font-size:12.5px;color:#686880;margin-top:14px}.rd code{background:#F1ECFF;color:#5B21B6;border-radius:6px;padding:1px 6px}
 .rd-more{display:block;margin:0 auto;border:1px solid #D5D4EE;background:#fff;border-radius:14px;padding:10px 18px;font-weight:750;margin-top:12px}
 .rd-skel{height:54px;margin:8px 16px;border-radius:12px;background:linear-gradient(90deg,#F1ECFF,#fff,#F1ECFF);background-size:200% 100%;animation:rdsk 1.2s infinite}@keyframes rdsk{to{background-position:-200% 0}}
@@ -89,7 +93,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 <p class="rd-lead">Live trending, new and boosted tokens across Solana, BNB Chain, Base, Ethereum and more, each with a CBL Coin Sniffer risk score. Refreshes every minute.</p>
 <div class="rd-live"><span class="rd-dot"></span><span id="rdStatus">Loading radar…</span></div>
 <div class="rd-tabs" role="tablist">
-<button role="tab" data-tab="trending" aria-selected="true">🔥 Trending</button><button role="tab" data-tab="new" aria-selected="false">🆕 New pairs</button><button role="tab" data-tab="gainers" aria-selected="false">🚀 Gainers</button><button role="tab" data-tab="safe" aria-selected="false">🛡 Safer picks</button>
+<button role="tab" data-tab="trending" aria-selected="true">🔥 Trending</button><button role="tab" data-tab="new" aria-selected="false">🆕 New pairs</button><button role="tab" data-tab="gainers" aria-selected="false">🚀 Gainers</button><button role="tab" data-tab="safe" aria-selected="false">🛡 Safer picks</button><button role="tab" data-tab="curve" aria-selected="false">🎢 Bonding curves</button>
 </div>
 <div class="rd-filters">
 <div class="rd-chips" id="rdChains"></div>
@@ -101,6 +105,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 <label class="rd-chk"><input type="checkbox" id="rdHide" checked> Hide high risk</label>
 </div>
 </div>
+<div class="rd-csort" id="rdCs" hidden><span>Sort:</span><button data-s="hot" aria-pressed="true">🔥 Hot now</button><button data-s="new" aria-pressed="false">🆕 Newest</button><button data-s="grad" aria-pressed="false">🎓 Near graduation</button><small>Tokens still on a launchpad bonding curve: Pump.fun, Moonshot, LetsBonk, Four.meme, Pons, Hood.fun and more. Early and very risky.</small></div>
 <div class="rd-table" id="rdList" aria-live="polite"></div>
 <p class="rd-note">Scores come from CBL Coin Sniffer (GoPlus, honeypot.is, RugCheck and on-chain checks) and are refreshed every 30 minutes. They flag common red flags. They are not audits or guarantees. Market data: DexScreener and GeckoTerminal. Not financial advice.</p>
 <div class="callout" style="margin-top:20px"><b>Get it in Telegram</b><p>Send <code>/radar</code> to <a id="rdBot" href="https://t.me/CBLScannerBot" target="_blank" rel="noopener" style="color:#6A2AEA;font-weight:700">CBL Scanner Bot</a> for the top safer trending tokens, or paste any contract address for a full scan.</p><a class="btn soft" href="/#sniffer">Open CBL Coin Sniffer ↗</a></div>
@@ -109,7 +114,8 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 var $=function(i){return document.getElementById(i)},esc=function(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
 var NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood",solana:"Solana"};
 var SWAP={ethereum:1,bsc:1,base:1,robinhood:1,solana:1};
-var ROWS=[],TAB="trending",CHAIN="all",SHOW=40,T=0,NOW=0;
+var ROWS=[],CURVE=[],CS="hot",TAB="trending",CHAIN="all",SHOW=40,T=0,NOW=0;
+function DATA(){return TAB==="curve"?CURVE:ROWS}
 fetch("/api/config").then(function(r){return r.json()}).then(function(c){if(c&&c.bot)$("rdBot").href="https://t.me/"+c.bot}).catch(function(){});
 var usd=function(n){n=Number(n);if(!isFinite(n)||!n)return"—";if(n>=1e9)return"$"+(n/1e9).toFixed(2)+"B";if(n>=1e6)return"$"+(n/1e6).toFixed(2)+"M";if(n>=1e3)return"$"+(n/1e3).toFixed(1)+"K";return"$"+n.toFixed(0)};
 var price=function(p){p=Number(p);if(!p)return"—";if(p>=1)return"$"+p.toLocaleString("en-US",{maximumFractionDigits:2});var s=p.toPrecision(3);return"$"+(p<1e-6?p.toExponential(2):s)};
@@ -130,11 +136,34 @@ function pass(r){
  return true;
 }
 function sorted(L){var f=TAB==="new"?function(a,b){return(b.created||0)-(a.created||0)}:TAB==="gainers"?function(a,b){return(b.ch1h||0)-(a.ch1h||0)}:function(a,b){return(b.trend||0)-(a.trend||0)};return L.slice().sort(f)}
-function lpOpts(){var s=$("rdLp"),v=s.value,c={};ROWS.forEach(function(r){if(r.lp)c[r.lp.n]=(c[r.lp.n]||0)+1});s.innerHTML='<option value="">Any</option><option value="*">Launchpad tokens</option><option value="-">Not from a launchpad</option>'+Object.keys(c).sort(function(a,b){return c[b]-c[a]}).map(function(n){return'<option value="'+esc(n)+'">'+esc(n)+" ("+c[n]+")</option>"}).join("");s.value=[].some.call(s.options,function(o){return o.value===v})?v:""}
-function chips(){lpOpts();var cnt={};ROWS.forEach(function(r){cnt[r.chain]=(cnt[r.chain]||0)+1});var ks=Object.keys(cnt).sort(function(a,b){return cnt[b]-cnt[a]});
- $("rdChains").innerHTML='<button data-c="all" aria-pressed="'+(CHAIN==="all")+'">All<small>'+ROWS.length+'</small></button>'+ks.map(function(k){return'<button data-c="'+k+'" aria-pressed="'+(CHAIN===k)+'">'+esc(NM[k]||k)+'<small>'+cnt[k]+'</small></button>'}).join("");
+function lpOpts(){var s=$("rdLp"),v=s.value,c={};DATA().forEach(function(r){if(r.lp)c[r.lp.n]=(c[r.lp.n]||0)+1});s.innerHTML='<option value="">Any</option><option value="*">Launchpad tokens</option><option value="-">Not from a launchpad</option>'+Object.keys(c).sort(function(a,b){return c[b]-c[a]}).map(function(n){return'<option value="'+esc(n)+'">'+esc(n)+" ("+c[n]+")</option>"}).join("");s.value=[].some.call(s.options,function(o){return o.value===v})?v:""}
+function chips(){lpOpts();var cnt={};DATA().forEach(function(r){cnt[r.chain]=(cnt[r.chain]||0)+1});var ks=Object.keys(cnt).sort(function(a,b){return cnt[b]-cnt[a]});
+ $("rdChains").innerHTML='<button data-c="all" aria-pressed="'+(CHAIN==="all")+'">All<small>'+DATA().length+'</small></button>'+ks.map(function(k){return'<button data-c="'+k+'" aria-pressed="'+(CHAIN===k)+'">'+esc(NM[k]||k)+'<small>'+cnt[k]+'</small></button>'}).join("");
  [].forEach.call($("rdChains").querySelectorAll("button"),function(b){b.onclick=function(){CHAIN=b.dataset.c;SHOW=40;chips();draw()}})}
+function cpass(r){var ag=+$("rdAge").value,lpv=$("rdLp").value;
+ if(CHAIN!=="all"&&r.chain!==CHAIN)return false;if(ag&&(!r.created||Date.now()-r.created>ag*1000))return false;
+ if($("rdHide").checked&&r.s&&(r.s.score<40||r.s.honeypot))return false;
+ if(lpv&&lpv!=="*"&&lpv!=="-"&&(!r.lp||r.lp.n!==lpv))return false;if(CS==="grad"&&r.progress==null)return false;return true}
+function since(ms){if(!ms)return"";var s=(Date.now()-ms)/1000;return s<60?Math.max(1,Math.round(s))+"s ago":s<3600?Math.round(s/60)+"m ago":Math.round(s/3600)+"h ago"}
+function drawCurve(){
+ var L=CURVE.filter(cpass).sort(CS==="new"?function(a,b){return(b.created||0)-(a.created||0)}:CS==="grad"?function(a,b){return(b.progress||0)-(a.progress||0)}:function(a,b){return(b.heat||0)-(a.heat||0)});
+ var h='<div class="rd-row cv h"><span>#</span><span>Token</span><span>Curve progress</span><span>Mkt cap</span><span>Activity</span><span>CBL score</span><span></span></div>';
+ if(!L.length)h+='<div class="rd-empty">'+(CURVE.length?"No curve tokens match these filters.":"Bonding-curve feed is warming up. It fills within a few minutes after setup.")+'</div>';
+ L.slice(0,SHOW).forEach(function(r,i){
+  var lg=r.logo?'<img src="'+esc(r.logo)+'" alt="" loading="lazy" onerror="this.outerHTML=\'<span class=rd-lg>'+esc((r.sym||"?")[0])+'</span>\'">':'<span class="rd-lg">'+esc((r.sym||"?")[0])+'</span>';
+  var tags=[lpb(r.lp)];if(r.koth)tags.push('<span class="rd-tag rd-koth">👑 King of the hill</span>');if(r.created)tags.push('<span class="rd-tag t-new">'+age(r.created)+' old</span>');
+  var pg=r.progress!=null?'<b>'+Math.round(r.progress)+'%</b><div class="rd-pg"><i style="width:'+Math.max(2,Math.min(100,r.progress))+'%"></i></div>':'<span style="color:#9a98b3">—</span>';
+  var act=[];if(r.tx1h)act.push(r.tx1h+" trades/1h");if(r.vol1h)act.push(usd(r.vol1h)+" vol/1h");if(r.holders)act.push(r.holders+" holders");if(r.replies)act.push(r.replies+" replies");if(r.lastTrade)act.push("last trade "+since(r.lastTrade));
+  var dev=r.s&&r.s.creator?'<a href="/wallet?w='+encodeURIComponent(r.s.creator)+(r.chain!=="solana"?"&chain="+r.chain:"")+'">Dev</a>':"";
+  h+='<div class="rd-row cv"><span class="rd-n">'+(i+1)+'</span><div class="rd-tok">'+lg+'<div style="min-width:0"><b>'+esc(r.sym||"?")+' <small style="display:inline;font-weight:500">'+esc((r.name||"").slice(0,24))+'</small></b><small>'+esc(NM[r.chain]||r.chain)+" "+tags.join("")+'</small></div></div>'+
+   '<div data-l="Curve">'+pg+'</div><div data-l="Mkt cap">'+usd(r.mcap)+'</div><div data-l="Activity" style="font-size:12.5px;color:#4C3B74">'+(act.join(" · ")||"—")+'</div><div class="rd-sc">'+scoreBadge(r.s)+(r.s&&r.s.mint?'<span class="rd-fl bad">Mintable</span>':"")+(r.s&&r.s.freeze?'<span class="rd-fl bad">Freezable</span>':"")+'</div>'+
+   '<div class="rd-act"><a class="p" href="/?ca='+encodeURIComponent(r.ca)+'#scanner">Scan</a>'+(r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">'+(r.lp&&r.lp.k==="pump"?"Pump.fun":"Open")+'</a>':"")+(r.chain==="solana"?'<a href="/?swap='+encodeURIComponent(r.ca)+'&chain=solana#swap">Buy</a>':"")+dev+'</div></div>';
+ });
+ $("rdList").innerHTML=h;var more=document.getElementById("rdMore");if(more)more.remove();
+ if(L.length>SHOW){var b=document.createElement("button");b.id="rdMore";b.className="rd-more";b.textContent="Show more ("+(L.length-SHOW)+")";b.onclick=function(){SHOW+=40;drawCurve()};$("rdList").after(b)}
+}
 function draw(){
+ $("rdCs").hidden=TAB!=="curve";$("rdLiq").disabled=$("rdVol").disabled=TAB==="curve";if(TAB==="curve")return drawCurve();
  var L=sorted(ROWS.filter(pass)),h='<div class="rd-row h"><span>#</span><span>Token</span><span>Price · 5m · 1h · 24h</span><span>24h vol</span><span>Liquidity</span><span class="c-mc">Mkt cap</span><span class="c-bs">Buys / sells</span><span>CBL score</span><span></span></div>';
  if(!L.length)h+='<div class="rd-empty">'+(ROWS.length?"No tokens match these filters. Try another tab or lower the liquidity filter.":"No radar data yet. It fills within a few minutes after setup.")+'</div>';
  L.slice(0,SHOW).forEach(function(r,i){
@@ -151,13 +180,14 @@ function draw(){
  var more=document.getElementById("rdMore");if(more)more.remove();
  if(L.length>SHOW){var b=document.createElement("button");b.id="rdMore";b.className="rd-more";b.textContent="Show more ("+(L.length-SHOW)+")";b.onclick=function(){SHOW+=40;draw()};$("rdList").after(b)}
 }
-function status(){if(!T)return;$("rdStatus").textContent="Live · "+ROWS.length+" tokens · scores "+ROWS.filter(function(r){return r.s}).length+" · updated "+ago(T)}
+function status(){if(!T)return;$("rdStatus").textContent="Live · "+ROWS.length+" tokens · "+CURVE.length+" on curves · scores "+ROWS.filter(function(r){return r.s}).length+" · updated "+ago(T)}
 async function load(first){
  if(first)$("rdList").innerHTML='<div class="rd-skel"></div><div class="rd-skel"></div><div class="rd-skel"></div><div class="rd-skel"></div>';
- try{var d=await fetch("/api/scan?radar=1").then(function(r){return r.json()});if(!d||!d.ok)throw new Error(d&&d.error||"Radar unavailable");ROWS=d.rows||[];T=d.now||Date.now();chips();draw();status()}
+ try{var d=await fetch("/api/scan?radar=1").then(function(r){return r.json()});if(!d||!d.ok)throw new Error(d&&d.error||"Radar unavailable");ROWS=d.rows||[];CURVE=d.curve||[];T=d.now||Date.now();chips();draw();status()}
  catch(e){if(first||!ROWS.length){$("rdList").innerHTML='<div class="rd-empty">⚠️ '+esc(e.message||"Radar unavailable")+'. Retrying in a minute.</div>'}$("rdStatus").textContent="Offline · retrying"}
 }
-[].forEach.call(document.querySelectorAll(".rd-tabs button"),function(b){b.onclick=function(){TAB=b.dataset.tab;SHOW=40;[].forEach.call(document.querySelectorAll(".rd-tabs button"),function(x){x.setAttribute("aria-selected",x===b)});draw()}});
+[].forEach.call(document.querySelectorAll("#rdCs button"),function(b){b.onclick=function(){CS=b.dataset.s;SHOW=40;[].forEach.call(document.querySelectorAll("#rdCs button"),function(x){x.setAttribute("aria-pressed",x===b)});drawCurve()}});
+[].forEach.call(document.querySelectorAll(".rd-tabs button"),function(b){b.onclick=function(){TAB=b.dataset.tab;SHOW=40;CHAIN="all";chips();[].forEach.call(document.querySelectorAll(".rd-tabs button"),function(x){x.setAttribute("aria-selected",x===b)});draw()}});
 ["rdLiq","rdVol","rdAge","rdHide","rdLp"].forEach(function(i){$(i).onchange=function(){SHOW=40;draw()}});
 var q=new URLSearchParams(location.search);if(q.get("tab"))(document.querySelector('.rd-tabs [data-tab="'+q.get("tab")+'"]')||{click:function(){}}).click();
 load(true);setInterval(load,60000);setInterval(status,10000);

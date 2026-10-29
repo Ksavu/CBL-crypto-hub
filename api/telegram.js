@@ -60,6 +60,11 @@ async function watchFlow(user, ca, chain, say) {
   } catch (e) { return say(e.status ? e.message : "Could not add it. Try again."); }
 }
 
+// Radar rows for /radar; the bonding-curve list rides along as rows.curve.
+async function radarRows(mode) {
+  if (mode === "curve") { const rows = []; rows.curve = (await require("./_lib/curves").read({ refresh: false })).rows; return rows; }
+  return (await require("./_lib/radar").read({ refresh: false })).rows;
+}
 // Wallet tracker: alerts go to the user's DM.
 const walletArg = (args) => args.find((a) => WT.familyOf(a));
 async function trackFlow(user, addr, chain, label, say) {
@@ -201,9 +206,9 @@ async function onMessage(msg) {
     }
     if (name === "radar" || name === "trending") {
       if (limited(msg.from.id)) return void (await reply(msg, "⏳ Slow down a little. Try again in a minute."));
-      const mode = ["safe", "trending", "new", "gainers"].find((m) => (args[0] || "").toLowerCase().startsWith(m.slice(0, 3))) || (name === "trending" ? "trending" : "safe");
+      const a0 = (args[0] || "").toLowerCase(), mode = /^(bond|pump|launch)/.test(a0) ? "curve" : ["safe", "trending", "new", "gainers", "curve"].find((m) => a0.startsWith(m.slice(0, 3))) || (name === "trending" ? "trending" : "safe");
       tg("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
-      try { const r = await require("./_lib/radar").read({ refresh: false }); const c = radarMsg(r.rows, mode, SITE()); return void (await reply(msg, c.text, { reply_markup: c.reply_markup })); }
+      try { const c = radarMsg(await radarRows(mode), mode, SITE()); return void (await reply(msg, c.text, { reply_markup: c.reply_markup })); }
       catch (e) { console.error("radar error", e && e.stack || e); return void (await reply(msg, "Radar is unavailable right now. Try again in a minute.")); }
     }
     if (name === "lb" || name === "leaderboard" || name === "top") {
@@ -254,7 +259,7 @@ async function onCallback(q) {
   }
   if (data.startsWith("rd:") && q.message) {
     await tg("answerCallbackQuery", { callback_query_id: q.id });
-    try { const r = await require("./_lib/radar").read({ refresh: false }); const c = radarMsg(r.rows, data.slice(3), SITE());
+    try { const c = radarMsg(await radarRows(data.slice(3)), data.slice(3), SITE());
       await tg("editMessageText", { chat_id: q.message.chat.id, message_id: q.message.message_id, text: c.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup }); } catch (e) { /* unchanged */ }
     return;
   }

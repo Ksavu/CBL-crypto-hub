@@ -1,0 +1,166 @@
+// Bonding-curve feed for the Token Radar: tokens still on a launchpad curve (pre-graduation), so people can find
+// them early. Built by /api/cron?job=curves every 5 minutes, stored in radar_cache row "curve".
+// Sources (public, no keys):
+//   Pump.fun        frontend-api-v3 coin lists (live trades, market cap, king of the hill) — unofficial, best effort
+//   GeckoTerminal   per-DEX pool lists for launchpad curve DEXes (Moonshot, LaunchLab/LetsBonk, Meteora DBC, Boop,
+//                   Four.meme...). DEX ids are discovered once a day from GeckoTerminal's DEX list, so new ones appear.
+//   Robinhood Chain Pons / Hood.fun / RobinFun factory launch events via the Robinhood Blockscout explorer
+const db = require("./db");
+const { runScan } = require("./scanner");
+
+const ROW_ID = "curve", MAX = 120, SCORE_TTL = 20 * 60e3, DISCOVER_TTL = 24 * 3600e3;
+const BS = "https://robinhoodchain.blockscout.com/api/v2";
+const GT = "https://api.geckoterminal.com/api/v2";
+// Launchpad curve DEXes on GeckoTerminal (matched against discovered ids; graduated venues like pumpswap are excluded).
+const GT_NETS = { solana: "solana", bsc: "bsc", base: "base" };
+const CURVE_DEX = /pump-?fun|moonshot|launch-?lab|bonk|boop|believe|dbc|heaven|four-?meme|flap|virtuals/i, NOT_CURVE = /pumpswap|amm|cpmm|clmm|dlmm|v2|v3|v4/i;
+const PAD_NAME = (id) => /pump/i.test(id) ? ["Pump.fun", "pump"] : /moonshot/i.test(id) ? ["Moonshot", "moon"] : /bonk|launch-?lab/i.test(id) ? ["LetsBonk", "bonk"]
+  : /dbc|believe/i.test(id) ? ["Meteora DBC", "dbc"] : /boop/i.test(id) ? ["Boop", "boop"] : /four/i.test(id) ? ["Four.meme", "four"] : /flap/i.test(id) ? ["Flap", "flap"]
+  : /virtual/i.test(id) ? ["Virtuals", "virt"] : /zora/i.test(id) ? ["Zora", "zora"] : /clanker/i.test(id) ? ["Clanker", "clanker"] : [id, "x"];
+const RH_FACTORIES = [
+  { n: "Pons", k: "pons", a: "0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e" },
+  { n: "Hood.fun", k: "hood", a: "0x5fcc1df0dc020cf454e742e9a8ae2554c37a452c" },
+  { n: "RobinFun", k: "robin", a: "0xd861cb5dc71a0171e8f0f6586cadb069f3a35e4d" },
+];
+
+async function jget(u, ms = 7000) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  try { const r = await fetch(u, { signal: c.signal, headers: { accept: "application/json", "user-agent": "Mozilla/5.0 (compatible; CBLRadar/1.0; +https://cryptobarlounge.space)" } }); return r.ok ? await r.json() : null; }
+  catch (e) { return null; } finally { clearTimeout(t); }
+}
+const num = (x) => { const v = Number(x); return Number.isFinite(v) ? v : null; };
+const now = () => Date.now();
+
+// ---------- Pump.fun ----------
+const pumpProgress = (c) => (num(c.virtual_token_reserves) != null ? Math.max(0, Math.min(100, (1 - (c.virtual_token_reserves / 1e6 - 279.9e6) / 793.1e6) * 100)) : null);
+function pumpRow(c, tag) {
+  return { chain: "solana", ca: c.mint, sym: c.symbol || "", name: c.name || "", logo: c.image_uri || null, lp: { n: "Pump.fun", k: "pump", g: false },
+    progress: pumpProgress(c), mcap: num(c.usd_market_cap), created: num(c.created_timestamp), lastTrade: num(c.last_trade_timestamp), replies: num(c.reply_count) || 0,
+    koth: !!c.king_of_the_hill_timestamp || tag === "koth", url: "https://pump.fun/coin/" + c.mint, src: "pump.fun" };
+}
+async function pump() {
+  const list = (j) => (Array.isArray(j) ? j : (j && (j.coins || j.data)) || []);
+  const base = "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&includeNsfw=false&order=DESC&sort=";
+  const [live, cap, koth] = await Promise.all([jget(base + "last_trade_timestamp"), jget(base + "market_cap"), jget("https://frontend-api-v3.pump.fun/coins/king-of-the-hill?includeNsfw=false")]);
+  const out = new Map();
+  for (const c of [...list(live), ...list(cap)]) if (c && c.mint && !c.complete) out.set(c.mint, pumpRow(c));
+  if (koth && koth.mint && !koth.complete) out.set(koth.mint, pumpRow(koth, "koth"));
+  return [...out.values()];
+}
+
+// ---------- GeckoTerminal launchpad DEXes ----------
+async function discover(prev) {
+  if (prev && prev.t && now() - prev.t < DISCOVER_TTL && prev.ids) return prev;
+  const ids = {};
+  for (const net of Object.keys(GT_NETS)) {
+    const found = [];
+    for (let p = 1; p <= 3; p++) {
+      const j = await jget(`${GT}/networks/${net}/dexes?page=${p}`, 6000);
+      const d = (j && j.data) || []; if (!d.length) break;
+      d.forEach((x) => { const id = x.id || ""; if (CURVE_DEX.test(id) && !NOT_CURVE.test(id)) found.push(id); });
+    }
+    ids[net] = found.slice(0, 6);
+  }
+  return { t: now(), ids };
+}
+async function gtCurves(ids, budget) {
+  const rows = [], jobs = [];
+  for (const [net, list] of Object.entries(ids || {})) for (const dex of list) if (!/pump/i.test(dex)) jobs.push([net, dex]); // pump.fun comes from its own API
+  for (const [net, dex] of jobs.slice(0, 8)) {
+    if (now() > budget) break;
+    const j = await jget(`${GT}/networks/${net}/dexes/${dex}/pools?page=1&sort=h24_tx_count_desc&include=base_token`, 6000);
+    const toks = new Map(((j && j.included) || []).map((t) => [t.id, t.attributes || {}]));
+    for (const p of (j && j.data) || []) {
+      const a = p.attributes || {}, bt = p.relationships && p.relationships.base_token && p.relationships.base_token.data && p.relationships.base_token.data.id;
+      if (!bt) continue;
+      const ca = bt.slice(net.length + 1), t = toks.get(bt) || {}, [n, k] = PAD_NAME(dex), tx = (a.transactions && a.transactions.h1) || {};
+      rows.push({ chain: GT_NETS[net], ca, sym: t.symbol || String(a.name || "").split(" / ")[0], name: t.name || "", logo: t.image_url && !/missing/.test(t.image_url) ? t.image_url : null,
+        lp: { n, k, g: false }, progress: null, mcap: num(a.market_cap_usd) || num(a.fdv_usd), vol1h: num(a.volume_usd && a.volume_usd.h1) || 0, vol24: num(a.volume_usd && a.volume_usd.h24) || 0,
+        tx1h: (tx.buys || 0) + (tx.sells || 0), buys1h: tx.buys || 0, created: a.pool_created_at ? Date.parse(a.pool_created_at) : null, ch1h: num(a.price_change_percentage && a.price_change_percentage.h1),
+        url: `https://www.geckoterminal.com/${net}/pools/${a.address}`, src: "geckoterminal:" + dex });
+    }
+  }
+  return rows;
+}
+
+// ---------- Robinhood Chain launchpads (factory launch events) ----------
+function tokenFromLog(l) {
+  const ps = (l.decoded && l.decoded.parameters) || [];
+  const p = ps.find((x) => /^(token|memecoin|tokenAddress)$/i.test(x.name)) || ps.find((x) => /address/.test(x.type) && /token/i.test(x.name));
+  return p && /^0x[a-fA-F0-9]{40}$/.test(p.value) ? p.value.toLowerCase() : null;
+}
+async function robinhood(budget) {
+  const rows = [];
+  for (const f of RH_FACTORIES) {
+    if (now() > budget) break;
+    const j = await jget(`${BS}/addresses/${f.a}/logs`, 6000);
+    const toks = [];
+    for (const l of (j && j.items) || []) {
+      if (l.decoded && !/launch|created/i.test(l.decoded.method_call || "")) continue;
+      const t = tokenFromLog(l); if (t && !toks.find((x) => x.t === t)) toks.push({ t, ts: l.timestamp ? Date.parse(l.timestamp) : null, block: l.block_number });
+    }
+    await Promise.all(toks.slice(0, 15).map(async (x) => {
+      const [tk, ctr] = await Promise.all([jget(`${BS}/tokens/${x.t}`, 4000), jget(`${BS}/tokens/${x.t}/counters`, 4000)]);
+      if (!tk) return;
+      rows.push({ chain: "robinhood", ca: x.t, sym: tk.symbol || "", name: tk.name || "", logo: tk.icon_url || null, lp: { n: f.n, k: f.k, g: false }, progress: null,
+        mcap: num(tk.circulating_market_cap) || null, holders: num(tk.holders_count || tk.holders) || 0, transfers: num(ctr && ctr.transfers_count) || 0,
+        created: x.ts, url: `https://robinhoodchain.blockscout.com/token/${x.t}`, src: "blockscout" });
+    }));
+  }
+  return rows;
+}
+
+// Heat: how much is happening right now. Used for the "Hot" sort.
+function heat(r) {
+  const age = r.created ? (now() - r.created) / 60000 : 1e4, fresh = r.lastTrade ? Math.max(0, 30 - (now() - r.lastTrade) / 60000) : 0;
+  return (r.vol1h || 0) + (r.tx1h || 0) * 25 + (r.mcap || 0) * 0.05 + fresh * 300 + (r.replies || 0) * 15 + (r.holders || 0) * 20 + (r.transfers || 0) * 2 + (r.koth ? 5000 : 0) + (age < 60 ? 1500 : 0);
+}
+
+async function build(budgetMs = 23000) {
+  const t0 = now(), deadline = t0 + budgetMs;
+  let prev = null;
+  try { prev = db.on() ? ((await db.select("radar_cache", "id=eq." + ROW_ID + "&select=data"))[0] || {}).data : null; } catch (e) { prev = null; }
+  const disc = await discover(prev && prev.disc).catch(() => (prev && prev.disc) || null);
+  const [p, g, rh] = await Promise.all([pump().catch(() => []), gtCurves(disc && disc.ids, t0 + 14000).catch(() => []), robinhood(t0 + 14000).catch(() => [])]);
+  const seen = new Map();
+  for (const r of [...p, ...g, ...rh]) { const k = r.chain + "|" + r.ca; if (!seen.has(k)) seen.set(k, r); }
+  let rows = [...seen.values()];
+  rows.forEach((r) => (r.heat = heat(r)));
+  rows.sort((a, b) => b.heat - a.heat);
+  rows = rows.slice(0, MAX);
+  // CBL score for the hottest ones (scores reused for 20 minutes)
+  const scores = (prev && prev.scores) || {};
+  const todo = rows.filter((r) => { const s = scores[r.chain + "|" + r.ca]; return !s || now() - s.t > SCORE_TTL; }).slice(0, 40);
+  const work = async () => {
+    while (todo.length && now() < deadline - 2500) {
+      const r = todo.shift();
+      const s = await Promise.race([runScan(r.ca, r.chain, { noDeep: true }).catch(() => null), new Promise((z) => setTimeout(() => z(null), 6000))]);
+      if (s && s.ok) scores[r.chain + "|" + r.ca] = { score: s.score, verdict: s.verdict, honeypot: s.flags && s.flags.honeypot, mint: s.flags && s.flags.mint, freeze: s.flags && s.flags.freeze,
+        creator: s.creator || null, t: now(), progress: s.market && typeof s.market.curveProgress === "number" ? s.market.curveProgress : null };
+    }
+  };
+  await Promise.all([work(), work(), work(), work(), work()]);
+  rows.forEach((r) => { const s = scores[r.chain + "|" + r.ca]; r.s = s || null; if (r.progress == null && s && s.progress != null) r.progress = s.progress; });
+  const keep = new Set(rows.map((r) => r.chain + "|" + r.ca));
+  for (const k of Object.keys(scores)) if (!keep.has(k) && now() - scores[k].t > 6 * 3600e3) delete scores[k];
+  const snap = { t: now(), rows, scores, disc };
+  if (db.on()) await db.upsert("radar_cache", [{ id: ROW_ID, data: snap, updated_at: new Date().toISOString() }], "id").catch(() => {});
+  return { snap, stats: { pump: p.length, gecko: g.length, robinhood: rh.length, rows: rows.length, scored: rows.filter((r) => r.s).length, dexes: disc && disc.ids, ms: now() - t0 } };
+}
+
+/** For the page and bot: the snapshot, with the Pump.fun live list refreshed (it moves fastest). */
+async function read(opts = {}) {
+  let snap = null;
+  try { snap = db.on() ? ((await db.select("radar_cache", "id=eq." + ROW_ID + "&select=data"))[0] || {}).data : null; } catch (e) { snap = null; }
+  if (!snap || !snap.rows || now() - snap.t > 30 * 60e3) snap = (await build(opts.budget || 12000)).snap;
+  else if (opts.refresh !== false) {
+    const live = await pump().catch(() => []);
+    const by = new Map(snap.rows.map((r) => [r.chain + "|" + r.ca, r]));
+    for (const r of live) { const old = by.get("solana|" + r.ca); if (old) Object.assign(old, r, { s: old.s }); else { r.s = (snap.scores || {})["solana|" + r.ca] || null; snap.rows.push(r); } }
+    snap.rows = snap.rows.filter((r) => !(r.lp && r.lp.k === "pump") || live.find((x) => x.ca === r.ca) || now() - snap.t < 10 * 60e3); // drop pump tokens that graduated meanwhile
+    snap.rows.forEach((r) => (r.heat = heat(r)));
+  }
+  return { t: snap.t, rows: snap.rows };
+}
+
+module.exports = { build, read, pump, gtCurves, robinhood, discover, heat, pumpProgress, tokenFromLog };

@@ -3,6 +3,7 @@
 //   /api/cron?job=wallets  wallet tracker alerts (buys, sells, new tokens, transfers)
 //   /api/cron?job=radar    rebuild the Token Radar snapshot (trending tokens + CBL scores)
 //   /api/cron?job=calls    group first calls: refresh market caps, peaks, post X alerts
+//   /api/cron?job=curves   bonding-curve launchpad feed for the Radar (Pump.fun, GeckoTerminal launchpad DEXes, Robinhood launchpads)
 const crypto = require("crypto");
 const db = require("./_lib/db");
 const { runScan } = require("./_lib/scanner");
@@ -74,6 +75,7 @@ module.exports = async (req, res) => {
     } catch (e) { out.error = String(e.message).slice(0, 100); }
     return res.status(200).json({ ok: true, job: "calls", ...out, ms: Date.now() - t0 });
   }
+  if (job === "curves") { const r = await require("./_lib/curves").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "curves", ...r.stats }); }
   if (job === "radar") { const r = await require("./_lib/radar").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "radar", ...r.stats }); }
   const out = { checked: 0, alerts: 0, sent: 0, errors: 0 };
   try {

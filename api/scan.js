@@ -22,7 +22,8 @@ module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
   if (url.searchParams.get("radar")) {
     try {
-      const r = await require("./_lib/radar").read();
+      const [r, cv] = await Promise.all([require("./_lib/radar").read(), require("./_lib/curves").read().catch(() => ({ rows: [] }))]);
+      r.curve = cv.rows || []; r.curveT = cv.t || null;
       res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=240");
       return res.status(200).json(r);
     } catch (e) { console.error("radar error", e && e.stack || e); return res.status(502).json({ ok: false, error: "Radar unavailable. Try again." }); }

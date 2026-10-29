@@ -28,4 +28,8 @@ jobs:
           echo "Group calls HTTP status: $ccode"
           cat cbody.txt || true
           echo
+          vcode=$(curl -sS -m 40 -o vbody.txt -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" "https://cryptobarlounge.space/api/cron?job=curves" || true)
+          echo "Bonding curves HTTP status: $vcode"
+          cat vbody.txt || true
+          echo
           case "$code" in 2*) exit 0 ;; *) exit 1 ;; esac
