@@ -13,8 +13,8 @@ const BS = "https://robinhoodchain.blockscout.com/api/v2";
 const GT = "https://api.geckoterminal.com/api/v2";
 // Launchpad curve DEXes on GeckoTerminal (matched against discovered ids; graduated venues like pumpswap are excluded).
 const GT_NETS = { solana: "solana", bsc: "bsc", base: "base" };
-const CURVE_DEX = /pump-?fun|moonshot|launch-?lab|bonk|boop|believe|dbc|heaven|four-?meme|flap|virtuals/i, NOT_CURVE = /pumpswap|amm|cpmm|clmm|dlmm|v2|v3|v4/i;
-const PAD_NAME = (id) => /pump/i.test(id) ? ["Pump.fun", "pump"] : /moonshot/i.test(id) ? ["Moonshot", "moon"] : /bonk|launch-?lab/i.test(id) ? ["LetsBonk", "bonk"]
+const CURVE_DEX = /pump-?fun|moonshot|launch-?lab|bonk|boop|believe|dbc|heaven|four-?meme|flap|virtuals|pons|hood|robin|klik|printr/i, NOT_CURVE = /pumpswap|amm|cpmm|clmm|dlmm|v2|v3|v4/i;
+const PAD_NAME = (id) => /pons/i.test(id) ? ["Pons", "pons"] : /hood/i.test(id) ? ["Hood.fun", "hood"] : /robin/i.test(id) ? ["RobinFun", "robin"] : /pump/i.test(id) ? ["Pump.fun", "pump"] : /moonshot/i.test(id) ? ["Moonshot", "moon"] : /bonk|launch-?lab/i.test(id) ? ["LetsBonk", "bonk"]
   : /dbc|believe/i.test(id) ? ["Meteora DBC", "dbc"] : /boop/i.test(id) ? ["Boop", "boop"] : /four/i.test(id) ? ["Four.meme", "four"] : /flap/i.test(id) ? ["Flap", "flap"]
   : /virtual/i.test(id) ? ["Virtuals", "virt"] : /zora/i.test(id) ? ["Zora", "zora"] : /clanker/i.test(id) ? ["Clanker", "clanker"] : [id, "x"];
 const RH_FACTORIES = [
@@ -58,7 +58,8 @@ async function pump() {
 // ---------- GeckoTerminal launchpad DEXes ----------
 // Likely GeckoTerminal ids, used until discovery succeeds (wrong guesses just return nothing).
 const GUESS = { solana: ["pump-fun", "moonshot", "raydium-launchlab", "meteora-dbc"], bsc: ["four-meme"], base: [] };
-async function discover(prev) {
+async function discover(prev, rhId) {
+  if (rhId) GT_NETS[rhId] = "robinhood";
   if (prev && prev.t && now() - prev.t < DISCOVER_TTL && prev.ids && Object.values(prev.ids).some((l) => l.length)) return prev;
   const ids = {};
   await Promise.all(Object.keys(GT_NETS).map(async (net) => {
@@ -186,7 +187,9 @@ async function build(budgetMs = 23000) {
   let prev = null;
   try { prev = db.on() ? ((await db.select("radar_cache", "id=eq." + ROW_ID + "&select=data"))[0] || {}).data : null; } catch (e) { prev = null; }
   for (const k of Object.keys(DIAG)) delete DIAG[k];
-  const [p, disc, rh] = await Promise.all([pump().catch(() => []), discover(prev && prev.disc).catch(() => ({ t: 0, ids: GUESS })), robinhood(t0 + 14000).catch(() => [])]);
+  let rhId = null;
+  try { const rs = db.on() ? ((await db.select("radar_cache", "id=eq.feed&select=data"))[0] || {}).data : null; rhId = rs && rs.rhNet && rs.rhNet.id; } catch (e) { rhId = null; }
+  const [p, disc, rh] = await Promise.all([pump().catch(() => []), discover(prev && prev.disc && (!rhId || (prev.disc.ids && rhId in prev.disc.ids)) ? prev.disc : null, rhId).catch(() => ({ t: 0, ids: GUESS })), robinhood(t0 + 14000).catch(() => [])]);
   const g = await gtCurves(disc && disc.ids, t0 + 15000, !p.length).catch(() => []); // no Pump.fun API? take Pump.fun pools from GeckoTerminal
   // Tokens on the main Radar that still trade on a launchpad curve (DexScreener lists many pump.fun / moonshot curves).
   let fromRadar = [];

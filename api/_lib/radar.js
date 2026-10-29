@@ -24,7 +24,31 @@ async function jget(u, ms = 7000) {
 const key = (c, a) => c + "|" + (c === "solana" ? a : String(a).toLowerCase());
 
 /** Candidate tokens: [{chain, ca, src}] from all sources, deduped. */
-async function candidates() {
+// GeckoTerminal's id for Robinhood Chain isn't one we can hard-code with certainty: look it up once a day.
+async function gtRobinhoodNet(cache) {
+  if (cache && cache.id && Date.now() - cache.t < 24 * 3600e3) return cache;
+  for (let p = 1; p <= 10; p++) {
+    const j = await jget(`https://api.geckoterminal.com/api/v2/networks?page=${p}`, 6000);
+    const d = (j && j.data) || []; if (!d.length) break;
+    const hit = d.find((n) => /robinhood/i.test(n.id || "") || /robinhood/i.test((n.attributes && n.attributes.name) || ""));
+    if (hit) return { t: Date.now(), id: hit.id };
+  }
+  return { t: 0, id: null }; // not listed (yet): try again next run
+}
+const gtChain = (net) => GT_NET[net] || (/robinhood/i.test(net || "") ? "robinhood" : null);
+// Market fields straight from a GeckoTerminal pool, used when DexScreener doesn't have the token.
+function gtMarket(p, ca) {
+  const a = p.attributes || {}, n = (x) => { const v = Number(x); return Number.isFinite(v) ? v : null; }, tx = a.transactions || {};
+  const [bn] = String(a.name || "").split(" / ");
+  return { sym: bn || "", name: "", logo: null, price: n(a.base_token_price_usd), mcap: n(a.market_cap_usd) || n(a.fdv_usd), liq: n(a.reserve_in_usd) || 0,
+    vol24: n(a.volume_usd && a.volume_usd.h24) || 0, vol1h: n(a.volume_usd && a.volume_usd.h1) || 0, vol5m: n(a.volume_usd && a.volume_usd.m5) || 0,
+    ch5m: n(a.price_change_percentage && a.price_change_percentage.m5), ch1h: n(a.price_change_percentage && a.price_change_percentage.h1), ch24: n(a.price_change_percentage && a.price_change_percentage.h24),
+    buys24: (tx.h24 && tx.h24.buys) || 0, sells24: (tx.h24 && tx.h24.sells) || 0, buys1h: (tx.h1 && tx.h1.buys) || 0, sells1h: (tx.h1 && tx.h1.sells) || 0,
+    created: a.pool_created_at ? Date.parse(a.pool_created_at) : null, dex: (p.relationships && p.relationships.dex && p.relationships.dex.data && p.relationships.dex.data.id) || "",
+    url: `https://www.geckoterminal.com/${p.relationships.network.data.id}/pools/${a.address}`, boosts: 0, profile: false, lp: null, dexes: [] };
+}
+
+async function candidates(rhNet) {
   const C = new Map();
   const add = (chain, ca, src) => {
     if (!SUPPORTED.has(chain) || !ca) return;
@@ -35,13 +59,15 @@ async function candidates() {
   const gt = (u, src) => jget("https://api.geckoterminal.com/api/v2/" + u, 8000).then((j) => ((j && j.data) || []).forEach((p) => {
     const net = p.relationships && p.relationships.network && p.relationships.network.data && p.relationships.network.data.id;
     const bt = p.relationships && p.relationships.base_token && p.relationships.base_token.data && p.relationships.base_token.data.id;
-    const chain = GT_NET[net]; if (!chain || !bt || !bt.startsWith(net + "_")) return;
-    add(chain, bt.slice(net.length + 1), src);
+    const chain = gtChain(net); if (!chain || !bt || !bt.startsWith(net + "_")) return;
+    const ca = bt.slice(net.length + 1); add(chain, ca, src);
+    const c = C.get(key(chain, ca)); if (c && !c.gtm) c.gtm = gtMarket(p, ca);
   }));
   await Promise.all([
     ds("token-boosts/top/v1", "boosted"), ds("token-boosts/latest/v1", "boosted"), ds("token-profiles/latest/v1", "profile"), ds("community-takeovers/latest/v1", "cto"),
     gt("networks/trending_pools?page=1", "trending"), gt("networks/trending_pools?page=2", "trending"),
     gt("networks/new_pools?page=1", "new"), gt("networks/solana/new_pools?page=1", "new"), gt("networks/base/new_pools?page=1", "new"), gt("networks/bsc/new_pools?page=1", "new"),
+    ...(rhNet && rhNet.id ? [gt(`networks/${rhNet.id}/trending_pools?page=1`, "trending"), gt(`networks/${rhNet.id}/new_pools?page=1`, "new")] : []),
     gt("networks/solana/trending_pools?page=1", "trending"), gt("networks/base/trending_pools?page=1", "trending"), gt("networks/bsc/trending_pools?page=1", "trending"), gt("networks/eth/trending_pools?page=1", "trending"),
   ].map((p) => p.catch(() => {})));
   return [...C.values()];
@@ -99,13 +125,14 @@ async function build(budgetMs = 23000) {
   let prev = null;
   try { prev = db.on() ? ((await db.select("radar_cache", "id=eq." + FEED_ID + "&select=data"))[0] || {}).data : null; } catch (e) { prev = null; }
   const scores = (prev && prev.scores) || {}, seen = (prev && prev.seen) || {};
-  const cands = await candidates();
+  const rhNet = await gtRobinhoodNet(prev && prev.rhNet).catch(() => ({ t: 0, id: null }));
+  const cands = await candidates(rhNet);
   // keep tokens from the last snapshot too, so a token doesn't vanish when it drops off one source for a few minutes
-  if (prev && prev.rows) for (const r of prev.rows) if (!cands.find((c) => c.chain === r.chain && c.ca === r.ca) && Date.now() - (seen[key(r.chain, r.ca)] || 0) < 3 * 3600e3) cands.push({ chain: r.chain, ca: r.ca, src: r.src.filter((s) => s !== "new") });
+  if (prev && prev.rows) for (const r of prev.rows) if (!cands.find((c) => c.chain === r.chain && c.ca === r.ca) && Date.now() - (seen[key(r.chain, r.ca)] || 0) < 3 * 3600e3) cands.push({ chain: r.chain, ca: r.ca, src: r.src.filter((s) => s !== "new"), gtm: /geckoterminal/.test(r.url || "") ? r : null });
   const mk = await market(cands, t0 + 9000);
   let rows = [];
   for (const c of cands) {
-    const m = mk.get(key(c.chain, c.ca));
+    const m = mk.get(key(c.chain, c.ca)) || c.gtm; // GeckoTerminal numbers when DexScreener doesn't list it (common on Robinhood)
     if (!m || m.liq < 1000 || m.vol24 < 1000) continue;
     const k = key(c.chain, c.ca);
     if (!seen[k]) seen[k] = Date.now();
@@ -137,7 +164,7 @@ async function build(budgetMs = 23000) {
   for (const k of Object.keys(scores)) if (!keep.has(k) && Date.now() - scores[k].t > 6 * 3600e3) delete scores[k];
   for (const k of Object.keys(seen)) if (!keep.has(k) && Date.now() - seen[k] > 24 * 3600e3) delete seen[k];
   for (const k of Object.keys(lpc)) if (!rows.find((r) => r.ca === k) && Object.keys(lpc).length > 800) delete lpc[k];
-  const snap = { t: Date.now(), rows, scores, seen, lpc };
+  const snap = { t: Date.now(), rows, scores, seen, lpc, rhNet };
   if (db.on()) await db.upsert("radar_cache", [{ id: FEED_ID, data: snap, updated_at: new Date().toISOString() }], "id").catch(() => {});
   return { snap, stats: { candidates: cands.length, rows: rows.length, scored, withScore: rows.filter((r) => r.s).length, ms: Date.now() - t0 } };
 }
