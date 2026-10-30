@@ -224,7 +224,7 @@ function devReportMsg(r, site, tracked) {
   const rows = [];
   if (C.length) {
     const ts = C.map((t) => t.ts).filter(Boolean), first = ts.length ? Math.min(...ts) : null, days = first ? Math.max(1, (now - first) / 86400) : null;
-    rows.push(`Deployed: <b>${C.length}</b>${days && C.length > 1 ? (C.length / days >= 0.1 ? ` (${(C.length / days).toFixed(1)}/day)` : ` (${(C.length / days * 7).toFixed(1)}/week)`) : ""}`);
+    rows.push(`Deployed: <b>${C.length}${r.historyDone === false ? "+" : ""}</b>${days && C.length > 1 ? (C.length / days >= 0.1 ? ` (${(C.length / days).toFixed(1)}/day)` : ` (${(C.length / days * 7).toFixed(1)}/week)`) : ""}`);
     const bonded = C.filter((t) => t.graduated).length;
     if (r.family === "solana" || bonded) rows.push(`Bonded: <b>${bonded}</b> (${Math.round(bonded / C.length * 100)}%)`);
     else rows.push(`Live: <b>${n("live")}</b> · Dead: ${n("dead")}`);
@@ -236,9 +236,10 @@ function devReportMsg(r, site, tracked) {
   const lastTs = C.map((t) => t.ts).filter(Boolean).sort((a, b) => b - a)[0];
   if (lastTs) rows.push(`Last: ${ago(lastTs)} ago`);
   rows.forEach((x, k) => L.push(`${k === rows.length - 1 ? "└" : "├"} ${x}`));
+  if (r.historyDone === false) L.push("⏳ <i>Older launches are still loading. Tap 🔄 Refresh in a minute for the full count.</i>");
   if (C.length >= 5 && n("dead") / C.length >= 0.8) L.push(`⚠️ <b>Serial launcher:</b> ${n("dead")} of ${C.length} tokens are dead.`);
   const top = C.filter((t) => t.ath >= 10000).sort((a, b) => b.ath - a.ath).slice(0, 5);
-  if (top.length) { L.push("", "🏆 <b>Top ATH</b>"); top.forEach((t) => L.push(`• ${lnk(t)} ATH ${usd(t.ath)}${t.mcap ? ` · now ${usd(t.mcap)}` : ""} (${ago(t.ts)})`)); }
+  if (top.length) { L.push("", "🏆 <b>Top ATH</b>"); top.forEach((t) => L.push(`• ${lnk(t)} @ ${t.mcap ? usd(t.mcap) : "?"} → ${usd(t.ath)} (${ago(t.ts)})`)); }
   if (C.length) {
     L.push("", "🆕 <b>Latest</b>");
     C.slice(0, 10).forEach((t) => L.push(`• ${lnk(t)} ${t.mcap ? "@ " + usd(t.mcap) : t.status === "dead" ? "💀" : "· no market yet"}${t.graduated ? " 🎓" : ""} (${ago(t.ts)})${t.id === r.fromToken ? " 👈" : ""}${r.family === "evm" && r.chains.length > 1 ? " · " + chainName(t.chain) : ""}`));
@@ -250,7 +251,8 @@ function devReportMsg(r, site, tracked) {
   const kb = [[tracked ? { text: "🔕 Untrack", callback_data: "x:" + cb(r.address) } : { text: "👤 Track this dev", callback_data: "t:" + cb(r.address) + (r.family === "evm" && r.chains.length === 1 ? "|" + r.chains[0] : "") }]];
   const latest = (r.fromToken && C.find((t) => t.id === r.fromToken)) || C.find((t) => t.status !== "dead") || C[0];
   if (latest) kb[0].push({ text: "🔍 Scan " + (latest.id === r.fromToken ? "token" : "latest"), callback_data: "s:" + cb(latest.chain === "xrpl" ? String(latest.id).split(".")[1] : latest.id) });
-  if (site) kb.push([{ text: "🌐 Full dev report", url: `${site}/wallet?w=${encodeURIComponent(r.address)}${r.family === "evm" && r.chains.length === 1 ? "&chain=" + r.chains[0] : ""}` }]);
+  kb.push([{ text: "🔄 Refresh", callback_data: "v:" + cb(r.address) + (r.family === "evm" && r.chains.length === 1 ? "|" + r.chains[0] : "") }]);
+  if (site) kb[1].push({ text: "🌐 Full dev report", url: `${site}/wallet?w=${encodeURIComponent(r.address)}${r.family === "evm" && r.chains.length === 1 ? "&chain=" + r.chains[0] : ""}` });
   return { text: L.join("\n").slice(0, 4000), reply_markup: { inline_keyboard: kb } };
 }
 

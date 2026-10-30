@@ -341,9 +341,10 @@ async function createdXrpl(addr) {
 /** Market status for created tokens via DexScreener (30 per request). */
 async function marketFor(chain, list) {
   const ds = DS_CHAIN[chain]; if (!ds) return;
-  for (let i = 0; i < list.length; i += 30) {
+  const starts = []; for (let i = 0; i < list.length; i += 30) starts.push(i);
+  const one = async (i) => {
     const part = list.slice(i, i + 30), j = await jget(`https://api.dexscreener.com/tokens/v1/${ds}/${part.map((x) => x.id).join(",")}`, 7000);
-    if (!Array.isArray(j)) continue;
+    if (!Array.isArray(j)) return;
     for (const t of part) {
       const low = t.id.toLowerCase(), ps = j.filter((p) => String(p.baseToken && p.baseToken.address).toLowerCase() === low);
       if (!ps.length) { t.listed = false; continue; }
@@ -354,7 +355,8 @@ async function marketFor(chain, list) {
       t.liq = (p.liquidity && p.liquidity.usd) || 0; t.mcap = p.marketCap || p.fdv || t.mcap || null; t.url = p.url;
       t.ath = null; t.ts = t.ts || (p.pairCreatedAt ? Math.floor(p.pairCreatedAt / 1000) : null);
     }
-  }
+  };
+  for (let k = 0; k < starts.length; k += 4) await Promise.all(starts.slice(k, k + 4).map(one));
 }
 function statusOf(t) {
   const age = t.ts ? now() - t.ts : null;
@@ -374,12 +376,14 @@ async function devReport(addrIn, chainHint, deadline) {
     fromToken = address; address = c.creator;
   }
   const chains = fam === "evm" ? (chainHint && EVM[chainHint] ? [chainHint] : (await evmChains(address)).slice(0, 4)) : [fam];
-  let created = [], origin = null;
+  let created = [], origin = null, historyDone = true;
   try {
     if (fam === "solana") {
-      const [cr, og] = await Promise.all([createdSolana(address, deadline), DS.solOrigin(address, deadline ? deadline - 6000 : null).catch(() => null)]);
-      created = cr.map((t) => Object.assign(t, { chain: "solana" })); origin = og;
-      if (fromToken && !created.some((t) => t.id === fromToken)) created.push({ id: fromToken, chain: "solana", sym: "", name: "", ts: null });
+      const stop = deadline ? deadline - 11000 : Date.now() + 10000;
+      const [cr, og] = await Promise.all([DS.solCreated(address, stop).catch(() => ({ tokens: [], done: false })), DS.solOriginCached(address, stop).catch(() => null)]);
+      created = cr.tokens.map((t) => ({ id: t.id, ts: t.ts, sym: "", name: "", chain: "solana" })); origin = og; historyDone = cr.done;
+      if (fromToken && !created.some((t) => t.id === fromToken)) created.unshift({ id: fromToken, chain: "solana", sym: "", name: "", ts: null });
+      await DS.solEnrich(created).catch(() => {});
     }
     else if (fam === "evm") created = await createdEvm(address, chains);
     else if (fam === "xrpl") created = (await createdXrpl(address)).map((t) => Object.assign(t, { chain: "xrpl" }));
@@ -396,7 +400,7 @@ async function devReport(addrIn, chainHint, deadline) {
   if (deadline ? Date.now() < deadline - 7000 : true) ath = await DS.athFor(created.filter((t) => t.graduated || t.liq >= 5000), deadline ? deadline - 5000 : null).catch(() => null);
   const left = deadline ? deadline - Date.now() : 15000;
   const recent = left > 4000 ? (await poll({ address, family: fam, chains: chains.length ? chains : [fam] }, { since: now() - 7 * 86400, deadline }).catch(() => ({ events: [] }))).events.reverse() : [];
-  return { address, family: fam, chains, created, events: recent, origin, ath, fromToken };
+  return { address, family: fam, chains, created, events: recent, origin, ath, fromToken, historyDone };
 }
 
 // ---------- token info for alerts (name, market cap, liquidity, chart) ----------

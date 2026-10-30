@@ -176,4 +176,127 @@ async function athFor(list, deadline, maxNew = 10) {
   return { checked: want.filter((t) => t.ath != null).length, total: want.length, fetched: n };
 }
 
-module.exports = { solCreator, isMint, solOrigin, evmOrigin, athFor, labelOf, pda, onCurve, b58dec, b58enc, PUMP };
+
+// ---------- Solana dev history, cached and continued across requests (busy devs have tens of thousands of txs) ----------
+const cacheGet = async (id) => { if (!db.on()) return null; const r = await db.select("radar_cache", `id=eq.${encodeURIComponent(id)}&select=data`).catch(() => null); return r && r[0] ? r[0].data : null; };
+const cachePut = (id, data) => (db.on() ? db.upsert("radar_cache", [{ id, data, updated_at: new Date().toISOString() }], "id").catch(() => {}) : null);
+const SOL_BASE = new Set(["So11111111111111111111111111111111111111112", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
+
+async function helCreates(addr, before, until) {
+  const r = await jfetch(`https://api.helius.xyz/v0/addresses/${addr}/transactions?api-key=${HEL()}&type=CREATE&limit=100${before ? "&before=" + before : ""}${until ? "&until=" + until : ""}`, null, 9000);
+  if (Array.isArray(r.j)) return { list: r.j, next: r.j.length ? r.j[r.j.length - 1].signature : null, end: !r.j.length };
+  // Helius answers 404 with "...query the API again with the `before` parameter set to <sig>" when a search window had no matches
+  const txt = JSON.stringify(r.j || "");
+  const m = /before[^A-Za-z0-9]{0,20}(?:parameter )?set to ([1-9A-HJ-NP-Za-km-z]{60,100})/i.exec(txt);
+  return m ? { list: [], next: m[1], end: false } : { list: [], next: null, end: false, err: r.s || "x" };
+}
+function takeCreates(addr, list, map) {
+  for (const t of list) {
+    if (t.feePayer !== addr || t.transactionError) continue;
+    const m = (t.tokenTransfers || []).map((x) => x.mint).find((x) => x && !SOL_BASE.has(x));
+    if (m && !map.has(m)) map.set(m, { id: m, ts: Number(t.timestamp) || null });
+  }
+}
+/** Every token this wallet created (pump.fun & co.). Returns { tokens:[{id,ts}], done } — done=false means older history is still being scanned. */
+async function solCreated(addr, deadline) {
+  if (!HEL()) return { tokens: [], done: true };
+  const st = (await cacheGet("devc:" + addr)) || { tokens: [], newest: null, cursor: null, done: false };
+  const map = new Map(st.tokens.map((t) => [t.id, t]));
+  const left = () => !deadline || Date.now() < deadline;
+  let newest = st.newest;
+  // 1) anything newer than last time
+  if (st.newest) {
+    let b = null;
+    for (let i = 0; i < 6 && left(); i++) {
+      const r = await helCreates(addr, b, st.newest);
+      if (r.list.length && i === 0) newest = r.list[0].signature;
+      takeCreates(addr, r.list, map);
+      if (r.end || r.err || !r.next) break; b = r.next;
+    }
+  }
+  // 2) keep walking back through older history
+  let cursor = st.cursor, done = st.done;
+  for (let i = 0; i < 40 && !done && left(); i++) {
+    const r = await helCreates(addr, cursor, null);
+    if (r.list.length && !newest) newest = r.list[0].signature;
+    takeCreates(addr, r.list, map);
+    if (r.err) break;
+    if (r.end) { done = true; break; }
+    cursor = r.next;
+  }
+  const tokens = [...map.values()].sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  await cachePut("devc:" + addr, { tokens, newest, cursor, done, at: now() });
+  return { tokens, done };
+}
+
+/** Wallet age + first funder, continued across requests. */
+async function solOriginCached(addr, deadline) {
+  const st = (await cacheGet("orig:" + addr)) || { cursor: null, oldest: null, done: false };
+  if (st.done && st.funderChecked) return st;
+  // Helius getTransactionsForAddress can sort oldest-first (paid plans); fall back to paging signatures.
+  if (!st.done) {
+    const a = await rpc("getTransactionsForAddress", [addr, { transactionDetails: "signatures", sortOrder: "asc", limit: 1 }], 6000).catch(() => null);
+    const f = a && Array.isArray(a.data) && a.data[0];
+    if (f && f.signature) { st.oldest = { sig: f.signature, ts: f.blockTime || null }; st.done = true; }
+  }
+  for (let i = 0; i < 30 && !st.done && (!deadline || Date.now() < deadline); i++) {
+    const s = await rpc("getSignaturesForAddress", [addr, Object.assign({ limit: 1000 }, st.cursor ? { before: st.cursor } : {})], 8000);
+    if (!Array.isArray(s)) break;
+    if (!s.length) { st.done = true; break; }
+    const o = s[s.length - 1]; st.oldest = { sig: o.signature, ts: o.blockTime || null }; st.cursor = o.signature;
+    if (s.length < 1000) st.done = true;
+  }
+  if (st.done && st.oldest && !st.funderChecked && HEL()) {
+    const r = await jfetch("https://api.helius.xyz/v0/transactions?api-key=" + HEL(), { method: "POST", body: JSON.stringify({ transactions: [st.oldest.sig] }) }, 6000);
+    const t = Array.isArray(r.j) && r.j[0];
+    if (t) {
+      const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === addr && x.fromUserAccount && x.fromUserAccount !== addr && x.amount > 0);
+      st.funder = nt ? nt.fromUserAccount : null; st.funderLabel = labelOf(st.funder); st.funderChecked = true;
+    }
+  }
+  await cachePut("orig:" + addr, st);
+  return { firstTs: st.oldest && st.oldest.ts, complete: !!st.done, funder: st.funder || null, funderLabel: st.funderLabel || null };
+}
+
+/** Names (Helius DAS) and pump.fun curve state (bonded + market cap) for a list of mints. Mutates the tokens. */
+async function solEnrich(list) {
+  if (!list.length) return;
+  const ids = list.map((t) => t.id);
+  const solUsd = (async () => {
+    const j = await jfetch("https://lite-api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112", null, 4000);
+    const v = j.j && j.j.So11111111111111111111111111111111111111112;
+    if (v && v.usdPrice) return Number(v.usdPrice);
+    const d = await jfetch("https://api.dexscreener.com/latest/dex/pairs/solana/58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2", null, 4000);
+    return Number(d.j && d.j.pair && d.j.pair.priceUsd) || null;
+  })();
+  const names = (async () => {
+    if (!HEL()) return;
+    for (let i = 0; i < ids.length; i += 500) {
+      const a = await rpc("getAssetBatch", { ids: ids.slice(i, i + 500) }, 9000).catch(() => null);
+      (a || []).forEach((x) => { if (!x || !x.id) return; const t = list.find((k) => k.id === x.id), md = (x.content && x.content.metadata) || {}; if (t) { t.sym = t.sym || (md.symbol || "").trim(); t.name = t.name || (md.name || "").trim(); } });
+    }
+  })();
+  const curves = (async () => {
+    const pdas = ids.map((m) => { try { return pda([Buffer.from("bonding-curve"), b58dec(m)], PUMP); } catch (e) { return null; } });
+    const jobs = [];
+    for (let i = 0; i < ids.length; i += 100) jobs.push(i);
+    const out = [];
+    await Promise.all(jobs.map(async (i) => {
+      const keys = pdas.slice(i, i + 100);
+      const r = await rpc("getMultipleAccounts", [keys.map((k) => k || "11111111111111111111111111111111"), { encoding: "base64" }], 9000).catch(() => null);
+      ((r && r.value) || []).forEach((acc, k) => { out[i + k] = acc; });
+    }));
+    return out;
+  })();
+  const [px, , accs] = await Promise.all([solUsd, names, curves]);
+  list.forEach((t, i) => {
+    const a = accs[i]; if (!a || !a.data) return;
+    const b = Buffer.from(a.data[0], "base64"); if (b.length < 49) return;
+    const vTok = Number(b.readBigUInt64LE(8)), vSol = Number(b.readBigUInt64LE(16));
+    t.pump = true; t.complete = b[48] === 1;
+    if (t.complete) t.graduated = true;
+    else if (vTok > 0 && px) { t.curveMcap = (vSol / 1e9) / (vTok / 1e6) * 1e9 * px; if (!t.mcap) t.mcap = t.curveMcap; }
+  });
+}
+
+module.exports = { solCreated, solOriginCached, solEnrich, solCreator, isMint, solOrigin, evmOrigin, athFor, labelOf, pda, onCurve, b58dec, b58enc, PUMP };
