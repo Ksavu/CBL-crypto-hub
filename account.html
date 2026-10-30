@@ -113,7 +113,7 @@ async function show(u){const was=user;user=u||null;$('#signedout').hidden=!!user
  $('#whi').textContent='Welcome'+(un?', '+un:'')+'!';$('#wav').textContent=(un||String(who)).charAt(0).toUpperCase();document.title=(un||'My Account')+' | CBL Crypto Hub';
  loadList('watchlist','#wllist');loadList('linked_wallets','#lwlist')}
 async function loadList(t,el){const {data,error}=await supa.from(t).select('*').order('created_at',{ascending:false});
- if(error){$(el).innerHTML='<p class="muted">'+esc(/relation|does not exist/i.test(error.message)?'Run members.sql in Supabase to enable this.':error.message)+'</p>';return}
+ if(error){$(el).innerHTML='<p class="muted">'+esc(/relation|does not exist|schema cache/i.test(error.message)?'Run members.sql in Supabase to enable this.':error.message)+'</p>';return}
  $(el).innerHTML=(data||[]).map((r)=>{const open=t==='watchlist'?'/?ca='+encodeURIComponent(r.address)+'#scanner':'/wallet?w='+encodeURIComponent(r.address)+'&chain='+r.chain;
   return '<div class="coin" style="grid-template-columns:1fr auto auto"><div><strong>'+esc(r.label||short(r.address))+'</strong><small>'+esc(CH[r.chain]||r.chain)+' · <code>'+esc(short(r.address))+'</code></small></div><a class="btn soft" href="'+open+'">'+(t==='watchlist'?'Scan':'Open')+'</a><button class="btn line" data-del="'+t+':'+r.id+'">✕</button></div>'}).join('')||'<p class="muted">Nothing saved yet.</p>'}
 document.addEventListener('click',async(e)=>{const d=e.target.closest('[data-del]');if(!d)return;const [t,id]=d.dataset.del.split(':');await supa.from(t).delete().eq('id',id);loadList(t,t==='watchlist'?'#wllist':'#lwlist')});
@@ -121,7 +121,7 @@ async function add(t,ch,a,l,el){const v=norm(ch,a);if(v.length<20)return alert('
 $('#wladd').onclick=()=>add('watchlist',$('#wlchain').value,$('#wlca').value,$('#wllabel').value,'#wllist').then(()=>{$('#wlca').value='';$('#wllabel').value=''});
 $('#lwadd').onclick=()=>add('linked_wallets',$('#lwchain').value,$('#lwaddr').value,$('#lwlabel').value,'#lwlist').then(()=>{$('#lwaddr').value='';$('#lwlabel').value=''});
 $('#unamebtn').onclick=async()=>{const n=$('#uname').value.trim(),m=$('#pmsg');m.hidden=false;if(!/^[A-Za-z0-9_]{3,20}$/.test(n)){m.textContent='Use 3–20 letters, numbers or _';return}
- const {error}=await supa.from('profiles').update({username:n}).eq('id',user.id);m.textContent=error?(/duplicate|unique/i.test(error.message)?'That name is taken.':error.message):'Saved ✅';m.className='status '+(error?'err':'ok');if(!error){$('#whi').textContent='Welcome, '+n+'!';$('#wav').textContent=n[0].toUpperCase();toast('✅ Chat name saved')}};
+ const {error}=await supa.from('profiles').update({username:n}).eq('id',user.id);m.textContent=error?(/duplicate|unique/i.test(error.message)?'That name is taken.':/schema cache|does not exist/i.test(error.message)?'Account tables are not set up yet (run members.sql in Supabase).':error.message):'Saved ✅';m.className='status '+(error?'err':'ok');if(!error){$('#whi').textContent='Welcome, '+n+'!';$('#wav').textContent=n[0].toUpperCase();toast('✅ Chat name saved')}};
 async function sendCode(btn){if(!supa)return say('Accounts are not switched on yet.','err');const email=$('#email').value.trim();
  if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)){$('#email').classList.add('shake');setTimeout(()=>$('#email').classList.remove('shake'),400);return say('Enter a valid email address.','err')}
  busy(btn,true,'Sending code…');say('Sending your code…','wait');
