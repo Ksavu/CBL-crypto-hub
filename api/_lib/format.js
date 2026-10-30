@@ -233,6 +233,7 @@ function devReportMsg(r, site, tracked) {
   } else rows.push("Deployed: <b>0</b> found");
   if (o && o.firstTs) rows.push(`Wallet: ${o.complete ? "" : "&gt;"}${ago(o.firstTs)} old`);
   if (o && o.funder) rows.push(`Funded: ${o.funderLabel ? "<b>" + esc(o.funderLabel) + "</b>" : `<code>${esc(shortA(o.funder))}</code>`}${o.firstTs ? ` (${ago(o.firstTs)} ago)` : ""}`);
+  if (r.feeWallet) rows.push(`Fee wallet: <code>${esc(shortA(r.feeWallet))}</code> (pump.fun creator rewards)`);
   const lastTs = C.map((t) => t.ts).filter(Boolean).sort((a, b) => b - a)[0];
   if (lastTs) rows.push(`Last: ${ago(lastTs)} ago`);
   rows.forEach((x, k) => L.push(`${k === rows.length - 1 ? "└" : "├"} ${x}`));

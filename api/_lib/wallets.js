@@ -369,11 +369,11 @@ function statusOf(t) {
 async function devReport(addrIn, chainHint, deadline) {
   const fam = familyOf(addrIn);
   if (!fam) throw Object.assign(new Error("That doesn't look like a wallet address."), { status: 400 });
-  let address = normAddr(addrIn), fromToken = null;
+  let address = normAddr(addrIn), fromToken = null, feeWallet = null;
   if (fam === "solana" && await DS.isMint(address).catch(() => false)) { // a token address was sent: report on its creator
     const c = await DS.solCreator(address, deadline).catch(() => null);
     if (!c) throw Object.assign(new Error("That's a token address and I couldn't find who created it. Send the token to scan it instead."), { status: 400 });
-    fromToken = address; address = c.creator;
+    fromToken = address; address = c.creator; feeWallet = c.feeWallet || null;
   }
   const chains = fam === "evm" ? (chainHint && EVM[chainHint] ? [chainHint] : (await evmChains(address)).slice(0, 4)) : [fam];
   let created = [], origin = null, historyDone = true;
@@ -400,7 +400,7 @@ async function devReport(addrIn, chainHint, deadline) {
   if (deadline ? Date.now() < deadline - 7000 : true) ath = await DS.athFor(created.filter((t) => t.graduated || t.liq >= 5000), deadline ? deadline - 5000 : null).catch(() => null);
   const left = deadline ? deadline - Date.now() : 15000;
   const recent = left > 4000 ? (await poll({ address, family: fam, chains: chains.length ? chains : [fam] }, { since: now() - 7 * 86400, deadline }).catch(() => ({ events: [] }))).events.reverse() : [];
-  return { address, family: fam, chains, created, events: recent, origin, ath, fromToken, historyDone };
+  return { address, family: fam, chains, created, events: recent, origin, ath, fromToken, feeWallet, historyDone };
 }
 
 // ---------- token info for alerts (name, market cap, liquidity, chart) ----------

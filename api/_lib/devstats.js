@@ -63,31 +63,43 @@ async function isMint(addr) {
   return !!(r && r.value && TOKEN_PROGRAMS.has(r.value.owner));
 }
 
-/** Dev wallet of a Solana token. pump.fun stores the creator in the bonding-curve account; otherwise use the first transaction's fee payer. */
+const META = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
+async function feePayer(sig) {
+  const tx = await rpc("getTransaction", [sig, { maxSupportedTransactionVersion: 0, encoding: "json" }], 7000);
+  const keys = tx && tx.transaction && tx.transaction.message && tx.transaction.message.accountKeys;
+  return keys && keys[0] ? (typeof keys[0] === "string" ? keys[0] : keys[0].pubkey) : null;
+}
+/** Signature of the transaction that created the mint: the Metaplex metadata account is only touched at launch;
+    otherwise walk the mint's own history back to its first transaction (bounded, so very busy tokens may give up). */
+async function createSig(mint, deadline, pages) {
+  try {
+    const md = pda([Buffer.from("metadata"), b58dec(META), b58dec(mint)], META);
+    const s = md && await rpc("getSignaturesForAddress", [md, { limit: 1000 }], 6000);
+    if (Array.isArray(s) && s.length && s.length < 1000) return s[s.length - 1].signature;
+  } catch (e) {}
+  let before;
+  for (let i = 0; i < pages && (!deadline || Date.now() < deadline - 4000); i++) {
+    const s = await rpc("getSignaturesForAddress", [mint, Object.assign({ limit: 1000 }, before ? { before } : {})], 8000);
+    if (!Array.isArray(s) || !s.length) return null;
+    before = s[s.length - 1].signature;
+    if (s.length < 1000) return before;
+  }
+  return null;
+}
+/** Dev wallet of a Solana token = whoever signed/paid the launch transaction (what Phanes/GMGN show).
+    pump.fun also stores a "creator" in the bonding curve, but that is only the creator-fee wallet and is often a fresh wallet. */
 async function solCreator(mint, deadline, quick) {
+  let feeWallet = null, complete = null, pump = false;
   try {
     const bc = pda([Buffer.from("bonding-curve"), b58dec(mint)], PUMP);
     const r = bc && await rpc("getAccountInfo", [bc, { encoding: "base64" }], 5000);
     const data = r && r.value && Buffer.from(r.value.data[0], "base64");
-    if (data && data.length >= 81) {
-      const c = b58enc(data.subarray(49, 81));
-      if (c && !/^1+$/.test(c)) return { creator: c, pump: true, complete: data[48] === 1 };
-    }
+    if (data && data.length >= 81) { pump = true; complete = data[48] === 1; const c = b58enc(data.subarray(49, 81)); if (c && !/^1+$/.test(c)) feeWallet = c; }
   } catch (e) {}
-  if (quick) return null;
-  // Fallback: walk back to the first transaction (fine for young tokens; gives up on very busy ones).
-  let before, oldest = null;
-  for (let i = 0; i < 6 && (!deadline || Date.now() < deadline - 4000); i++) {
-    const s = await rpc("getSignaturesForAddress", [mint, Object.assign({ limit: 1000 }, before ? { before } : {})], 8000);
-    if (!Array.isArray(s) || !s.length) break;
-    oldest = s[s.length - 1]; before = oldest.signature;
-    if (s.length < 1000) {
-      const tx = await rpc("getTransaction", [oldest.signature, { maxSupportedTransactionVersion: 0, encoding: "json" }], 7000);
-      const keys = tx && tx.transaction && tx.transaction.message && tx.transaction.message.accountKeys;
-      return keys && keys[0] ? { creator: typeof keys[0] === "string" ? keys[0] : keys[0].pubkey, pump: false } : null;
-    }
-  }
-  return null;
+  const sig = await createSig(mint, deadline, quick ? 1 : 10).catch(() => null);
+  const dev = sig ? await feePayer(sig).catch(() => null) : null;
+  if (!dev && !feeWallet) return null;
+  return { creator: dev || feeWallet, feeWallet: feeWallet && feeWallet !== dev ? feeWallet : null, pump, complete };
 }
 
 // ---------- who funded a wallet first ----------
