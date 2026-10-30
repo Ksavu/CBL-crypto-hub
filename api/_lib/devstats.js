@@ -182,8 +182,9 @@ const cacheGet = async (id) => { if (!db.on()) return null; const r = await db.s
 const cachePut = (id, data) => (db.on() ? db.upsert("radar_cache", [{ id, data, updated_at: new Date().toISOString() }], "id").catch(() => {}) : null);
 const SOL_BASE = new Set(["So11111111111111111111111111111111111111112", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"]);
 
-async function helCreates(addr, before, until) {
-  const r = await jfetch(`https://api.helius.xyz/v0/addresses/${addr}/transactions?api-key=${HEL()}&type=CREATE&limit=100${before ? "&before=" + before : ""}${until ? "&until=" + until : ""}`, null, 9000);
+async function helCreates(addr, before, until, ms) {
+  // Type-filtered Helius queries on busy wallets can take 10s+; give them the time that is left.
+  const r = await jfetch(`https://api.helius.xyz/v0/addresses/${addr}/transactions?api-key=${HEL()}&type=CREATE&limit=100${before ? "&before=" + before : ""}${until ? "&until=" + until : ""}`, null, Math.max(3000, Math.min(25000, ms || 15000)));
   if (Array.isArray(r.j)) return { list: r.j, next: r.j.length ? r.j[r.j.length - 1].signature : null, end: !r.j.length };
   // Helius answers 404 with "...query the API again with the `before` parameter set to <sig>" when a search window had no matches
   const txt = JSON.stringify(r.j || "");
@@ -197,18 +198,38 @@ function takeCreates(addr, list, map) {
     if (m && !map.has(m)) map.set(m, { id: m, ts: Number(t.timestamp) || null });
   }
 }
+/** Devs whose history is still loading; /api/cron?job=devs keeps working on them in the background. */
+async function queue(addr, add) {
+  if (!db.on()) return;
+  const q = (await cacheGet("devq")) || { list: [] };
+  const has = q.list.includes(addr);
+  if (add === has) return;
+  q.list = add ? [addr].concat(q.list).slice(0, 20) : q.list.filter((a) => a !== addr);
+  await cachePut("devq", q);
+}
+async function devJob(deadline) {
+  const q = (await cacheGet("devq")) || { list: [] }, out = [];
+  for (const a of q.list.slice(0, 3)) {
+    if (Date.now() > deadline - 5000) break;
+    const per = Math.min(deadline, Date.now() + Math.max(8000, (deadline - Date.now()) / 2));
+    const [c] = await Promise.all([solCreated(a, per).catch(() => null), solOriginCached(a, per).catch(() => null)]);
+    out.push({ a: a.slice(0, 6), n: c ? c.tokens.length : null, done: c ? c.done : null });
+  }
+  return { queued: q.list.length, worked: out };
+}
 /** Every token this wallet created (pump.fun & co.). Returns { tokens:[{id,ts}], done } — done=false means older history is still being scanned. */
 async function solCreated(addr, deadline) {
   if (!HEL()) return { tokens: [], done: true };
   const st = (await cacheGet("devc:" + addr)) || { tokens: [], newest: null, cursor: null, done: false };
   const map = new Map(st.tokens.map((t) => [t.id, t]));
-  const left = () => !deadline || Date.now() < deadline;
+  const left = () => !deadline || Date.now() < deadline - 2000;
+  const ms = () => (deadline ? deadline - Date.now() : 15000);
   let newest = st.newest;
   // 1) anything newer than last time
   if (st.newest) {
     let b = null;
     for (let i = 0; i < 6 && left(); i++) {
-      const r = await helCreates(addr, b, st.newest);
+      const r = await helCreates(addr, b, st.newest, ms());
       if (r.list.length && i === 0) newest = r.list[0].signature;
       takeCreates(addr, r.list, map);
       if (r.end || r.err || !r.next) break; b = r.next;
@@ -217,7 +238,7 @@ async function solCreated(addr, deadline) {
   // 2) keep walking back through older history
   let cursor = st.cursor, done = st.done;
   for (let i = 0; i < 40 && !done && left(); i++) {
-    const r = await helCreates(addr, cursor, null);
+    const r = await helCreates(addr, cursor, null, ms());
     if (r.list.length && !newest) newest = r.list[0].signature;
     takeCreates(addr, r.list, map);
     if (r.err) break;
@@ -226,18 +247,23 @@ async function solCreated(addr, deadline) {
   }
   const tokens = [...map.values()].sort((a, b) => (b.ts || 0) - (a.ts || 0));
   await cachePut("devc:" + addr, { tokens, newest, cursor, done, at: now() });
+  await queue(addr, !done);
   return { tokens, done };
 }
 
 /** Wallet age + first funder, continued across requests. */
 async function solOriginCached(addr, deadline) {
   const st = (await cacheGet("orig:" + addr)) || { cursor: null, oldest: null, done: false };
-  if (st.done && st.funderChecked) return st;
+  if (st.done && st.funderChecked && st.oldest && st.oldest.ts) return { firstTs: st.oldest.ts, complete: true, funder: st.funder || null, funderLabel: st.funderLabel || null };
   // Helius getTransactionsForAddress can sort oldest-first (paid plans); fall back to paging signatures.
   if (!st.done) {
     const a = await rpc("getTransactionsForAddress", [addr, { transactionDetails: "signatures", sortOrder: "asc", limit: 1 }], 6000).catch(() => null);
     const f = a && Array.isArray(a.data) && a.data[0];
-    if (f && f.signature) { st.oldest = { sig: f.signature, ts: f.blockTime || null }; st.done = true; }
+    if (f && f.signature) {
+      let ts = f.blockTime || null;
+      if (!ts && f.slot) ts = (await rpc("getBlockTime", [f.slot], 5000).catch(() => null)) || null;
+      st.oldest = { sig: f.signature, ts }; st.done = true;
+    }
   }
   for (let i = 0; i < 30 && !st.done && (!deadline || Date.now() < deadline); i++) {
     const s = await rpc("getSignaturesForAddress", [addr, Object.assign({ limit: 1000 }, st.cursor ? { before: st.cursor } : {})], 8000);
@@ -250,6 +276,7 @@ async function solOriginCached(addr, deadline) {
     const r = await jfetch("https://api.helius.xyz/v0/transactions?api-key=" + HEL(), { method: "POST", body: JSON.stringify({ transactions: [st.oldest.sig] }) }, 6000);
     const t = Array.isArray(r.j) && r.j[0];
     if (t) {
+      if (!st.oldest.ts && t.timestamp) st.oldest.ts = t.timestamp;
       const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === addr && x.fromUserAccount && x.fromUserAccount !== addr && x.amount > 0);
       st.funder = nt ? nt.fromUserAccount : null; st.funderLabel = labelOf(st.funder); st.funderChecked = true;
     }
@@ -299,4 +326,4 @@ async function solEnrich(list) {
   });
 }
 
-module.exports = { solCreated, solOriginCached, solEnrich, solCreator, isMint, solOrigin, evmOrigin, athFor, labelOf, pda, onCurve, b58dec, b58enc, PUMP };
+module.exports = { devJob, solCreated, solOriginCached, solEnrich, solCreator, isMint, solOrigin, evmOrigin, athFor, labelOf, pda, onCurve, b58dec, b58enc, PUMP };

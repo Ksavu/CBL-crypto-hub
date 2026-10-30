@@ -91,7 +91,7 @@ async function doWallet(msg, addr, chain) {
   if (limited(msg.from.id)) return void (await reply(msg, "⏳ Slow down a little. Try again in a minute."));
   tg("sendChatAction", { chat_id: msg.chat.id, action: "typing" });
   try {
-    const r = await WT.devReport(addr, chain, Date.now() + 22000);
+    const r = await WT.devReport(addr, chain, Date.now() + 35000);
     const tracked = db.on() ? (await WT.listTracks(msg.from.id).catch(() => [])).some((t) => t.address === r.address) : false;
     const c = devReportMsg(r, SITE(), tracked);
     await reply(msg, c.text, { reply_markup: c.reply_markup });

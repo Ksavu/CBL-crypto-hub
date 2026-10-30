@@ -40,7 +40,7 @@ module.exports = async (req, res) => {
   if (url.searchParams.get("wallet")) {
     h.n += 2; // wallet reports cost more upstream calls
     try {
-      const ch = url.searchParams.get("chain"), r = await WT.devReport(url.searchParams.get("wallet"), ch && ch !== "auto" ? ch : undefined, Date.now() + 22000);
+      const ch = url.searchParams.get("chain"), r = await WT.devReport(url.searchParams.get("wallet"), ch && ch !== "auto" ? ch : undefined, Date.now() + 45000);
       res.setHeader("Cache-Control", "public, s-maxage=120, stale-while-revalidate=300");
       return res.status(200).json({ ok: true, ...r, ts: Date.now() });
     } catch (e) {

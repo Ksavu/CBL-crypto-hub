@@ -32,4 +32,8 @@ jobs:
           echo "Bonding curves HTTP status: $vcode"
           cat vbody.txt || true
           echo
+          dcode=$(curl -sS -m 70 -o dbody.txt -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" "https://cryptobarlounge.space/api/cron?job=devs" || true)
+          echo "Dev history HTTP status: $dcode"
+          cat dbody.txt || true
+          echo
           case "$code" in 2*) exit 0 ;; *) exit 1 ;; esac
