@@ -58,17 +58,32 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 @media(max-width:800px){section#tools,section#members,section#services{padding:66px 0 77px}section#market-discovery{padding:63px 0 72px}.tools{grid-template-columns:1fr}.tools>.tool{padding:25px;border-radius:31px}.tools>.tool h3:before{width:58px!important;height:58px!important;flex-basis:58px;border-radius:20px;font-size:26px}.hub-tile{border-radius:28px}.sectionheading h2,.trendheader h2{font-size:clamp(30px,7vw,42px)}}
 @media(prefers-reduced-motion:reduce){.hub-tile,.tools>.tool,.service,.btn,.snifferbtn{transition:none!important;transform:none!important}}
 </style>
-</head><body><div class="bar">CBL CRYPTO HUB ✦ Your Web3 tools & community</div><header class="nav"><div class="wrap"><a class="brand" href="/">CBL <span>CRYPTO HUB</span></a><nav class="links"><a href="/">Home</a><a href="/#sniffer">Coin Sniffer</a><a href="/wallet">Wallet Tracker</a><a href="/radar">Token Radar</a><a href="/rewards">Rewards</a><a href="/account">My Account</a></nav></div></header><main class="wrap"><span class="eyebrow">CBL MEMBER ACCOUNT</span><h1>Your hub. <span class="grad">Your research.</span></h1><p>Sign in to save tokens to your watchlist, link your wallets, pick your chat name and join the community chat.</p>
+<style id="cbl-auth-ux">
+[hidden]{display:none!important}
+.btn{transition:transform .15s,opacity .2s,box-shadow .2s}.btn:active{transform:scale(.96)}
+.btn.busy{pointer-events:none;opacity:.85}.btn.busy::after{content:"";width:15px;height:15px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:cblspin .7s linear infinite;margin-left:6px}
+@keyframes cblspin{to{transform:rotate(360deg)}}
+.status{transition:background .25s,color .25s}.status.ok{background:#e6f7ee;color:#11683b}.status.err{background:#fde8ee;color:#a11d3f}.status.wait{background:#fff6e0;color:#8a5a00}
+.sentnote{border:1px solid #d9ccff;background:#f7f2ff;border-radius:16px;padding:12px 14px;font-size:14px;color:#3d2a7a;animation:cblpop .35s ease}
+.field.otp{font-size:26px;font-weight:800;letter-spacing:10px;text-align:center}
+.field.shake{animation:cblshake .35s}.field.good{border-color:#18a35a;box-shadow:0 0 0 3px #18a35a22}
+@keyframes cblshake{20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+@keyframes cblpop{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+#signedin.enter{animation:cblpop .5s ease}
+.cbl-toast{position:fixed;left:50%;top:18px;z-index:99;transform:translate(-50%,-140%);background:#11683b;color:#fff;padding:12px 20px;border-radius:999px;font-weight:800;font-size:14px;box-shadow:0 14px 34px #0b3d2240;transition:transform .4s cubic-bezier(.2,1.4,.3,1)}
+.cbl-toast.err{background:#a11d3f}.cbl-toast.show{transform:translate(-50%,0)}
+.welcome{display:flex;align-items:center;gap:14px}.welcome .av{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;color:#fff;font-weight:900;font-size:22px;background:linear-gradient(135deg,#7028e6,#2667ee,#e62eaf)}
+</style></head><body><div class="bar">CBL CRYPTO HUB ✦ Your Web3 tools & community</div><header class="nav"><div class="wrap"><a class="brand" href="/">CBL <span>CRYPTO HUB</span></a><nav class="links"><a href="/">Home</a><a href="/#sniffer">Coin Sniffer</a><a href="/wallet">Wallet Tracker</a><a href="/radar">Token Radar</a><a href="/rewards">Rewards</a><a href="/account">My Account</a></nav></div></header><main class="wrap"><span class="eyebrow">CBL MEMBER ACCOUNT</span><h1>Your hub. <span class="grad">Your research.</span></h1><p>Sign in to save tokens to your watchlist, link your wallets, pick your chat name and join the community chat.</p>
 <div class="grid" id="signedout"><div class="card stack"><h2 style="margin:0">Create an account or sign in</h2><div class="pill" id="authbadge">Connecting…</div>
 <label class="label" for="email">Email address</label><input class="field" id="email" type="email" placeholder="you@example.com" autocomplete="email"><button class="btn" id="emailbtn">Continue with email code ↗</button>
-<div id="otpbox" hidden class="stack"><input class="field" id="otp" placeholder="Code from the email" inputmode="numeric" autocomplete="one-time-code"><button class="btn" id="verifybtn">Verify code</button></div>
+<div id="otpbox" hidden class="stack"><div class="sentnote">📩 We sent a code to <b id="sentto"></b>. Check your inbox (and spam).</div><input class="field otp" id="otp" placeholder="••••••" inputmode="numeric" autocomplete="one-time-code" maxlength="10"><button class="btn" id="verifybtn">Verify code</button><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn line" id="resendbtn" type="button" style="flex:1" disabled>Resend code</button><button class="btn line" id="changeemail" type="button" style="flex:1">Use another email</button></div></div>
 <div class="separator"></div><button class="btn soft" data-social="google">Continue with Google</button><button class="btn soft" data-social="discord">Continue with Discord</button>
 <button class="btn line" data-web3="solana">Sign in with Solana wallet</button><button class="btn line" data-web3="ethereum">Sign in with EVM wallet (MetaMask, Rabby…)</button>
 <p class="muted">Wallet sign-in asks you to sign a message (free, no transaction). Never share a seed phrase or private key.</p>
 <div id="authstatus" class="status" role="status">Loading…</div></div>
 <div class="card dark"><h2 style="margin-top:0">One place for everything</h2><p>Your watchlist and linked wallets sync across devices. Chat with the CBL community under your own name. Rewards are coming next.</p><div class="statrow"><div class="stat" style="background:#ffffff1a"><strong>Watchlist</strong><small>Private to you</small></div><div class="stat" style="background:#ffffff1a"><strong>Chat</strong><small>Live on the home page</small></div></div></div></div>
 <div id="signedin" hidden class="stack">
-<div class="card stack"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">My profile</h2><button class="btn line" id="signout">Sign out</button></div><p id="accountinfo" style="margin:0"></p>
+<div class="card stack"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div class="welcome"><span class="av" id="wav">C</span><div><h2 style="margin:0" id="whi">Welcome!</h2><span class="pill" style="margin-top:4px">✅ Signed in</span></div></div><button class="btn line" id="signout">Sign out</button></div><p id="accountinfo" style="margin:0"></p>
 <label class="label" for="uname">Chat name (3–20 letters, numbers or _)</label><div style="display:flex;gap:8px"><input class="field" id="uname" maxlength="20" autocomplete="off"><button class="btn" id="unamebtn">Save</button></div><div class="status" id="pmsg" role="status" hidden></div></div>
 <div class="grid"><div class="card stack"><h2 style="margin:0">Watchlist</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><select class="field" id="wlchain" style="max-width:150px"></select><input class="field" id="wlca" placeholder="Token address" style="flex:1" autocomplete="off" spellcheck="false"></div><input class="field" id="wllabel" placeholder="Note (optional)" maxlength="40"><button class="btn" id="wladd">Add to watchlist</button><div class="list" id="wllist"></div></div>
 <div class="card stack"><h2 style="margin:0">My wallets</h2><div style="display:flex;gap:8px;flex-wrap:wrap"><select class="field" id="lwchain" style="max-width:150px"></select><input class="field" id="lwaddr" placeholder="Wallet address" style="flex:1" autocomplete="off" spellcheck="false"></div><input class="field" id="lwlabel" placeholder="Name (optional)" maxlength="40"><button class="btn" id="lwadd">Add wallet</button><div class="list" id="lwlist"></div><p class="muted">Public addresses only. Open any wallet in the Wallet Tracker to see its activity.</p></div></div>
@@ -77,7 +92,10 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 const $=(s)=>document.querySelector(s);let supa=null,user=null;
 const CH={solana:"Solana",ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood",arbitrum:"Arbitrum",polygon:"Polygon",xrpl:"XRP Ledger",terraclassic:"Terra Classic"};
 const esc=(t)=>String(t==null?"":t).replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const say=(s)=>{$('#authstatus').textContent=s};
+const say=(s,k)=>{const el=$('#authstatus');el.textContent=s;el.className='status'+(k?' '+k:'')};
+function busy(b,on,txt){if(!b)return;if(on){b.dataset.t=b.dataset.t||b.textContent;b.textContent=txt||b.textContent;b.classList.add('busy');b.disabled=true}else{if(b.dataset.t)b.textContent=b.dataset.t;b.classList.remove('busy');b.disabled=false}}
+let tt=null;function toast(m,err){let t=$('#cbltoast');if(!t){t=document.createElement('div');t.id='cbltoast';t.className='cbl-toast';document.body.appendChild(t)}t.textContent=m;t.classList.toggle('err',!!err);requestAnimationFrame(()=>t.classList.add('show'));clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),3200)}
+let cd=null;function countdown(){const b=$('#resendbtn');let n=60;clearInterval(cd);b.disabled=true;b.textContent='Resend code in '+n+'s';cd=setInterval(()=>{n--;if(n<=0){clearInterval(cd);b.disabled=false;b.textContent='Resend code'}else b.textContent='Resend code in '+n+'s'},1000)}
 ["#wlchain","#lwchain"].forEach((id)=>{$(id).innerHTML=Object.keys(CH).map((k)=>'<option value="'+k+'">'+CH[k]+'</option>').join("")});
 function short(a){return a.length>16?a.slice(0,6)+"…"+a.slice(-4):a}
 function norm(ch,a){a=a.trim();return /^(0x|terra1)/i.test(a)?a.toLowerCase():a}
@@ -85,11 +103,14 @@ async function init(){supa=await window.CBLAUTH();
  if(!supa){$('#authbadge').textContent='Setup required';say('Accounts are not switched on yet (SUPABASE_URL / SUPABASE_ANON_KEY missing in Vercel).');return}
  $('#authbadge').textContent='Secure sign-in';say('Choose a sign-in method.');
  const {data}=await supa.auth.getSession();show(data.session&&data.session.user);
- supa.auth.onAuthStateChange((_e,s)=>show(s&&s.user));}
-async function show(u){user=u||null;$('#signedout').hidden=!!user;$('#signedin').hidden=!user;if(!user)return;
+ supa.auth.onAuthStateChange((e,s)=>{if(e==='SIGNED_IN'&&!user)toast('✅ You are signed in');show(s&&s.user)});
+ if(/error_description=/.test(location.hash+location.search)){const m=decodeURIComponent((/error_description=([^&]+)/.exec(location.hash+location.search)||[])[1]||'').replace(/\+/g,' ');say(m||'Sign-in failed. Try again.','err')}}
+async function show(u){const was=user;user=u||null;$('#signedout').hidden=!!user;$('#signedin').hidden=!user;if(!user){document.title='My Account | CBL Crypto Hub';return}
+ if(!was||was.id!==user.id){const si=$('#signedin');si.classList.remove('enter');void si.offsetWidth;si.classList.add('enter');window.scrollTo({top:0,behavior:'smooth'});try{if(location.hash||/[?&](code|error)=/.test(location.search))history.replaceState(null,'','/account')}catch(e){}}
  const who=user.email||(user.user_metadata&&(user.user_metadata.full_name||user.user_metadata.name))||(user.identities&&user.identities[0]&&user.identities[0].identity_data&&user.identities[0].identity_data.address)||user.id;
  $('#accountinfo').textContent='Signed in as '+who;
- const {data:p}=await supa.from('profiles').select('username').eq('id',user.id).maybeSingle();$('#uname').value=(p&&p.username)||'';
+ const {data:p}=await supa.from('profiles').select('username').eq('id',user.id).maybeSingle();const un=(p&&p.username)||'';$('#uname').value=un;
+ $('#whi').textContent='Welcome'+(un?', '+un:'')+'!';$('#wav').textContent=(un||String(who)).charAt(0).toUpperCase();document.title=(un||'My Account')+' | CBL Crypto Hub';
  loadList('watchlist','#wllist');loadList('linked_wallets','#lwlist')}
 async function loadList(t,el){const {data,error}=await supa.from(t).select('*').order('created_at',{ascending:false});
  if(error){$(el).innerHTML='<p class="muted">'+esc(/relation|does not exist/i.test(error.message)?'Run members.sql in Supabase to enable this.':error.message)+'</p>';return}
@@ -100,14 +121,29 @@ async function add(t,ch,a,l,el){const v=norm(ch,a);if(v.length<20)return alert('
 $('#wladd').onclick=()=>add('watchlist',$('#wlchain').value,$('#wlca').value,$('#wllabel').value,'#wllist').then(()=>{$('#wlca').value='';$('#wllabel').value=''});
 $('#lwadd').onclick=()=>add('linked_wallets',$('#lwchain').value,$('#lwaddr').value,$('#lwlabel').value,'#lwlist').then(()=>{$('#lwaddr').value='';$('#lwlabel').value=''});
 $('#unamebtn').onclick=async()=>{const n=$('#uname').value.trim(),m=$('#pmsg');m.hidden=false;if(!/^[A-Za-z0-9_]{3,20}$/.test(n)){m.textContent='Use 3–20 letters, numbers or _';return}
- const {error}=await supa.from('profiles').update({username:n}).eq('id',user.id);m.textContent=error?(/duplicate|unique/i.test(error.message)?'That name is taken.':error.message):'Saved.'};
-$('#emailbtn').onclick=async()=>{if(!supa)return;const email=$('#email').value.trim();if(!email)return say('Enter your email address.');say('Sending…');
- const {error}=await supa.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+'/account'}});say(error?error.message:'Check your inbox: enter the code below or click the link.');if(!error)$('#otpbox').hidden=false};
-$('#verifybtn').onclick=async()=>{if(!supa)return;const {error}=await supa.auth.verifyOtp({email:$('#email').value.trim(),token:$('#otp').value.trim(),type:'email'});say(error?error.message:'Signed in.')};
-document.querySelectorAll('[data-social]').forEach((b)=>b.onclick=async()=>{if(!supa)return;const {error}=await supa.auth.signInWithOAuth({provider:b.dataset.social,options:{redirectTo:location.origin+'/account'}});if(error)say(error.message)});
+ const {error}=await supa.from('profiles').update({username:n}).eq('id',user.id);m.textContent=error?(/duplicate|unique/i.test(error.message)?'That name is taken.':error.message):'Saved ✅';m.className='status '+(error?'err':'ok');if(!error){$('#whi').textContent='Welcome, '+n+'!';$('#wav').textContent=n[0].toUpperCase();toast('✅ Chat name saved')}};
+async function sendCode(btn){if(!supa)return say('Accounts are not switched on yet.','err');const email=$('#email').value.trim();
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)){$('#email').classList.add('shake');setTimeout(()=>$('#email').classList.remove('shake'),400);return say('Enter a valid email address.','err')}
+ busy(btn,true,'Sending code…');say('Sending your code…','wait');
+ const {error}=await supa.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+'/account'}});busy(btn,false);
+ if(error)return say(/rate|seconds/i.test(error.message)?'Please wait a minute before asking for another code.':error.message,'err');
+ $('#sentto').textContent=email;$('#otpbox').hidden=false;$('#email').disabled=true;$('#emailbtn').hidden=true;say('Code sent ✉️ Enter it above, or click the link in the email.','ok');toast('✉️ Code sent to '+email);countdown();setTimeout(()=>$('#otp').focus(),150)}
+$('#emailbtn').onclick=()=>sendCode($('#emailbtn'));$('#email').addEventListener('keydown',(e)=>{if(e.key==='Enter')sendCode($('#emailbtn'))});
+$('#resendbtn').onclick=()=>sendCode($('#resendbtn'));
+$('#changeemail').onclick=()=>{$('#otpbox').hidden=true;$('#email').disabled=false;$('#emailbtn').hidden=false;$('#otp').value='';clearInterval(cd);say('Choose a sign-in method.');$('#email').focus()};
+let verifying=false;
+async function verify(){if(!supa||verifying)return;const code=$('#otp').value.replace(/\D/g,'');if(code.length<6){$('#otp').classList.add('shake');setTimeout(()=>$('#otp').classList.remove('shake'),400);return say('Enter the code from the email.','err')}
+ verifying=true;busy($('#verifybtn'),true,'Verifying…');say('Checking your code…','wait');
+ const {error}=await supa.auth.verifyOtp({email:$('#email').value.trim(),token:code,type:'email'});verifying=false;busy($('#verifybtn'),false);
+ if(error){$('#otp').classList.add('shake');setTimeout(()=>$('#otp').classList.remove('shake'),400);return say(/expired|invalid/i.test(error.message)?'That code is wrong or expired. Check the newest email or tap Resend.':error.message,'err')}
+ $('#otp').classList.add('good');say('Signed in ✅','ok');toast('✅ You are signed in');const {data}=await supa.auth.getSession();show(data.session&&data.session.user)}
+$('#verifybtn').onclick=verify;$('#otp').addEventListener('input',(e)=>{e.target.value=e.target.value.replace(/\D/g,'');if(e.target.value.length===6||e.target.value.length===8)verify()});$('#otp').addEventListener('keydown',(e)=>{if(e.key==='Enter')verify()});
+document.querySelectorAll('[data-social]').forEach((b)=>b.onclick=async()=>{if(!supa)return;busy(b,true,'Opening '+b.dataset.social[0].toUpperCase()+b.dataset.social.slice(1)+'…');say('Taking you to '+b.dataset.social+'…','wait');setTimeout(()=>busy(b,false),8000);const {error}=await supa.auth.signInWithOAuth({provider:b.dataset.social,options:{redirectTo:location.origin+'/account'}});if(error){busy(b,false);say(/not enabled|unsupported/i.test(error.message)?'This sign-in option is not switched on yet.':error.message,'err')}});
 document.querySelectorAll('[data-web3]').forEach((b)=>b.onclick=async()=>{if(!supa)return;const ch=b.dataset.web3,w=ch==='solana'?(window.phantom&&window.phantom.solana)||window.solflare||window.solana:window.ethereum;
  if(!w)return say(ch==='solana'?'No Solana wallet found. Install Phantom or Solflare, or open this page in the wallet app.':'No EVM wallet found. Install MetaMask or Rabby, or open this page in the wallet app.');
- try{say('Sign the message in your wallet…');const {error}=await supa.auth.signInWithWeb3({chain:ch,wallet:w,statement:'Sign in to CBL Crypto Hub'});say(error?(/provider|disabled|not enabled/i.test(error.message)?'Wallet sign-in is not enabled yet in Supabase (Authentication → Providers → Web3 Wallet).':error.message):'Signed in.')}catch(e){say(e.message||'Wallet sign-in failed')}});
-$('#signout').onclick=async()=>{await supa.auth.signOut();show(null)};
+ busy(b,true,'Waiting for your wallet…');try{say('Approve the connection and sign the message in your wallet (free, no transaction).','wait');const {data,error}=await supa.auth.signInWithWeb3({chain:ch,wallet:w,statement:'Sign in to CBL Crypto Hub'});busy(b,false);
+ if(error)return say(/provider|disabled|not enabled/i.test(error.message)?'Wallet sign-in is not switched on yet.':/reject|denied|cancel/i.test(error.message)?'Signature cancelled in your wallet.':error.message,'err');
+ say('Signed in ✅','ok');toast('✅ Wallet connected and signed in');show((data&&data.user)||(data&&data.session&&data.session.user))}catch(e){busy(b,false);say(/reject|denied|cancel/i.test(String(e&&e.message))?'Signature cancelled in your wallet.':(e.message||'Wallet sign-in failed'),'err')}});
+$('#signout').onclick=async()=>{busy($('#signout'),true,'Signing out…');await supa.auth.signOut();busy($('#signout'),false);show(null);$('#otpbox').hidden=true;$('#email').disabled=false;$('#emailbtn').hidden=false;$('#otp').value='';$('#otp').classList.remove('good');say('Signed out. See you soon 👋','ok')};
 init();
 </script></body></html>
