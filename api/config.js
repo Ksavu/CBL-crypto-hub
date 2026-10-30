@@ -6,6 +6,9 @@ module.exports = (req, res) => {
   const bps = parseInt(clean(process.env.XRPL_FEE_BPS) || "50", 10);
   res.status(200).json({
     wc: clean(process.env.WC_PROJECT_ID),
+    // Member accounts + chat: public URL and anon (publishable) key only. Never the service key.
+    supabaseUrl: clean(process.env.SUPABASE_URL),
+    supabaseAnonKey: clean(process.env.SUPABASE_ANON_KEY),
     xaman: clean(process.env.XAMAN_API_KEY),
     xrplFee: clean(process.env.XRPL_FEE_ACCOUNT),
     xrplFeeBps: Number.isFinite(bps) ? Math.min(Math.max(bps, 0), 300) : 50,
