@@ -41,7 +41,7 @@ async function gecko(ca) {
     priceChange: { h24: isBase ? num(a.price_change_percentage && a.price_change_percentage.h24) : undefined },
     fdv: num(a.fdv_usd), marketCap: num(a.market_cap_usd),
     pairCreatedAt: Number.isFinite(created) ? created : undefined,
-    dexId: dex, url: `https://www.geckoterminal.com/solana/pools/${a.address}`,
+    dexId: dex, url: `https://dexscreener.com/solana/${ca}`,
     _poolCount: pools.length, _src: "geckoterminal",
   };
 }

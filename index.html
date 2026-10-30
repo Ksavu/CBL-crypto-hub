@@ -865,11 +865,11 @@ async function pancakeGo(){var btn=$("go"),say=function(m){$("msg").textContent=
   pend2={p:p,amt:amt,pay:pay,slip:slip,sd:side,out:q.out};$("out").value=pf(q,q.out);
   say("You get about "+pf(q,q.out)+" (minimum "+pf(q,q.min)+"). Route: PancakeSwap V2"+(q.fr&&q.fb?" · includes "+(q.fb/100)+"% CBL fee":"")+". Click again to confirm.");btn.textContent="Confirm in wallet"
  }catch(e){pend2=null;btn.disabled=false;btn.textContent="Get quote";fail(e,say)}}
-function slipDef(p){return p&&p.tax?6:1}
+function slipDef(p){return p&&p.tax?6:p&&p.curve?5:1}
 function slipVal(p){var v=parseFloat($("slip").value);return ((v>0&&v<50)?v:slipDef(p))/100}
 function uiSwap(){var p=lst()[$("tok").value];if(!p)return;if($("tok").value!==lastTok){lastTok=$("tok").value;slipDirty=false}
  if(!slipDirty)$("slip").value=slipDef(p);
- $("route").textContent=(p.c==="Terra Classic"?"Route: Terra Classic LUNC/USTC pool (Keplr, Galaxy Station or Leap)":p.c==="XRP Ledger"?"Route: XRPL AMM + order book (Xaman, Joey, Crossmark or GemWallet)":p.dex==="pancake"?"Route: PancakeSwap V2 on "+p.c:p.c==="Solana"?"Route: best price via Jupiter on Solana":"Route: best price via LI.FI on "+p.c)+(p.tax?" · Token tax "+(p.taxTxt||"applies")+". Keep slippage at 6% or higher.":"")}
+ $("route").textContent=(p.curve?"Route: "+p.curve.pad+" bonding curve on "+p.c+(p.curve.prog!=null?" · "+p.curve.prog+"% to graduation":"")+" · traded inside CBL Swap":p.c==="Terra Classic"?"Route: Terra Classic LUNC/USTC pool (Keplr, Galaxy Station or Leap)":p.c==="XRP Ledger"?"Route: XRPL AMM + order book (Xaman, Joey, Crossmark or GemWallet)":p.dex==="pancake"?"Route: PancakeSwap V2 on "+p.c:p.c==="Solana"?"Route: best price via Jupiter on Solana":"Route: best price via LI.FI on "+p.c)+(p.tax?" · Token tax "+(p.taxTxt||"applies")+". Keep slippage at 6% or higher.":"")}
 async function j(p){var r=await fetch("/api/li?p="+encodeURIComponent(p)),d=await r.json();if(!r.ok)throw new Error(d.message||"Request failed");return d}
 async function chains(){if(CH)return;var d;try{d=await j("/chains?chainTypes=EVM,SVM,UTXO,TVM")}catch(e){d=await j("/chains")}CH={};d.chains.forEach(function(c){for(var n in AL){if((CID[n]&&CID[n]===c.id)||AL[n].indexOf(String(c.key).toLowerCase())>-1||AL[n].indexOf(String(c.name).toLowerCase())>-1)CH[n]=c}})}
 function sv(f,n){try{localStorage.setItem("cbl_w_"+f,n)}catch(e){}}
@@ -1107,14 +1107,14 @@ async function jupGo(){var btn=$("go"),say=function(m){$("msg").textContent=m};
 var CHN2={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood Chain",solana:"Solana"},NATC={Solana:"SOL","BNB Chain":"BNB",Base:"ETH","Robinhood Chain":"ETH",Ethereum:"ETH","XRP Ledger":"XRP","Terra Classic":"LUNC"};
 var XR=function(){return window.CBLXRPL};var TR=function(){return window.CBLTERRA};function isTid(s){return /^terra1(?:[02-9ac-hj-np-z]{58}|[02-9ac-hj-np-z]{38})$/.test(String(s||"").trim().toLowerCase())}function isXid(s){return /^[A-Za-z0-9]{1,40}\.r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(String(s||"").trim())}
 function E(t){return String(t).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
-function payOpts(p){var n=NATC[p&&p.c]||"ETH",l=p&&p.c==="XRP Ledger"?["XRP"]:p&&p.c==="Terra Classic"?["LUNC","USTC"]:p&&p.c==="Solana"?[n,"USDC","USDT"]:["USDT","USDC",n];$("pay").innerHTML=l.map(function(x){return '<option>'+x+'</option>'}).join("")}
+function payOpts(p){var n=NATC[p&&p.c]||"ETH",l=p&&p.curve?[n]:p&&p.c==="XRP Ledger"?["XRP"]:p&&p.c==="Terra Classic"?["LUNC","USTC"]:p&&p.c==="Solana"?[n,"USDC","USDT"]:["USDT","USDC",n];$("pay").innerHTML=l.map(function(x){return '<option>'+x+'</option>'}).join("")}
 function rebuildTok(i){var L=lst();$("tok").innerHTML=L.map(function(p,k){return '<option value="'+k+'">'+E(p.n)+' ('+p.c+')</option>'}).join("");$("tok").value=i||0;payOpts(L[$("tok").value]||L[0])}
 $("tok").onchange=function(){payOpts(lst()[$("tok").value])};
 window.buyTok=function(n){var L=lst(),i=L.findIndex(function(p){return p.n===n});if(i>-1){$("tok").value=i;payOpts(L[i]);reset();$("swap").scrollIntoView({behavior:"smooth"})}};
 function banner(ck){var b=$("cbn");
  if(!CUST){if(b)b.remove();return}
  if(!b){b=document.createElement("div");b.id="cbn";b.className="nb";b.style.cssText="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;text-align:left";$("swp").parentNode.insertBefore(b,$("swp"))}
- b.innerHTML='<span><b>Buying '+E(CUST.n)+'</b> on '+E(CUST.c)+' · <code>'+E(short(CUST.a))+'</code> <span id="crisk"></span></span><button class="chip" id="cclr" type="button">Clear</button>';
+ b.innerHTML='<span><b>Buying '+E(CUST.n)+'</b> on '+E(CUST.c)+(CUST.curve?' · <span class="tag">🎢 '+E(CUST.curve.pad)+' curve</span>':'')+' · <code>'+E(short(CUST.a))+'</code> <span id="crisk"></span></span><button class="chip" id="cclr" type="button">Clear</button>';
  $("cclr").onclick=function(){CUST=null;rebuildTok(0);banner();try{history.replaceState(null,"",location.pathname+"#swap")}catch(e){}reset()};
  fetch("/api/scan?deep=0&ca="+encodeURIComponent(CUST.a)+"&chain="+encodeURIComponent(ck)).then(function(r){return r.json()}).then(function(d){var el=$("crisk");if(el&&CUST&&d&&d.ok&&d.score!=null)el.innerHTML='<span class="tag">'+d.score+'/100 · '+E(d.verdict)+'</span>'}).catch(function(){})}
 async function openCustom(ca,chKey,tax){
@@ -1129,6 +1129,7 @@ async function openCustom(ca,chKey,tax){
  var pr=pairs.filter(function(p){return p.chainId===ck})[0],t=pr?(pr.baseToken.address.toLowerCase()===low?pr.baseToken:pr.quoteToken):{};
  CUST={n:t.symbol||"Token",c:CHN2[ck],a:ca,custom:1,dex:ck==="bsc"?"pancake":undefined,tax:tax>=3,taxTxt:tax?tax+"%":""};
  if(sol)try{await jdec(ca)}catch(e){}
+ if(CV[ck]){var cv=await cvDetect(ca,ck);if(cv){CUST.curve=cv;CUST.dex=undefined;if(CUST.n==="Token")try{CUST.n=String(await new ethers.Contract(ca,["function symbol() view returns (string)"],cvRpc(CV[ck])).symbol()).slice(0,20)||"Token"}catch(e){}}}
  rebuildTok(0);setSide("buy");banner(ck);reset();setTimeout(function(){$("swap").scrollIntoView({behavior:"smooth"})},200)}
 setTimeout(function(){var q=new URLSearchParams(location.search),ca=(q.get("swap")||"").trim();
  if(/^0x[a-fA-F0-9]{40}$/.test(ca)||/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca)||isXid(ca)||isTid(ca))openCustom(ca,(q.get("chain")||"").toLowerCase(),parseFloat(q.get("t"))||0).catch(function(e){say1("Could not open this token.")})},300);
@@ -1141,12 +1142,81 @@ function loadCA(){var ca=$("cca").value.trim(),n=$("ccn").value;
  if(n==="solana"&&/^0x/i.test(ca)||n&&n!=="solana"&&!/^0x/i.test(ca)){say1("Address does not match the selected network.");return}
  openCustom(ca,n,0).catch(function(){say1("Could not open this token.")})}
 $("ccb").onclick=loadCA;$("cca").addEventListener("keydown",function(e){if(e.key==="Enter")loadCA()});
-var liGo=$("go").onclick;$("go").onclick=function(){var p=lst()[$("tok").value];return p&&p.c==="Terra Classic"?terraGo(p):p&&p.c==="XRP Ledger"?xrplGo(p):p&&p.dex==="pancake"?pancakeGo():p&&p.c==="Solana"?jupGo():liGo.call(this)};
+var liGo=$("go").onclick;$("go").onclick=function(){var p=lst()[$("tok").value];return p&&p.curve?curveGo():p&&p.c==="Terra Classic"?terraGo(p):p&&p.c==="XRP Ledger"?xrplGo(p):p&&p.dex==="pancake"?pancakeGo():p&&p.c==="Solana"?jupGo():liGo.call(this)};
 function xrplGo(p){if(!XR()){$("msg").textContent="XRPL module is still loading. Try again in a second.";return}return XR().go({p:p,amt:$("amt").value,side:side,slip:slipVal(p),btn:$("go"),out:$("out"),say:function(m){$("msg").textContent=m}})}
 function terraGo(p){if(!TR()){$("msg").textContent="Terra module is still loading. Try again in a second.";return}return TR().go({p:p,amt:$("amt").value,side:side,pay:$("pay").value,slip:slipVal(p),btn:$("go"),out:$("out"),say:function(m){$("msg").textContent=m}})}
+/* ---- Bonding-curve trades inside CBL Swap: Four.meme (BNB Chain) and Pons (Robinhood Chain) tokens that have not graduated yet.
+   Buys and sells go straight to the launchpad contract from the user's wallet; the CBL fee (CURVE_FEE_BPS, default 0.5%) is a separate native transfer to EVM_FEE_ACCOUNT. ---- */
+var CV={bsc:{rpc:"https://bsc-dataseed.binance.org",cid:56,h3:"0xF251F83e40a78868FcfA3FA4599Dad6494E46034",exp:"https://bscscan.com/tx/",nat:"BNB"},robinhood:{rpc:"https://rpc.mainnet.chain.robinhood.com",cid:4663,pf:"0x7ed598bcef8bd9edd8c97a195c6d13f40801ec7e",exp:"https://robinhoodchain.blockscout.com/tx/",nat:"ETH"}},CVF=null,pend6=null;
+var H3ABI=["function getTokenInfo(address) view returns (uint256 version,address tokenManager,address quote,uint256 lastPrice,uint256 tradingFeeRate,uint256 minTradingFee,uint256 launchTime,uint256 offers,uint256 maxOffers,uint256 funds,uint256 maxFunds,bool liquidityAdded)","function tryBuy(address,uint256,uint256) view returns (address tokenManager,address quote,uint256 estimatedAmount,uint256 estimatedCost,uint256 estimatedFee,uint256 amountMsgValue,uint256 amountApproval,uint256 amountFunds)","function trySell(address,uint256) view returns (address tokenManager,address quote,uint256 funds,uint256 fee)"];
+var FMABI=["function buyTokenAMAP(address,uint256,uint256) payable","function sellToken(uint256,address,uint256,uint256)","function sellToken(address,uint256)","function purchaseTokenAMAP(address,uint256,uint256) payable","function saleToken(address,uint256)"];
+var PFABI=["function getLaunchedToken(address) view returns (tuple(address token,address curve,address deployer,address creatorFeeRecipient,address pairToken,uint256 graduationThreshold,uint24 poolFee,int24 tickSpacing,uint16 creatorTaxBps,bool buybackEnabled,uint8 phase,uint256 sweptQuote,uint256 sweptTokens,uint256 sweptAt,bool exists))"];
+var PCABI=["function quoteReserve() view returns (uint256)","function tokenReserve() view returns (uint256)","function reservedTokens() view returns (uint256)","function feeBps() view returns (uint256)","function creatorTaxBps() view returns (uint256)","function currentSnipeTaxBps(address) view returns (uint256)","function isNativeQuote() view returns (bool)","function graduated() view returns (bool)","function buy(uint256,uint256,address) payable returns (uint256)","function sell(uint256,uint256,address) returns (uint256)"];
+function cvRpc(c){return new ethers.JsonRpcProvider(c.rpc,c.cid,{staticNetwork:true})}
+/* Is this token still on a Four.meme / Pons curve? Returns route info or null (then the normal DEX route is used). */
+async function cvDetect(ca,ck){var c=CV[ck];if(!c||!/^0x[a-fA-F0-9]{40}$/.test(ca))return null;await loadEth();var rpc=cvRpc(c),Z=ethers.ZeroAddress;
+ try{if(ck==="bsc"){var i=await new ethers.Contract(c.h3,H3ABI,rpc).getTokenInfo(ca);
+   if(!i||i.tokenManager===Z||i.liquidityAdded||i.quote!==Z)return null;var v=Number(i.version);if(v!==1&&v!==2)return null;
+   return {pad:"Four.meme",ck:ck,v:v,tm:i.tokenManager,prog:i.maxFunds>0n?Math.min(100,Number(i.funds*1000n/i.maxFunds)/10):null}}
+  var L=await new ethers.Contract(c.pf,PFABI,rpc).getLaunchedToken(ca);if(!L||!L.exists||Number(L.phase)===2||L.curve===Z)return null;
+  var C=new ethers.Contract(L.curve,PCABI,rpc);if(!(await C.isNativeQuote())||(await C.graduated()))return null;
+  return {pad:"Pons",ck:ck,curve:L.curve}}catch(e){return null}}
+async function cvFee(){if(CVF)return CVF;var bps=50,to="";
+ try{var cf=await fetch("/api/config").then(function(r){return r.json()});if(cf.curveBps>=0)bps=Number(cf.curveBps);to=cf.evmFee||""}catch(e){}
+ if(!to&&FEE_ROUTER){try{var r=cvRpc(CV.bsc),a=await new ethers.Contract(FEE_ROUTER,["function feeRecipient() view returns (address)"],r).feeRecipient();if((await r.getCode(a))==="0x")to=a}catch(e){}}/* plain wallet only, so it can receive on every chain */
+ CVF={bps:to?bps:0,to:to};return CVF}
+async function cvPons(cu,rpc,me){var C=new ethers.Contract(cu,PCABI,rpc),r=await Promise.all([C.quoteReserve(),C.tokenReserve(),C.reservedTokens(),C.feeBps(),C.creatorTaxBps(),C.currentSnipeTaxBps(me).catch(function(){return 0n})]);return {q:r[0],t:r[1],rs:r[2],f:r[3],tx:r[4],sn:r[5]}}
+function ponsBuy(S,w){var sn=S.sn;if(sn>0n){var cl=9900n-S.f-S.tx;if(sn>cl)sn=cl}
+ var net=w-w*S.f/10000n-w*S.tx/10000n-w*sn/10000n;if(net<=0n||S.q<=0n||S.t<=S.rs)throw new Error("Amount too small for this curve");
+ var sc=net*10000n,out=sc*S.t/(S.q*10000n+sc),cap=S.t-S.rs;return {out:out>cap?cap:out,sn:sn}}
+function ponsSell(S,a){var sc=a*10000n,g=sc*S.q/(S.t*10000n+sc);if(g<=0n)throw new Error("Amount too small for this curve");return g-g*S.f/10000n-g*S.tx/10000n}
+async function cvQuote(p,amt,sd,slip){var I=p.curve,c=CV[I.ck];await loadEth();await connect(p.c);await switchNet(c.cid);
+ if(cidNum(await EP.request({method:"eth_chainId"}))!==c.cid)throw new Error("Switch your wallet to "+p.c+", then try again.");
+ var s=await new ethers.BrowserProvider(EP).getSigner(),me=await s.getAddress(),rpc=cvRpc(c),F=await cvFee(),sell=sd==="sell";
+ var T=new ethers.Contract(p.a,TABI.concat(["function balanceOf(address) view returns (uint256)"]),rpc),dc=Number(await T.decimals());
+ var x={p:p,I:I,c:c,s:s,me:me,rpc:rpc,sell:sell,dc:dc,F:F,sb:BigInt(Math.round(slip*10000))};
+ if(!sell){var gross=ethers.parseEther(String(amt));x.fee=gross*BigInt(F.bps)/10000n;x.val=gross-x.fee;x.funds=x.val;
+  if((await rpc.getBalance(me))<gross)throw new Error("Not enough "+c.nat+" in your wallet for this amount plus gas.");
+  if(I.pad==="Four.meme"){var r=await new ethers.Contract(c.h3,H3ABI,rpc).tryBuy(p.a,0,x.val);x.out=r.estimatedAmount;x.val=r.amountMsgValue>0n?r.amountMsgValue:x.val;x.funds=r.amountFunds>0n?r.amountFunds:x.funds}
+  else{var q=ponsBuy(await cvPons(I.curve,rpc,me),x.val);x.out=q.out;x.snipe=q.sn}
+  if(x.out<=0n)throw new Error("The curve returned no tokens for this amount");x.min=x.out*(10000n-x.sb)/10000n}
+ else{x.amtIn=ethers.parseUnits(String(amt),dc);var bal=await T.balanceOf(me);if(bal<x.amtIn)throw new Error("Your wallet holds only "+Number(ethers.formatUnits(bal,dc)).toPrecision(6)+" "+p.n);
+  var net;if(I.pad==="Four.meme"){var r2=await new ethers.Contract(c.h3,H3ABI,rpc).trySell(p.a,x.amtIn);net=r2.funds>r2.fee?r2.funds-r2.fee:r2.funds}else net=ponsSell(await cvPons(I.curve,rpc,me),x.amtIn);
+  x.minRaw=net*(10000n-x.sb)/10000n;x.fee=net*BigInt(F.bps)/10000n;x.out=net-x.fee}
+ return x}
+function cvFmt(x,v){return Number(ethers.formatUnits(v,x.sell?18:x.dc)).toPrecision(6)+" "+(x.sell?x.c.nat:x.p.n)}
+async function cvExec(x,say){var I=x.I,tx,send;
+ if(!x.sell){
+  if(I.pad==="Four.meme"){var M=new ethers.Contract(I.tm,FMABI,x.s),fn=I.v===1?"purchaseTokenAMAP(address,uint256,uint256)":"buyTokenAMAP(address,uint256,uint256)";send=function(sim){return M[fn][sim?"staticCall":"send"](x.p.a,x.funds,x.min,{value:x.val})}}
+  else{var PC=new ethers.Contract(I.curve,PCABI,x.s);send=function(sim){return PC.buy[sim?"staticCall":"send"](x.val,x.min,x.me,{value:x.val})}}
+  say("Checking the trade...");await send(true);/* revert here = nothing paid yet */
+  if(x.fee>0n){say("Confirm the "+(x.F.bps/100)+"% CBL fee in your wallet (1 of 2)...");var ft=await x.s.sendTransaction({to:x.F.to,value:x.fee});await ft.wait()}
+  say("Confirm the buy in your wallet"+(x.fee>0n?" (2 of 2)":"")+"...");tx=await send(false)}
+ else{var sp=I.pad==="Four.meme"?I.tm:I.curve,al=await new ethers.Contract(x.p.a,TABI,x.rpc).allowance(x.me,sp);
+  if(al<x.amtIn){say("Approve "+x.p.n+" in your wallet...");var a=await new ethers.Contract(x.p.a,TABI,x.s).approve(sp,x.amtIn);await a.wait()}
+  if(I.pad==="Four.meme"){var M2=new ethers.Contract(I.tm,FMABI,x.s),a4=[0,x.p.a,x.amtIn,x.minRaw],f4="sellToken(uint256,address,uint256,uint256)",f2=I.v===1?"saleToken(address,uint256)":"sellToken(address,uint256)";
+   if(I.v===1)send=function(sim){return M2[f2][sim?"staticCall":"send"](x.p.a,x.amtIn)};
+   else{var e4=null;try{await M2[f4].staticCall.apply(null,a4)}catch(e){e4=e}
+    if(!e4)send=function(sim){return M2[f4][sim?"staticCall":"send"].apply(null,a4)};
+    else{try{await M2[f2].staticCall(x.p.a,x.amtIn)}catch(e){throw e4}send=function(sim){return M2[f2][sim?"staticCall":"send"](x.p.a,x.amtIn)}}}}
+  else{var PS=new ethers.Contract(I.curve,PCABI,x.s);send=function(sim){return PS.sell[sim?"staticCall":"send"](x.amtIn,x.minRaw,x.me)}}
+  say("Confirm the sell in your wallet...");tx=await send(false)}
+ say("Trade sent. Waiting for confirmation...");var rc=await tx.wait();if(rc&&rc.status===0)throw new Error("The trade failed on-chain: "+x.c.exp+tx.hash);
+ if(x.sell&&x.fee>0n){try{say("Sold. Confirm the "+(x.F.bps/100)+"% CBL fee in your wallet...");var f2t=await x.s.sendTransaction({to:x.F.to,value:x.fee});await f2t.wait()}catch(e){}}
+ say("Done. "+(x.sell?"Sold":"Bought")+" on the "+I.pad+" curve: "+x.c.exp+tx.hash)}
+async function curveGo(){var btn=$("go"),say=function(m){$("msg").textContent=m};
+ try{var p=lst()[$("tok").value],amt=$("amt").value;
+  if(pend6){var x0=pend6;pend6=null;btn.disabled=true;say("Refreshing price...");var x=await cvQuote(x0.p,x0.amt,x0.sd,x0.slip);
+   if(x.out<x0.out*99n/100n){pend6={p:x0.p,amt:x0.amt,sd:x0.sd,slip:x0.slip,out:x.out};btn.disabled=false;say("Price moved. New estimate: "+cvFmt(x,x.out)+". Click again to confirm.");return}
+   await cvExec(x,say);btn.textContent="Get quote";btn.disabled=false;return}
+  if(!(amt>0))throw new Error("Enter an amount");var slip=slipVal(p);
+  say("Connecting wallet...");say("Getting price from the "+p.curve.pad+" curve...");var q=await cvQuote(p,amt,side,slip);
+  pend6={p:p,amt:amt,sd:side,slip:slip,out:q.out};$("out").value=cvFmt(q,q.out);
+  say("You get about "+cvFmt(q,q.out)+" (minimum "+cvFmt(q,q.sell?q.minRaw-q.fee:q.min)+"). Route: "+p.curve.pad+" bonding curve"+(q.fee>0n?" · includes "+(q.F.bps/100)+"% CBL fee (separate small transfer)":"")+(q.snipe>0n?" · launch snipe tax "+(Number(q.snipe)/100)+"% right now":"")+". Click again to confirm.");btn.textContent="Confirm in wallet"
+ }catch(e){pend6=null;btn.disabled=false;btn.textContent="Get quote";fail(e,say)}}
 window.cblSwapTerra=function(id){openCustom(id,"terraclassic",0).catch(function(){say1("Could not open this token.")})};
 window.cblSwapXrpl=function(id){openCustom(id,"xrpl",0).catch(function(){say1("Could not open this token.")})};
-$("slip").addEventListener("input",function(){slipDirty=true;pend=null;pend2=null;$("go").textContent="Get quote"});
+$("slip").addEventListener("input",function(){slipDirty=true;pend=null;pend2=null;pend6=null;$("go").textContent="Get quote"});
 function setSide(s){side=s;var fa=$("amt").parentNode,fo=$("out").parentNode,sell=s==="sell";fa.appendChild(sell?$("tok"):$("pay"));fo.appendChild(sell?$("pay"):$("tok"));fa.parentNode.querySelector("label").htmlFor=sell?"tok":"pay";fo.parentNode.querySelector("label").htmlFor=sell?"pay":"tok";$("amt").value="";$("out").value="";$("sB").setAttribute("aria-pressed",!sell);$("sS").setAttribute("aria-pressed",sell);reset()}
 $("sB").onclick=function(){setSide("buy")};$("sS").onclick=function(){setSide("sell")};
 $("wc").onclick=async function(){try{var a=await connect("Ethereum");reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
@@ -1154,7 +1224,7 @@ $("wcx").onclick=async function(){try{if(!XR())throw new Error("XRPL module is s
 $("wct").onclick=async function(){try{if(!TR())throw new Error("Terra module is still loading");if(TR().account()){if(confirm("Disconnect Terra wallet?"))await TR().disconnect();return}var a=await connect("Terra Classic");reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
 $("wcs").onclick=async function(){try{var a=await connect("Solana");reset();say1("Connected: "+short(a))}catch(e){fail(e,say1)}};
 $("rconn").onclick=async function(){try{var a=$("btn").value==="Terra Classic"?(TR()?await TR().connect():""):$("btn").value==="XRP Ledger"?(XR()?await XR().connect():""):await connect($("btn").value);$("brecv").value=a;reset()}catch(e){fail(e,say1)}};
-function reset(){pend=null;pend2=null;pend3=null;pend5=null;if(XR())XR().reset();if(TR())TR().reset();$("bgo").textContent="Get quote";$("go").textContent="Get quote";
+function reset(){pend=null;pend6=null;pend2=null;pend3=null;pend5=null;if(XR())XR().reset();if(TR())TR().reset();$("bgo").textContent="Get quote";$("go").textContent="Get quote";
  var fn=$("bfn").value,tn=$("btn").value,r=$("rcv");r.style.display=fam(fn)===fam(tn)?"none":"block";$("rcvl").textContent="Receiving "+tn+" address";
  if(A[fam(tn)]&&!$("brecv").value)$("brecv").value=A[fam(tn)];var rv=$("brecv").value.trim(),isR=/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(rv);if(tn==="XRP Ledger"){if(rv&&!isR)$("brecv").value="";if(XR()&&XR().account()&&!$("brecv").value)$("brecv").value=XR().account()}else if(isR){$("brecv").value=A[fam(tn)]||""}rv=$("brecv").value.trim();var isT=/^terra1/.test(rv);if(tn==="Terra Classic"){if(rv&&!isT)$("brecv").value="";if(TR()&&TR().account()&&!$("brecv").value)$("brecv").value=TR().account()}else if(isT){$("brecv").value=A[fam(tn)]||""}if(typeof pend4!=="undefined")pend4=null;
  $("wc").textContent=A.evm?"EVM: "+short(A.evm):"Connect EVM wallet";$("wcs").textContent=A.Solana?"Solana: "+short(A.Solana):"Connect Solana wallet";uiSwap();netCheck();updHW()}
@@ -1352,7 +1422,7 @@ function draw(){var L=pick().slice(0,8);
   return '<article class="hr-card"><div class="hr-top">'+lg+'<div style="min-width:0"><b>'+esc(r.sym||"?")+'</b><small>'+esc(NM[r.chain]||r.chain)+' · '+esc((r.name||"").slice(0,22))+'</small></div>'+sc+'</div>'+
    (M==="curve"?'<div class="hr-px"><b>'+(r.progress!=null?"Curve "+Math.round(r.progress)+"%":"On curve")+'</b>'+(r.koth?'<span class="hr-up">👑 KOTH</span>':"")+'</div><div class="hr-m"><div><small>Mkt cap</small>'+usd(r.mcap)+'</div><div><small>'+(r.tx1h?"Trades 1h":r.holders?"Holders":"Replies")+'</small>'+(r.tx1h||r.holders||r.replies||"—")+'</div><div><small>Age</small>'+(r.created?age(r.created):"—")+'</div></div>'
    :'<div class="hr-px"><b>'+price(r.price)+'</b>'+ch+'</div><div class="hr-m"><div><small>Mkt cap</small>'+usd(r.mcap)+'</div><div><small>Liquidity</small>'+usd(r.liq)+'</div><div><small>24h vol</small>'+usd(r.vol24)+'</div></div>')+
-   '<div class="hr-fl">'+f.join("")+'</div><div class="hr-act"><button class="p" type="button" data-scan="'+esc(r.ca)+'" data-chain="'+esc(r.chain)+'">Scan</button>'+(SW[r.chain]&&(M!=="curve"||r.chain==="solana")?'<a href="?swap='+encodeURIComponent(r.ca)+'&chain='+r.chain+'#swap">Buy</a>':M==="curve"&&r.pad?'<a href="'+esc(r.pad)+'" target="_blank" rel="noopener">Buy ↗</a>':M==="curve"?'<a href="/radar?tab=curve">Radar</a>':'<a href="'+esc(r.url||"/radar")+'" target="_blank" rel="noopener">Chart</a>')+(r.url&&(SW[r.chain]||M==="curve")?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">Chart</a>':'<a href="/radar">Radar</a>')+'</div></article>'}).join("");
+   '<div class="hr-fl">'+f.join("")+'</div><div class="hr-act"><button class="p" type="button" data-scan="'+esc(r.ca)+'" data-chain="'+esc(r.chain)+'">Scan</button>'+(SW[r.chain]&&(M!=="curve"||r.chain==="solana"||(r.chain==="bsc"&&r.lp&&r.lp.n==="Four.meme")||(r.chain==="robinhood"&&r.lp&&r.lp.n==="Pons"))?'<a href="?swap='+encodeURIComponent(r.ca)+'&chain='+r.chain+'#swap">Buy</a>':M==="curve"&&r.pad?'<a href="'+esc(r.pad)+'" target="_blank" rel="noopener">Buy ↗</a>':M==="curve"?'<a href="/radar?tab=curve">Radar</a>':'<a href="'+esc(r.url||"/radar")+'" target="_blank" rel="noopener">Chart</a>')+(r.url&&(SW[r.chain]||M==="curve")?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener">Chart</a>':'<a href="/radar">Radar</a>')+'</div></article>'}).join("");
  [].forEach.call(G.querySelectorAll("[data-scan]"),function(b){b.onclick=function(){var ca=document.getElementById("sc-ca"),sel=document.getElementById("sc-chain"),go=document.getElementById("sc-go");if(!ca||!go){location.href="?ca="+encodeURIComponent(b.dataset.scan)+"#scanner";return}ca.value=b.dataset.scan;if(sel&&[].some.call(sel.options,function(o){return o.value===b.dataset.chain}))sel.value=b.dataset.chain;var t1=document.getElementById("sc-t1");if(t1)t1.click();go.click();(document.getElementById("sniffer")||document.getElementById("scanner")).scrollIntoView({behavior:"smooth"})}});
 }
 [].forEach.call(document.querySelectorAll(".hr-tabs button"),function(b){b.onclick=function(){M=b.dataset.m;[].forEach.call(document.querySelectorAll(".hr-tabs button"),function(x){x.setAttribute("aria-selected",x===b)});draw()}});

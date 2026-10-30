@@ -135,7 +135,7 @@ async function build(budgetMs = 23000) {
   const rhNet = await gtRobinhoodNet(prev && prev.rhNet).catch(() => ({ t: 0, id: null }));
   const cands = await candidates(rhNet);
   // keep tokens from the last snapshot too, so a token doesn't vanish when it drops off one source for a few minutes
-  if (prev && prev.rows) for (const r of prev.rows) if (!cands.find((c) => c.chain === r.chain && c.ca === r.ca) && Date.now() - (seen[key(r.chain, r.ca)] || 0) < 3 * 3600e3) cands.push({ chain: r.chain, ca: r.ca, src: r.src.filter((s) => s !== "new"), gtm: r.gt ? r : null });
+  if (prev && prev.rows) for (const r of prev.rows) if (!cands.find((c) => c.chain === r.chain && c.ca === r.ca) && Date.now() - (seen[key(r.chain, r.ca)] || 0) < 3 * 3600e3) cands.push({ chain: r.chain, ca: r.ca, src: r.src.filter((s) => s !== "new"), gtm: r.gt || /geckoterminal/.test(r.url || "") ? Object.assign({}, r, { url: `https://dexscreener.com/${r.chain}/${r.ca}` }) : null });
   const mk = await market(cands, t0 + 9000);
   let rows = [];
   for (const c of cands) {
@@ -187,6 +187,8 @@ async function read(opts = {}) {
     const mk = await market(snap.rows, Date.now() + 6000);
     for (const r of snap.rows) { const m = mk.get(key(r.chain, r.ca)); if (m) { if (!m.lp && r.lp) delete m.lp; Object.assign(r, m, { trend: trend(Object.assign({}, r, m)) }); } }
   }
+  // Charts always on DexScreener (older snapshots may still hold GeckoTerminal links)
+  snap.rows.forEach((r) => { if (/geckoterminal/.test(r.url || "")) r.url = `https://dexscreener.com/${r.chain}/${r.ca}`; });
   return { ok: true, t: snap.t, now: Date.now(), rows: snap.rows };
 }
 

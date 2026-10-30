@@ -146,7 +146,8 @@ function cpass(r){var ag=+$("rdAge").value,lpv=$("rdLp").value;
  if(lpv&&lpv!=="*"&&lpv!=="-"&&(!r.lp||r.lp.n!==lpv))return false;if(CS==="grad"&&r.progress==null)return false;return true}
 function since(ms){if(!ms)return"";var s=(Date.now()-ms)/1000;return s<60?Math.max(1,Math.round(s))+"s ago":s<3600?Math.round(s/60)+"m ago":Math.round(s/3600)+"h ago"}
 // Buy for curve tokens: Solana curves trade through CBL Swap (Jupiter routes pump.fun curves); others on their launchpad until they graduate.
-function cbuy(r){if(r.chain==="solana")return'<a href="/?swap='+encodeURIComponent(r.ca)+'&chain=solana#swap">Buy</a>';if(r.pad)return'<a href="'+esc(r.pad)+'" target="_blank" rel="noopener" title="Buy on '+esc(r.lp?r.lp.n:"the launchpad")+' (still on its bonding curve)">Buy ↗</a>';return""}
+function inSwap(r){var n=r.lp&&r.lp.n;return r.chain==="solana"||(r.chain==="bsc"&&n==="Four.meme")||(r.chain==="robinhood"&&n==="Pons")}
+function cbuy(r){if(inSwap(r))return'<a href="/?swap='+encodeURIComponent(r.ca)+'&chain='+r.chain+'#swap" title="Buy inside CBL Swap">Buy</a>';if(r.pad)return'<a href="'+esc(r.pad)+'" target="_blank" rel="noopener" title="Buy on '+esc(r.lp?r.lp.n:"the launchpad")+' (still on its bonding curve)">Buy ↗</a>';return""}
 function drawCurve(){
  var L=CURVE.filter(cpass).sort(CS==="new"?function(a,b){return(b.created||0)-(a.created||0)}:CS==="grad"?function(a,b){return(b.progress||0)-(a.progress||0)}:function(a,b){return(b.heat||0)-(a.heat||0)});
  var h='<div class="rd-row cv h"><span>#</span><span>Token</span><span>Curve progress</span><span>Mkt cap</span><span>Activity</span><span>CBL score</span><span></span></div>';

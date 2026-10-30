@@ -16,7 +16,7 @@ const PAD_URL = { pump: (ca) => "https://pump.fun/coin/" + ca, four: (ca) => "ht
 // Launchpad curve DEXes on GeckoTerminal (matched against discovered ids; graduated venues like pumpswap are excluded).
 const GT_NETS = { solana: "solana", bsc: "bsc", base: "base" };
 const CURVE_DEX = /pump-?fun|moonshot|launch-?lab|bonk|boop|believe|dbc|heaven|four-?meme|flap|virtuals|pons|hood|robin|klik|printr/i, NOT_CURVE = /pumpswap|amm|cpmm|clmm|dlmm|v2|v3|v4|swap|clanker|bankr/i;
-const PAD_NAME = (id) => /pons/i.test(id) ? ["Pons", "pons"] : /hoodit/i.test(id) ? ["Hoodit", "hoodit"] : /hood/i.test(id) ? ["Hood.fun", "hood"] : /robin/i.test(id) ? ["RobinFun", "robin"] : /pump/i.test(id) ? ["Pump.fun", "pump"] : /moonshot/i.test(id) ? ["Moonshot", "moon"] : /bonk|launch-?lab/i.test(id) ? ["LetsBonk", "bonk"]
+const PAD_NAME = (id) => /virtual/i.test(id) ? ["Virtuals", "virt"] : /pons/i.test(id) ? ["Pons", "pons"] : /hoodit/i.test(id) ? ["Hoodit", "hoodit"] : /hood/i.test(id) ? ["Hood.fun", "hood"] : /robin/i.test(id) ? ["RobinFun", "robin"] : /pump/i.test(id) ? ["Pump.fun", "pump"] : /moonshot/i.test(id) ? ["Moonshot", "moon"] : /bonk|launch-?lab/i.test(id) ? ["LetsBonk", "bonk"]
   : /dbc|believe/i.test(id) ? ["Meteora DBC", "dbc"] : /boop/i.test(id) ? ["Boop", "boop"] : /four/i.test(id) ? ["Four.meme", "four"] : /flap/i.test(id) ? ["Flap", "flap"]
   : /virtual/i.test(id) ? ["Virtuals", "virt"] : /zora/i.test(id) ? ["Zora", "zora"] : /clanker/i.test(id) ? ["Clanker", "clanker"] : [id, "x"];
 const RH_FACTORIES = [
@@ -283,7 +283,9 @@ async function read(opts = {}) {
     snap.rows = snap.rows.filter((r) => !(r.lp && r.lp.k === "pump") || live.find((x) => x.ca === r.ca) || now() - snap.t < 10 * 60e3); // drop pump tokens that graduated meanwhile
     snap.rows.forEach((r) => (r.heat = heat(r)));
   }
+  // Charts always on DexScreener (older snapshots may still hold GeckoTerminal links)
+  snap.rows.forEach((r) => { if (/geckoterminal/.test(r.url || "")) r.url = DS(r.chain, r.ca); });
   return { t: snap.t, rows: snap.rows };
 }
 
-module.exports = { build, read, pump, gtCurves, robinhood, discover, heat, pumpProgress, tokenFromLog };
+module.exports = { PAD_NAME, build, read, pump, gtCurves, robinhood, discover, heat, pumpProgress, tokenFromLog };

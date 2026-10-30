@@ -36,7 +36,7 @@ function card(r, site, opt) {
     const m = r.market, ch = typeof m.change24h === "number" ? ` (${m.change24h >= 0 ? "+" : ""}${m.change24h}% 24h)` : "";
     L.push("", m.curve ? `💧 Bonding curve ${usd(m.liquidity)}${typeof m.curveProgress === "number" ? ` (${m.curveProgress}% to migration)` : ""}   💰 MC ${usd(m.marketCap || m.fdv)}` : `💧 Liquidity ${usd(m.liquidity)}   💰 MC ${usd(m.marketCap || m.fdv)}`,
       `📊 Vol 24h ${usd(m.volume24h)}   🕒 Age ${age(m.pairCreatedAt)}`,
-      `💲 $${esc(Number(m.price).toPrecision(4))}${ch}`);
+      `💲 ${Number(m.price) > 0 ? "$" + esc(Number(m.price).toPrecision(4)) : "n/a"}${ch}`);
   }
   if (r.dex && (r.dex.paid !== null || r.dex.boosts || r.dex.cto)) {
     const d = r.dex, bits = [];
@@ -96,7 +96,9 @@ function card(r, site, opt) {
     ...(r.chain === "terraclassic" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=terraclassic#swap` }] : r.chain === "xrpl" ? [{ text: "💱 Swap", url: `${site}/?swap=${r.hex || r.address.split(".")[0]}.${r.issuer}&chain=xrpl#swap` }] : SWAP_CHAINS.includes(r.chain) ? [{ text: "💱 Swap", url: `${site}/?swap=${r.address}&chain=${r.chain}${r.flags && r.flags.sellTax >= 3 ? "&t=" + Math.round(r.flags.sellTax) : ""}#swap` }] : []),
   ]];
   const last = [], pad = r.launchpad && r.onCurve ? require("./launchpads").padUrl(r.launchpad, r.address) : null;
-  if (pad) last.push({ text: `🛒 Buy on ${r.launchpad}`, url: pad });
+  // Four.meme (BNB Chain) and Pons (Robinhood) curves trade inside CBL Swap, so the 💱 Swap button covers them
+  const inSwap = (r.chain === "bsc" && r.launchpad === "Four.meme") || (r.chain === "robinhood" && r.launchpad === "Pons") || r.chain === "solana";
+  if (pad && !inSwap) last.push({ text: `🛒 Buy on ${r.launchpad}`, url: pad });
   if (r.chain !== "solana" && r.chain !== "xrpl" && r.chain !== "terraclassic") last.push({ text: "🛡 Audit contract", callback_data: "a:" + r.address });
   if (r.creator && (r.chain === "solana" || /^0x[a-f0-9]{40}$/i.test(r.creator))) {
     const hint = r.chain === "solana" ? "" : "|" + r.chain;
