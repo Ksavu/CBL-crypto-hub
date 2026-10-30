@@ -11,6 +11,7 @@
 //   token up + base (native/stable) down = buy, token down + base up = sell, token A down + token B up = swap,
 //   wallet deployed a contract / created a mint / opened an AMM pool = new token, token only leaving = transfer.
 const db = require("./db");
+const DS = require("./devstats");
 const { EVM } = require("./scanner");
 const { decodeCode } = require("./xrpl");
 const { lcd, smart } = require("./terra");
@@ -286,11 +287,23 @@ async function terraEvents(addr, cur) {
 // ---------- developer history: every token this wallet created, and how each one is doing ----------
 const DS_CHAIN = { ethereum: "ethereum", bsc: "bsc", base: "base", arbitrum: "arbitrum", polygon: "polygon", optimism: "optimism", avalanche: "avalanche", linea: "linea",
   blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", solana: "solana" };
-async function createdSolana(addr) {
+async function createdSolana(addr, deadline) {
   const out = new Map(), key = clean(process.env.HELIUS_API_KEY);
+  const helAll = async () => {
+    if (!key) return null;
+    const all = []; let before = "";
+    for (let i = 0; i < 10 && (!deadline || Date.now() < deadline - 9000); i++) {
+      const r = await fetch(`https://api.helius.xyz/v0/addresses/${addr}/transactions?api-key=${key}&type=CREATE&limit=100${before ? "&before=" + before : ""}`).then((x) => x.json()).catch(() => null);
+      if (Array.isArray(r)) { if (!r.length) break; all.push(...r); before = r[r.length - 1].signature; if (r.length < 100) break; continue; }
+      const m = r && /before[^A-Za-z0-9]*set to ([1-9A-HJ-NP-Za-km-z]{60,100})/i.exec(String(r.error || r.message || "")); // Helius: "query again with before=<sig>"
+      if (m) { before = m[1]; continue; }
+      break;
+    }
+    return all;
+  };
   const [pf, hel] = await Promise.all([
-    jget(`https://frontend-api-v3.pump.fun/coins/user-created-coins/${addr}?offset=0&limit=50&includeNsfw=true`, 6000),
-    key ? jget(`https://api.helius.xyz/v0/addresses/${addr}/transactions?api-key=${key}&type=CREATE&limit=50`, 9000) : null,
+    jget(`https://frontend-api-v3.pump.fun/coins/user-created-coins/${addr}?offset=0&limit=50&includeNsfw=true`, 5000),
+    helAll(),
   ]);
   const coins = Array.isArray(pf) ? pf : (pf && (pf.coins || pf.data)) || [];
   for (const c of coins) if (c && c.mint) out.set(c.mint, { id: c.mint, sym: c.symbol || "", name: c.name || "", ts: Math.floor(Number(c.created_timestamp || 0) / 1000) || null,
@@ -335,6 +348,8 @@ async function marketFor(chain, list) {
       const low = t.id.toLowerCase(), ps = j.filter((p) => String(p.baseToken && p.baseToken.address).toLowerCase() === low);
       if (!ps.length) { t.listed = false; continue; }
       const p = ps.sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
+      if (chain === "solana" && ps.some((x) => !/^pumpfun$|launchlab|dbc|moonshot|boop/i.test(x.dexId || ""))) t.graduated = true; // left the bonding curve
+      t.pool = p.pairAddress; t.price = Number(p.priceUsd) || null; t.vol = (p.volume && p.volume.h24) || 0;
       t.listed = true; t.sym = t.sym || p.baseToken.symbol; t.name = t.name || p.baseToken.name;
       t.liq = (p.liquidity && p.liquidity.usd) || 0; t.mcap = p.marketCap || p.fdv || t.mcap || null; t.url = p.url;
       t.ath = null; t.ts = t.ts || (p.pairCreatedAt ? Math.floor(p.pairCreatedAt / 1000) : null);
@@ -352,11 +367,20 @@ function statusOf(t) {
 async function devReport(addrIn, chainHint, deadline) {
   const fam = familyOf(addrIn);
   if (!fam) throw Object.assign(new Error("That doesn't look like a wallet address."), { status: 400 });
-  const address = normAddr(addrIn);
+  let address = normAddr(addrIn), fromToken = null;
+  if (fam === "solana" && await DS.isMint(address).catch(() => false)) { // a token address was sent: report on its creator
+    const c = await DS.solCreator(address, deadline).catch(() => null);
+    if (!c) throw Object.assign(new Error("That's a token address and I couldn't find who created it. Send the token to scan it instead."), { status: 400 });
+    fromToken = address; address = c.creator;
+  }
   const chains = fam === "evm" ? (chainHint && EVM[chainHint] ? [chainHint] : (await evmChains(address)).slice(0, 4)) : [fam];
-  let created = [];
+  let created = [], origin = null;
   try {
-    if (fam === "solana") created = (await createdSolana(address)).map((t) => Object.assign(t, { chain: "solana" }));
+    if (fam === "solana") {
+      const [cr, og] = await Promise.all([createdSolana(address, deadline), DS.solOrigin(address, deadline ? deadline - 6000 : null).catch(() => null)]);
+      created = cr.map((t) => Object.assign(t, { chain: "solana" })); origin = og;
+      if (fromToken && !created.some((t) => t.id === fromToken)) created.push({ id: fromToken, chain: "solana", sym: "", name: "", ts: null });
+    }
     else if (fam === "evm") created = await createdEvm(address, chains);
     else if (fam === "xrpl") created = (await createdXrpl(address)).map((t) => Object.assign(t, { chain: "xrpl" }));
     else created = ((await terraEvents(address, { ts: 0 })) || []).filter((e) => e.type === "create").map((e) => ({ id: e.token.id, sym: e.token.sym, name: e.token.name || "", ts: e.ts, chain: "terraclassic" }));
@@ -367,9 +391,12 @@ async function devReport(addrIn, chainHint, deadline) {
   if (fam === "evm") created = created.filter((t) => t.listed || t.sym); // non-token contracts (routers, multisigs) drop out
   created.forEach((t) => (t.status = statusOf(t)));
   created.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  if (fam === "evm" && chains[0]) origin = await DS.evmOrigin(esCall, chains[0], address).catch(() => null);
+  let ath = null;
+  if (deadline ? Date.now() < deadline - 7000 : true) ath = await DS.athFor(created.filter((t) => t.graduated || t.liq >= 5000), deadline ? deadline - 5000 : null).catch(() => null);
   const left = deadline ? deadline - Date.now() : 15000;
   const recent = left > 4000 ? (await poll({ address, family: fam, chains: chains.length ? chains : [fam] }, { since: now() - 7 * 86400, deadline }).catch(() => ({ events: [] }))).events.reverse() : [];
-  return { address, family: fam, chains, created, events: recent };
+  return { address, family: fam, chains, created, events: recent, origin, ath, fromToken };
 }
 
 // ---------- token info for alerts (name, market cap, liquidity, chart) ----------

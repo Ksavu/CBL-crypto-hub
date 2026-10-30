@@ -213,37 +213,44 @@ function walletReport(r, site, tracked) {
 
 /** /wallet and 📜 Dev history: tokens this wallet created + recent trades. */
 function devReportMsg(r, site, tracked) {
-  const C = r.created, n = (s) => C.filter((t) => t.status === s).length, grad = C.filter((t) => t.graduated).length;
+  const C = r.created, n = (s) => C.filter((t) => t.status === s).length, now = Date.now() / 1000;
+  const ago = (ts) => { if (!ts) return "?"; const d = (now - ts) / 86400; return d < 1 / 24 ? Math.max(1, Math.round(d * 1440)) + "m" : d < 1 ? Math.round(d * 24) + "h" : Math.round(d) + "d"; };
+  const sym = (t) => esc(t.sym || (t.chain === "xrpl" ? String(t.id).split(".")[0] : shortA(t.id)));
+  const lnk = (t) => (t.url ? `<a href="${t.url}">${sym(t)}</a>` : `<b>${sym(t)}</b>`);
   const where = r.family === "evm" ? (r.chains.map(chainName).join(", ") || "no recent EVM activity") : chainName(r.family);
-  const L = [`👤 <b>Developer wallet</b> · ${esc(where)}`, `<code>${esc(r.address)}</code>`, ""];
+  const o = r.origin, L = [];
+  if (r.fromToken) L.push(`<i>That's a token. Its creator:</i>`);
+  L.push(`👷 <b>Dev</b> <code>${esc(r.address)}</code> · ${esc(where)}`);
+  const rows = [];
   if (C.length) {
-    L.push(`🆕 <b>${C.length} token${C.length === 1 ? "" : "s"} created</b> · 🟢 ${n("live")} live${grad ? ` · 🎓 ${grad} graduated` : ""}${n("new") ? ` · 🟡 ${n("new")} new` : ""} · 💀 ${n("dead")} dead`);
-    if (C.length >= 5 && n("dead") / C.length >= 0.6) L.push(`⚠️ <b>Serial launcher:</b> ${n("dead")} of ${C.length} tokens are dead.`);
-    L.push("", "<b>Launches</b>");
-    for (const t of C.slice(0, 10)) {
-      const ic = t.status === "live" ? "🟢" : t.status === "new" ? "🟡" : "💀", s = esc(t.sym || (t.chain === "xrpl" ? String(t.id).split(".")[0] : shortA(t.id)));
-      const when = t.ts ? ((d) => (d < 1 ? Math.max(1, Math.round(d * 24)) + "h" : Math.round(d) + "d"))((Date.now() / 1000 - t.ts) / 86400) : "";
-      const mk = [t.mcap ? "MC " + usd(t.mcap) : "", t.liq ? "Liq " + usd(t.liq) : "", t.graduated ? "🎓" : ""].filter(Boolean).join(" · ");
-      L.push(`${ic} ${t.url ? `<a href="${t.url}">${s}</a>` : `<b>${s}</b>`}${mk ? " · " + mk : t.status === "dead" ? " · no market" : ""}${when ? " · " + when : ""}${r.family === "evm" && r.chains.length > 1 ? " · " + chainName(t.chain) : ""}`);
-    }
-    if (C.length > 10) L.push(`…and ${C.length - 10} more`);
-  } else {
-    L.push("🆕 No tokens created by this wallet found.");
-    if (r.family === "evm") L.push("<i>Counts tokens it deployed itself. Launches through a factory (four.meme, Clanker…) show up as buys.</i>");
-  }
-  const E = r.events, k = (t) => E.filter((e) => e.type === t).length;
-  L.push("", `<b>Last 7 days:</b> 🟢 ${k("buy") + k("swap")} buys · 🔴 ${k("sell")} sells · 📤 ${k("transfer")} transfers`);
-  for (const e of E.filter((x) => x.type !== "create").slice(0, 6)) {
-    const s = esc(e.token.sym || (e.chain === "xrpl" ? String(e.token.id).split(".")[0] : shortA(e.token.id)));
-    const h = Math.max(1, Math.round((Date.now() / 1000 - e.ts) / 3600));
-    const what = e.type === "buy" ? `🟢 Bought ${amt(e.amt)} ${s} for ${assets(e.paid)}` : e.type === "sell" ? `🔴 Sold ${amt(e.amt)} ${s} for ${assets(e.got)}`
-      : e.type === "swap" ? `🔄 ${amt(e.from.amt)} ${esc(e.from.sym)} → ${amt(e.amt)} ${s}` : `📤 Sent ${amt(e.amt)} ${s}`;
-    L.push(`<a href="${txUrl(e.chain, e.hash)}">${h < 48 ? h + "h" : Math.round(h / 24) + "d"}</a> · ${what}`);
-  }
-  L.push("", "<i>From public chain data. Not financial advice.</i>");
+    const ts = C.map((t) => t.ts).filter(Boolean), first = ts.length ? Math.min(...ts) : null, days = first ? Math.max(1, (now - first) / 86400) : null;
+    rows.push(`Deployed: <b>${C.length}</b>${days && C.length > 1 ? (C.length / days >= 0.1 ? ` (${(C.length / days).toFixed(1)}/day)` : ` (${(C.length / days * 7).toFixed(1)}/week)`) : ""}`);
+    const bonded = C.filter((t) => t.graduated).length;
+    if (r.family === "solana" || bonded) rows.push(`Bonded: <b>${bonded}</b> (${Math.round(bonded / C.length * 100)}%)`);
+    else rows.push(`Live: <b>${n("live")}</b> · Dead: ${n("dead")}`);
+    const withAth = C.filter((t) => t.ath), hits = withAth.filter((t) => t.ath >= 100000).length;
+    if (r.ath && r.ath.total) rows.push(`Hits: <b>${hits}</b> ≥$100K${r.ath.checked < r.ath.total ? ` <i>(${r.ath.checked}/${r.ath.total} checked)</i>` : ""}`);
+  } else rows.push("Deployed: <b>0</b> found");
+  if (o && o.firstTs) rows.push(`Wallet: ${o.complete ? "" : "&gt;"}${ago(o.firstTs)} old`);
+  if (o && o.funder) rows.push(`Funded: ${o.funderLabel ? "<b>" + esc(o.funderLabel) + "</b>" : `<code>${esc(shortA(o.funder))}</code>`}${o.firstTs ? ` (${ago(o.firstTs)} ago)` : ""}`);
+  const lastTs = C.map((t) => t.ts).filter(Boolean).sort((a, b) => b - a)[0];
+  if (lastTs) rows.push(`Last: ${ago(lastTs)} ago`);
+  rows.forEach((x, k) => L.push(`${k === rows.length - 1 ? "└" : "├"} ${x}`));
+  if (C.length >= 5 && n("dead") / C.length >= 0.8) L.push(`⚠️ <b>Serial launcher:</b> ${n("dead")} of ${C.length} tokens are dead.`);
+  const top = C.filter((t) => t.ath >= 10000).sort((a, b) => b.ath - a.ath).slice(0, 5);
+  if (top.length) { L.push("", "🏆 <b>Top ATH</b>"); top.forEach((t) => L.push(`• ${lnk(t)} ATH ${usd(t.ath)}${t.mcap ? ` · now ${usd(t.mcap)}` : ""} (${ago(t.ts)})`)); }
+  if (C.length) {
+    L.push("", "🆕 <b>Latest</b>");
+    C.slice(0, 10).forEach((t) => L.push(`• ${lnk(t)} ${t.mcap ? "@ " + usd(t.mcap) : t.status === "dead" ? "💀" : "· no market yet"}${t.graduated ? " 🎓" : ""} (${ago(t.ts)})${t.id === r.fromToken ? " 👈" : ""}${r.family === "evm" && r.chains.length > 1 ? " · " + chainName(t.chain) : ""}`));
+    if (r.fromToken && !C.slice(0, 10).some((t) => t.id === r.fromToken)) { const t = C.find((x) => x.id === r.fromToken); if (t) L.push(`• ${lnk(t)} ${t.mcap ? "@ " + usd(t.mcap) : ""} 👈`); }
+  } else if (r.family === "evm") L.push("<i>Counts tokens it deployed itself. Launches through a factory (four.meme, Clanker…) show up as buys.</i>");
+  const E = r.events || [], k = (t) => E.filter((e) => e.type === t).length;
+  if (E.length) L.push("", `<b>Last 7 days:</b> 🟢 ${k("buy") + k("swap")} buys · 🔴 ${k("sell")} sells · 📤 ${k("transfer")} transfers`);
+  L.push("", "<i>From public chain data (ATH from daily candles). Not financial advice.</i>");
   const kb = [[tracked ? { text: "🔕 Untrack", callback_data: "x:" + cb(r.address) } : { text: "👤 Track this dev", callback_data: "t:" + cb(r.address) + (r.family === "evm" && r.chains.length === 1 ? "|" + r.chains[0] : "") }]];
-  const latest = C.find((t) => t.status !== "dead") || C[0];
-  if (latest) kb[0].push({ text: "🔍 Scan latest token", callback_data: "s:" + cb(latest.chain === "xrpl" ? String(latest.id).split(".")[1] : latest.id) });
+  const latest = (r.fromToken && C.find((t) => t.id === r.fromToken)) || C.find((t) => t.status !== "dead") || C[0];
+  if (latest) kb[0].push({ text: "🔍 Scan " + (latest.id === r.fromToken ? "token" : "latest"), callback_data: "s:" + cb(latest.chain === "xrpl" ? String(latest.id).split(".")[1] : latest.id) });
+  if (site) kb.push([{ text: "🌐 Full dev report", url: `${site}/wallet?w=${encodeURIComponent(r.address)}${r.family === "evm" && r.chains.length === 1 ? "&chain=" + r.chains[0] : ""}` }]);
   return { text: L.join("\n").slice(0, 4000), reply_markup: { inline_keyboard: kb } };
 }
 

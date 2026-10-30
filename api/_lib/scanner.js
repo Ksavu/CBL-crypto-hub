@@ -164,6 +164,7 @@ async function runScan(caIn, selIn, opts) {
       || (kind === "sol" && gp && Array.isArray(gp.creators) && gp.creators[0] && gp.creators[0].address) || null,
     score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };
+  if (kind === "sol" && !out.creator) { const c = await require("./devstats").solCreator(ca, null, true).catch(() => null); if (c) out.creator = c.creator; } // pump.fun dev from the bonding-curve account
   cache.set(key, { t: now, v: out });
   if (cache.size > 500) cache.delete(cache.keys().next().value);
   return out;
