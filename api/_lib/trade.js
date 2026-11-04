@@ -36,7 +36,17 @@ async function ensure(uid) {
   await db.insert("bot_wallets", [V.create(uid)], "tg_id");
   return { row: await getRow(uid), created: true };
 }
-const settings = (row) => Object.assign({ slip: 10 }, (row && row.settings) || {});
+// BonkBot-style settings (stored in bot_wallets.settings)
+const DEFAULTS = { slipBuy: 10, slipSell: 10, maxImpact: 25, minPos: 0.5, sort: "val", autoBuy: false, autoAmt: { s: 0.1, b: 0.05, e: 0.01, r: 0.01 },
+  presets: { s: [0.1, 0.5, 1], b: [0.05, 0.1, 0.5], e: [0.01, 0.05, 0.1], r: [0.01, 0.05, 0.1] }, sellP: [25, 50, 100], mev: true, prio: "fast", sellConfirm: true };
+function settings(row) {
+  const s = Object.assign({}, DEFAULTS, (row && row.settings) || {});
+  if (row && row.settings && row.settings.slip && !row.settings.slipBuy) s.slipBuy = s.slipSell = row.settings.slip; // old single slippage
+  s.presets = Object.assign({}, DEFAULTS.presets, s.presets || {}); s.autoAmt = Object.assign({}, DEFAULTS.autoAmt, s.autoAmt || {});
+  return s;
+}
+const PRIO = { normal: 100n, fast: 125n, turbo: 160n }; // EVM gas price multiplier (%)
+const MEV_RPC = { b: () => clean(process.env.BSC_MEV_RPC) || "https://bscrpc.pancakeswap.finance" }; // PancakeSwap MEV Guard (private mempool)
 async function saveSettings(uid, s) { await db.patch("bot_wallets", `tg_id=eq.${uid}`, { settings: s }); }
 /** One trade at a time per user (Telegram may deliver taps in parallel). */
 async function lock(uid) {
@@ -74,10 +84,11 @@ async function jup(path, opt) {
   if (!r.ok) fail(String(r.d.error || r.d.message || "Jupiter error").slice(0, 160));
   return r.d;
 }
-async function solSwap(row, inMint, outMint, amount) {
+async function solSwap(row, inMint, outMint, amount, st) {
   const seed = V.solSeed(row);
   const o = await jup(`/order?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&taker=${row.sol_pub}`);
   if (!o.transaction) fail(o.errorMessage || "No route found for this token right now.");
+  checkImpact(impactPct(o.inUsdValue, o.outUsdValue), st);
   const signed = V.solSignTx(o.transaction, seed);
   const x = await jup("/execute", { method: "POST", body: JSON.stringify({ signedTransaction: signed, requestId: o.requestId }) });
   if (x.status !== "Success") fail("Swap failed" + (x.error ? ": " + String(x.error).slice(0, 120) : "") + (x.signature ? `\n${CH.s.exp}${x.signature}` : ""));
@@ -98,12 +109,24 @@ async function solDecimals(mint) {
 // ---------- EVM ----------
 const provs = {};
 function prov(c) { const e = V.ethers(); return (provs[c] = provs[c] || new e.JsonRpcProvider(CH[c].rpc(), CH[c].id, { staticNetwork: true })); }
-const signer = (row, c) => new (V.ethers().Wallet)(V.evmPk(row), prov(c));
+const mevProvs = {};
+function signer(row, c, st) {
+  const e = V.ethers(); let p = prov(c);
+  if (st && st.mev && MEV_RPC[c]) p = mevProvs[c] = mevProvs[c] || new e.JsonRpcProvider(MEV_RPC[c](), CH[c].id, { staticNetwork: true });
+  return new e.Wallet(V.evmPk(row), p);
+}
+async function gasOv(c, st) {
+  const m = PRIO[(st && st.prio) || "fast"] || 125n, fd = await prov(c).getFeeData();
+  if (fd.maxFeePerGas && fd.maxPriorityFeePerGas && c !== "b") return { maxPriorityFeePerGas: fd.maxPriorityFeePerGas * m / 100n, maxFeePerGas: fd.maxFeePerGas * m / 100n + fd.maxPriorityFeePerGas };
+  return fd.gasPrice ? { gasPrice: fd.gasPrice * m / 100n } : {};
+}
+const impactPct = (inUsd, outUsd) => (Number(inUsd) > 0 && Number(outUsd) >= 0 ? (1 - Number(outUsd) / Number(inUsd)) * 100 : null);
+function checkImpact(imp, st) { if (imp != null && st && st.maxImpact > 0 && imp > st.maxImpact) fail(`Price impact is about ${imp.toFixed(1)}%, above your max of ${st.maxImpact}%. Trade a smaller amount or raise Max price impact in /settings.`); }
 const ERC20 = ["function balanceOf(address) view returns (uint256)", "function decimals() view returns (uint8)", "function symbol() view returns (string)", "function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)"];
 const erc = (c, ca, s) => new (V.ethers().Contract)(ca, ERC20, s || prov(c));
 async function evmTokenBal(c, ca, who) { const t = erc(c, ca); const [b, d] = await Promise.all([t.balanceOf(who), t.decimals().catch(() => 18)]); return { raw: b, dec: Number(d) }; }
 async function waitTx(tx, c) {
-  const rc = await Promise.race([tx.wait(1), sleep(45000).then(() => null)]);
+  const rc = await prov(c).waitForTransaction(tx.hash, 1, 45000).catch(() => null); // read the receipt from the normal RPC (MEV RPCs may not serve it)
   if (!rc) fail(`Still pending. Check it here:\n${CH[c].exp}${tx.hash}`);
   if (rc.status === 0) fail(`The transaction failed on-chain:\n${CH[c].exp}${tx.hash}`);
   return rc;
@@ -151,45 +174,48 @@ function ponsBuyOut(S, w) {
 }
 function ponsSellOut(S, a) { const sc = a * 10000n, g = sc * S.q / (S.t * 10000n + sc); return g - g * S.f / 10000n - g * S.tx / 10000n; }
 
-async function evmBuy(row, c, ca, wei, slip) {
-  const s = signer(row, c), me = row.evm_addr, cv = await curveOf(c, ca), sb = BigInt(Math.round(slip * 100)), e = V.ethers();
+async function evmBuy(row, c, ca, wei, st) {
+  const slip = st.slipBuy, s = signer(row, c, st), me = row.evm_addr, cv = await curveOf(c, ca), sb = BigInt(Math.round(slip * 100)), e = V.ethers(), g = await gasOv(c, st);
   let tx, route;
   if (cv && cv.pad === "Four.meme") {
     const r = await new e.Contract(H3, H3ABI, prov(c)).tryBuy(ca, 0, wei);
     const min = r.estimatedAmount * (10000n - sb) / 10000n, M = new e.Contract(cv.tm, FMABI, s), fn = cv.v === 1 ? "purchaseTokenAMAP(address,uint256,uint256)" : "buyTokenAMAP(address,uint256,uint256)";
     const val = r.amountMsgValue > 0n ? r.amountMsgValue : wei, funds = r.amountFunds > 0n ? r.amountFunds : wei;
-    await M[fn].staticCall(ca, funds, min, { value: val }); tx = await M[fn](ca, funds, min, { value: val }); route = "Four.meme curve";
+    await M[fn].staticCall(ca, funds, min, { value: val }); tx = await M[fn](ca, funds, min, { value: val, ...g }); route = "Four.meme curve";
   } else if (cv && cv.pad === "Pons") {
     const out = ponsBuyOut(await ponsState(c, cv.curve, me), wei), P = new e.Contract(cv.curve, PCABI, s), min = out * (10000n - sb) / 10000n;
-    await P.buy.staticCall(wei, min, me, { value: wei }); tx = await P.buy(wei, min, me, { value: wei }); route = "Pons curve";
+    await P.buy.staticCall(wei, min, me, { value: wei }); tx = await P.buy(wei, min, me, { value: wei, ...g }); route = "Pons curve";
   } else {
     const q = await lifi(c, ZERO, ca, wei, me, slip), t = q.transactionRequest;
-    tx = await s.sendTransaction({ to: t.to, data: t.data, value: BigInt(t.value || 0), gasLimit: t.gasLimit ? BigInt(t.gasLimit) * 12n / 10n : undefined });
+    checkImpact(q.estimate && impactPct(q.estimate.fromAmountUSD, q.estimate.toAmountUSD), st);
+    tx = await s.sendTransaction({ to: t.to, data: t.data, value: BigInt(t.value || 0), gasLimit: t.gasLimit ? BigInt(t.gasLimit) * 12n / 10n : undefined, ...g });
     route = (q.toolDetails && q.toolDetails.name) || q.tool || "LI.FI";
   }
   await waitTx(tx, c);
   return { hash: tx.hash, route };
 }
-async function evmSell(row, c, ca, amt, slip) {
-  const s = signer(row, c), me = row.evm_addr, cv = await curveOf(c, ca), sb = BigInt(Math.round(slip * 100)), e = V.ethers();
-  const approve = async (spender) => { const al = await erc(c, ca).allowance(me, spender); if (al < amt) await waitTx(await erc(c, ca, s).approve(spender, e.MaxUint256), c); };
+async function evmSell(row, c, ca, amt, st) {
+  const slip = st.slipSell, s = signer(row, c, st), me = row.evm_addr, cv = await curveOf(c, ca), sb = BigInt(Math.round(slip * 100)), e = V.ethers(), g = await gasOv(c, st);
+  const approve = async (spender) => { const al = await erc(c, ca).allowance(me, spender); if (al < amt) await waitTx(await erc(c, ca, s).approve(spender, e.MaxUint256, g), c); };
   let tx, est, route;
   if (cv && cv.pad === "Four.meme") {
     const r = await new e.Contract(H3, H3ABI, prov(c)).trySell(ca, amt); est = r.funds > r.fee ? r.funds - r.fee : r.funds;
     await approve(cv.tm);
     const M = new e.Contract(cv.tm, FMABI, s), min = est * (10000n - sb) / 10000n;
-    if (cv.v === 1) tx = await M["saleToken(address,uint256)"](ca, amt);
-    else { try { await M["sellToken(uint256,address,uint256,uint256)"].staticCall(0, ca, amt, min); tx = await M["sellToken(uint256,address,uint256,uint256)"](0, ca, amt, min); } catch (x) { await M["sellToken(address,uint256)"].staticCall(ca, amt); tx = await M["sellToken(address,uint256)"](ca, amt); } }
+    if (cv.v === 1) tx = await M["saleToken(address,uint256)"](ca, amt, g);
+    else { let four = true; try { await M["sellToken(uint256,address,uint256,uint256)"].staticCall(0, ca, amt, min); } catch (x) { four = false; await M["sellToken(address,uint256)"].staticCall(ca, amt); }
+      tx = four ? await M["sellToken(uint256,address,uint256,uint256)"](0, ca, amt, min, g) : await M["sellToken(address,uint256)"](ca, amt, g); }
     route = "Four.meme curve";
   } else if (cv && cv.pad === "Pons") {
     est = ponsSellOut(await ponsState(c, cv.curve, me), amt); await approve(cv.curve);
     const P = new e.Contract(cv.curve, PCABI, s), min = est * (10000n - sb) / 10000n;
-    await P.sell.staticCall(amt, min, me); tx = await P.sell(amt, min, me); route = "Pons curve";
+    await P.sell.staticCall(amt, min, me); tx = await P.sell(amt, min, me, g); route = "Pons curve";
   } else {
     let q = await lifi(c, ca, ZERO, amt, me, slip);
     if (q.estimate && q.estimate.approvalAddress) { await approve(q.estimate.approvalAddress); q = await lifi(c, ca, ZERO, amt, me, slip); }
     const t = q.transactionRequest; est = BigInt((q.estimate && q.estimate.toAmountMin) || (q.estimate && q.estimate.toAmount) || 0);
-    tx = await s.sendTransaction({ to: t.to, data: t.data, value: BigInt(t.value || 0), gasLimit: t.gasLimit ? BigInt(t.gasLimit) * 12n / 10n : undefined });
+    checkImpact(q.estimate && impactPct(q.estimate.fromAmountUSD, q.estimate.toAmountUSD), st);
+    tx = await s.sendTransaction({ to: t.to, data: t.data, value: BigInt(t.value || 0), gasLimit: t.gasLimit ? BigInt(t.gasLimit) * 12n / 10n : undefined, ...g });
     route = (q.toolDetails && q.toolDetails.name) || q.tool || "LI.FI";
   }
   await waitTx(tx, c);
@@ -214,8 +240,8 @@ async function buy(uid, c, ca, amount) {
   if (!(await lock(uid))) fail("Another trade is still running. Wait a few seconds.");
   try {
     let res, out = 0n, dec = 0;
-    if (c === "s") { dec = await solDecimals(ca); const r = await solSwap(row, SOL_MINT, ca, swapIn); res = { hash: r.sig, route: "Jupiter" }; out = r.out; }
-    else { const before = await evmTokenBal(c, ca, row.evm_addr); res = await evmBuy(row, c, ca, swapIn, st.slip); const after = await evmTokenBal(c, ca, row.evm_addr); dec = after.dec; out = after.raw - before.raw; }
+    if (c === "s") { dec = await solDecimals(ca); const r = await solSwap(row, SOL_MINT, ca, swapIn, st); res = { hash: r.sig, route: "Jupiter" }; out = r.out; }
+    else { const before = await evmTokenBal(c, ca, row.evm_addr); res = await evmBuy(row, c, ca, swapIn, st); const after = await evmTokenBal(c, ca, row.evm_addr); dec = after.dec; out = after.raw - before.raw; }
     let feeHash = null;
     if (fee > 0n) { try { feeHash = c === "s" ? await solSend(row, to, fee) : await evmSend(row, c, to, fee); } catch (e) { console.error("fee transfer failed", e.message); } }
     await record({ tg_id: uid, chain: CH[c].key, token: c === "s" ? ca : ca.toLowerCase(), side: "buy", native_raw: total.toString(), token_raw: out.toString(), decimals: dec, tx: res.hash, fee_raw: feeHash ? fee.toString() : "0" });
@@ -238,8 +264,8 @@ async function sell(uid, c, ca, pct) {
   if (!(await lock(uid))) fail("Another trade is still running. Wait a few seconds.");
   try {
     let res, out;
-    if (c === "s") { const r = await solSwap(row, ca, SOL_MINT, amt); res = { hash: r.sig, route: "Jupiter" }; out = r.out; }
-    else { res = await evmSell(row, c, ca, amt, st.slip); out = res.out; }
+    if (c === "s") { const r = await solSwap(row, ca, SOL_MINT, amt, st); res = { hash: r.sig, route: "Jupiter" }; out = r.out; }
+    else { res = await evmSell(row, c, ca, amt, st); out = res.out; }
     const to = feeTo(c), fee = to ? out * BigInt(feeBps()) / 10000n : 0n; let feeHash = null;
     if (fee > 0n) { try { feeHash = c === "s" ? await solSend(row, to, fee) : await evmSend(row, c, to, fee); } catch (e) { console.error("fee transfer failed", e.message); } }
     await record({ tg_id: uid, chain: CH[c].key, token: c === "s" ? ca : ca.toLowerCase(), side: "sell", native_raw: (out - (feeHash ? fee : 0n)).toString(), token_raw: amt.toString(), decimals: dec, tx: res.hash, fee_raw: feeHash ? fee.toString() : "0" });
@@ -322,4 +348,4 @@ async function tokenView(uid, c, ca) {
   return list.find((p) => p.chain === CH[c].key && p.token === k) || null;
 }
 
-module.exports = { on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf };
+module.exports = { DEFAULTS, on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf };

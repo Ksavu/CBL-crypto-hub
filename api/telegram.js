@@ -8,6 +8,7 @@ const { runAudit } = require("./audit");
 const db = require("./_lib/db");
 const W = require("./_lib/watch");
 const TradeUI = require("./_lib/tradebot");
+const TradeT = require("./_lib/trade");
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
 const SITE = () => (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
@@ -28,8 +29,12 @@ function tg(method, body) {
 const TB = TradeUI.make(tg);
 const BOT_USER = () => (process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
 // Scan cards get trade buttons (DM) or a "trade in DM" link (groups).
-function withTrade(c, r, msg) {
-  try { const rows = TradeUI.tradeRows(r, msg.chat.type === "private", BOT_USER()); if (rows.length) c.reply_markup = { inline_keyboard: [...rows, ...((c.reply_markup && c.reply_markup.inline_keyboard) || [])] }; } catch (e) {}
+async function withTrade(c, r, msg) {
+  try {
+    const dm = msg.chat.type === "private", row = dm && msg.from ? await TradeT.getRow(msg.from.id).catch(() => null) : null;
+    const rows = TradeUI.tradeRows(r, dm, BOT_USER(), TradeT.settings(row));
+    if (rows.length) c.reply_markup = { inline_keyboard: [...rows, ...((c.reply_markup && c.reply_markup.inline_keyboard) || [])] };
+  } catch (e) {}
   return c;
 }
 function findCA(text) {
@@ -128,11 +133,12 @@ async function doScan(msg, ca, chain, explicit, noCall) {
     const r = await runScan(ca, chain, deep ? { noDeep: true } : undefined); // fast first answer
     // Groups: the first person to post a token gets the call (shown on the card, tracked for X alerts and /lb).
     const call = group && !noCall && db.on() ? await Calls.record(msg.chat, msg.from, r, msg.message_id).catch((e) => { console.error("call record", e && e.message); return null; }) : null;
-    const c = withTrade(card(r, SITE(), { pending: deep, call }), r, msg);
+    const c = await withTrade(card(r, SITE(), { pending: deep, call }), r, msg);
     const sent = await reply(msg, c.text, { reply_markup: c.reply_markup });
+    if (!group && TradeT.on()) await TB.autoBuy(msg, r).catch((e) => console.error("auto buy", e && e.message)); // Settings → Auto buy
     if (deep && sent && sent.ok) { // then fill in the slow Solana deep scan
       const full = await runScan(ca, chain).catch(() => null);
-      if (full) { const c2 = withTrade(card(full, SITE(), { call }), full, msg);
+      if (full) { const c2 = await withTrade(card(full, SITE(), { call }), full, msg);
         await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c2.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c2.reply_markup }); }
       else await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c.text.replace("🧬 Deep scan running… (holders, snipers, bundlers)", "🧬 Deep scan unavailable"), parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
     }
@@ -147,7 +153,11 @@ async function doScan(msg, ca, chain, explicit, noCall) {
 async function onMessage(msg) {
   if (!msg || !msg.chat || !msg.from || msg.from.is_bot) return;
   const text = msg.text || msg.caption || "";
-  if (msg.reply_to_message && await TB.replyPrompt(msg)) return; // answers to ✏️ buy/sell/withdraw prompts
+  if (msg.reply_to_message) { // answers to ✏️ buy/sell/withdraw/settings prompts
+    const rp = await TB.replyPrompt(msg);
+    if (rp && rp.ca) return void (await doScan(msg, rp.ca, rp.chain || "auto", true));
+    if (rp) return;
+  }
   const cmd = text.match(/^\/(\w+)(?:@(\w+))?(?:\s+([\s\S]*))?$/);
   const me = process.env.TELEGRAM_BOT_USERNAME;
   if (cmd) {
@@ -252,6 +262,11 @@ async function onMessage(msg) {
     }
     return;
   }
+  if (msg.chat.type === "private") { // links (pump.fun, DEX Screener, Birdeye, GMGN) and $TICKERS
+    const ti = await TB.textInput(msg).catch(() => null);
+    if (ti && ti.ca) return void (await doScan(msg, ti.ca, ti.chain || "auto", true));
+    if (ti) return;
+  }
   const ca = findCA(text);
   if (ca) await doScan(msg, ca, "auto", false);
 }
@@ -320,9 +335,9 @@ async function onCallback(q) {
       parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
     const deep = detect(ca) === "sol" && !!process.env.HELIUS_API_KEY;
     const r = await runScan(ca, "auto", deep ? { noDeep: true, fresh: true } : undefined);
-    const qm = { chat: q.message.chat };
-    await edit(withTrade(card(r, SITE(), { pending: deep }), r, qm));
-    if (deep) { const full = await runScan(ca, "auto", { fresh: true }).catch(() => null); if (full) await edit(withTrade(card(full, SITE()), full, qm)); }
+    const qm = { chat: q.message.chat, from: q.from };
+    await edit(await withTrade(card(r, SITE(), { pending: deep }), r, qm));
+    if (deep) { const full = await runScan(ca, "auto", { fresh: true }).catch(() => null); if (full) await edit(await withTrade(card(full, SITE()), full, qm)); }
   } catch (e) { /* message not modified or scan failed: ignore */ }
 }
 

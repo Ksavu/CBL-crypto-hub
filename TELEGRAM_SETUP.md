@@ -128,7 +128,7 @@ Private keys are encrypted with AES-256-GCM using `BOT_WALLET_KEY` and stored in
    - `BOT_FEE_BPS` — optional, default `100` (1%).
    - Already used: `JUP_API_KEY` (Solana swaps), `LIFI_API_KEY` (EVM swaps), `HELIUS_API_KEY` (Solana RPC).
    - Optional faster RPCs: `BSC_RPC`, `BASE_RPC`, `ROBINHOOD_RPC`.
-3. **BotFather → /setcommands**, add: `trade - Trading wallet`, `positions - Holdings and PnL`, `buy - Buy a token`, `sell - Sell a token`, `withdraw - Withdraw coins`, `export - Export private keys`.
+3. **BotFather → /setcommands**, add: `trade - Trading wallet`, `positions - Holdings and PnL`, `buy - Buy a token`, `sell - Sell a token`, `withdraw - Withdraw coins`, `export - Export private keys`, `settings - Trading settings`. Optional: `BSC_MEV_RPC` (default PancakeSwap MEV Guard).
 
 How it works: paste a token in DM → 🟢 Buy (presets or ✏️ custom) / 🔴 Sell 25/50/100%. Solana routes through Jupiter (incl. pump.fun curves),
 EVM through LI.FI, and Four.meme / Pons curve tokens trade on the launchpad contract directly. The fee is a separate transfer after each successful trade.
