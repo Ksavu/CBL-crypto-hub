@@ -114,6 +114,10 @@ function make(tg) {
     return mid ? edit(chat, mid, m) : send(chat, m);
   }
   const dmOnly = (msg) => msg.chat.type !== "private";
+  async function sendKeys(chat, row, first) {
+    const V = require("./vault");
+    await send(chat, `🔑 <b>${first ? "Save your private keys now" : "Your private keys"}</b>\nTap to reveal. Store them somewhere safe (password manager or offline), then <b>delete this message</b>. Anyone with these keys controls your funds.\n\n◎ Solana (import into Phantom/Solflare):\n<tg-spoiler><code>${V.solExport(V.solSeed(row))}</code></tg-spoiler>\n\n⬡ EVM (MetaMask/Rabby, same on BNB/Base/Robinhood):\n<tg-spoiler><code>${V.evmPk(row)}</code></tg-spoiler>${first ? "\n\nYou can show them again any time with /export." : ""}`, { protect_content: true });
+  }
 
   /** Commands. Returns true when handled. */
   async function command(name, args, msg, botUser) {
@@ -163,7 +167,12 @@ function make(tg) {
     if (!q.message || q.message.chat.type !== "private") { await ack("Open the bot in a private chat to trade.", true); return true; }
     const nr = notReady(); if (nr) { await ack(nr, true); return true; }
     const uid = q.from.id, chat = q.message.chat.id, mid = q.message.message_id, k = d[1];
-    if (k === "c") { await ack("Creating your wallets…"); await T.ensure(uid); await openMenu(chat, uid, mid); return true; }
+    if (k === "c") {
+      await ack("Creating your wallets…");
+      const r = await T.ensure(uid); await openMenu(chat, uid, mid);
+      if (r.created) await sendKeys(chat, r.row, true); // show the keys once right away, like BonkBot
+      return true;
+    }
     const row = await T.getRow(uid); if (!row) { await ack(); await send(chat, introMsg()); return true; }
     if (k === "m") { await ack(); await openMenu(chat, uid, mid); return true; }
     if (k === "p") { await ack("Loading positions…"); await edit(chat, mid, await positionsMsg(uid)); return true; }
@@ -171,12 +180,7 @@ function make(tg) {
     if (k === "s") { await ack(); await edit(chat, mid, settingsMsg(row)); return true; }
     if (k === "l") { const v = Number(d.slice(2)); if ([1, 5, 10, 20, 30].includes(v)) await T.saveSettings(uid, Object.assign(T.settings(row), { slip: v })); await ack("Slippage " + v + "%"); await edit(chat, mid, settingsMsg(await T.getRow(uid))); return true; }
     if (d === "Tk") { await ack(); await edit(chat, mid, exportAsk()); return true; }
-    if (d === "Tkk") {
-      await ack();
-      const V = require("./vault");
-      await send(chat, `🔑 <b>Your private keys</b> — delete this message after saving them.\n\n◎ Solana (import into Phantom/Solflare):\n<tg-spoiler><code>${V.solExport(V.solSeed(row))}</code></tg-spoiler>\n\n⬡ EVM (MetaMask/Rabby, works on BNB/Base/Robinhood):\n<tg-spoiler><code>${V.evmPk(row)}</code></tg-spoiler>`, { protect_content: true });
-      return true;
-    }
+    if (d === "Tkk") { await ack(); await sendKeys(chat, row); return true; }
     if (d === "TW") { await ack(); await edit(chat, mid, withdrawPick()); return true; }
     if (k === "w" && T.CH[d[2]]) { await ack(); await send(chat, `📤 <b>Withdraw ${nat(d[2])} on ${T.CH[d[2]].name}</b>\nReply to this message with the amount (or <code>all</code>) and the destination address:\n<code>0.5 ADDRESS</code>\n#withdraw:${d[2]}`, { reply_markup: { force_reply: true, input_field_placeholder: "amount address" } }); return true; }
     if (k === "y") {
