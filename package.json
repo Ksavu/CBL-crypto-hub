@@ -2,5 +2,10 @@
   "name": "cbl-site",
   "private": true,
   "version": "1.0.0",
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ethers": "6.13.4"
+  }
 }

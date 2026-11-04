@@ -112,3 +112,24 @@ Set `WC_PROJECT_ID` in Vercel (Settings, Environment Variables) and redeploy. Th
 - Source comes from Sourcify (free, no key). Add `ETHERSCAN_API_KEY` in Vercel (free key at etherscan.io, works for Ethereum, BNB Chain and Base) to find more verified contracts.
 - The checks are offline pattern rules (mint, blacklist, uncapped fees, trading switch, router/pair changes, upgradeable code, selfdestruct, tx.origin, old compilers and more). Not a manual audit.
 - AI review can be added later: the result already carries an `audit.ai` slot, and `api/audit.js` is the single place to call it from.
+
+## Trading bot (/trade) — BonkBot-style custodial wallets
+
+Each Telegram user gets one Solana wallet and one EVM wallet (same address on BNB Chain, Base and Robinhood Chain).
+Private keys are encrypted with AES-256-GCM using `BOT_WALLET_KEY` and stored in Supabase (`bot_wallets`). Trading works only in private chat.
+
+1. **Supabase:** run `trading.sql` in SQL Editor.
+2. **Vercel env vars**, then redeploy:
+   - `BOT_WALLET_KEY` — 64 hex characters. Generate in any browser console:
+     `[...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join('')`
+     ⚠️ Back it up offline. If it is lost or changed, every user wallet becomes unreadable (funds stuck). Never put it in the website or GitHub.
+   - `BOT_SOL_FEE_ACCOUNT` — your Solana wallet that receives the trading fee.
+   - `BOT_EVM_FEE_ACCOUNT` — your EVM wallet for the fee (falls back to `EVM_FEE_ACCOUNT`).
+   - `BOT_FEE_BPS` — optional, default `100` (1%).
+   - Already used: `JUP_API_KEY` (Solana swaps), `LIFI_API_KEY` (EVM swaps), `HELIUS_API_KEY` (Solana RPC).
+   - Optional faster RPCs: `BSC_RPC`, `BASE_RPC`, `ROBINHOOD_RPC`.
+3. **BotFather → /setcommands**, add: `trade - Trading wallet`, `positions - Holdings and PnL`, `buy - Buy a token`, `sell - Sell a token`, `withdraw - Withdraw coins`, `export - Export private keys`.
+
+How it works: paste a token in DM → 🟢 Buy (presets or ✏️ custom) / 🔴 Sell 25/50/100%. Solana routes through Jupiter (incl. pump.fun curves),
+EVM through LI.FI, and Four.meme / Pons curve tokens trade on the launchpad contract directly. The fee is a separate transfer after each successful trade.
+In groups, scans show "🤖 Trade it with CBL Bot", which opens the token in DM.

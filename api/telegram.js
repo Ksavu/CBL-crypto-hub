@@ -7,6 +7,7 @@ const WT = require("./_lib/wallets");
 const { runAudit } = require("./audit");
 const db = require("./_lib/db");
 const W = require("./_lib/watch");
+const TradeUI = require("./_lib/tradebot");
 
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
 const SITE = () => (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
@@ -23,6 +24,13 @@ function tg(method, body) {
   return fetch(`https://api.telegram.org/bot${TOKEN()}/${method}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
   }).then((r) => r.json()).catch(() => null);
+}
+const TB = TradeUI.make(tg);
+const BOT_USER = () => (process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
+// Scan cards get trade buttons (DM) or a "trade in DM" link (groups).
+function withTrade(c, r, msg) {
+  try { const rows = TradeUI.tradeRows(r, msg.chat.type === "private", BOT_USER()); if (rows.length) c.reply_markup = { inline_keyboard: [...rows, ...((c.reply_markup && c.reply_markup.inline_keyboard) || [])] }; } catch (e) {}
+  return c;
 }
 function findCA(text) {
   const m = (text || "").match(TERRA_RE) || (text || "").match(XRPL_RE) || (text || "").match(EVM_RE) || (text || "").match(SOL_RE);
@@ -120,11 +128,11 @@ async function doScan(msg, ca, chain, explicit, noCall) {
     const r = await runScan(ca, chain, deep ? { noDeep: true } : undefined); // fast first answer
     // Groups: the first person to post a token gets the call (shown on the card, tracked for X alerts and /lb).
     const call = group && !noCall && db.on() ? await Calls.record(msg.chat, msg.from, r, msg.message_id).catch((e) => { console.error("call record", e && e.message); return null; }) : null;
-    const c = card(r, SITE(), { pending: deep, call });
+    const c = withTrade(card(r, SITE(), { pending: deep, call }), r, msg);
     const sent = await reply(msg, c.text, { reply_markup: c.reply_markup });
     if (deep && sent && sent.ok) { // then fill in the slow Solana deep scan
       const full = await runScan(ca, chain).catch(() => null);
-      if (full) { const c2 = card(full, SITE(), { call });
+      if (full) { const c2 = withTrade(card(full, SITE(), { call }), full, msg);
         await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c2.text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c2.reply_markup }); }
       else await tg("editMessageText", { chat_id: msg.chat.id, message_id: sent.result.message_id, text: c.text.replace("🧬 Deep scan running… (holders, snipers, bundlers)", "🧬 Deep scan unavailable"), parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
     }
@@ -139,6 +147,7 @@ async function doScan(msg, ca, chain, explicit, noCall) {
 async function onMessage(msg) {
   if (!msg || !msg.chat || !msg.from || msg.from.is_bot) return;
   const text = msg.text || msg.caption || "";
+  if (msg.reply_to_message && await TB.replyPrompt(msg)) return; // answers to ✏️ buy/sell/withdraw prompts
   const cmd = text.match(/^\/(\w+)(?:@(\w+))?(?:\s+([\s\S]*))?$/);
   const me = process.env.TELEGRAM_BOT_USERNAME;
   if (cmd) {
@@ -146,6 +155,8 @@ async function onMessage(msg) {
     const name = cmd[1].toLowerCase(), args = (cmd[3] || "").trim().split(/\s+/).filter(Boolean);
     // Deep links from the website: t.me/<bot>?start=track_<wallet>[_<chain>] or ?start=w_<wallet>
     const sp = name === "start" && args[0] ? args[0].match(/^(track|w)_([A-Za-z0-9]{25,64})(?:_([a-z]+))?$/) : null;
+    if (name === "start" && args[0] && await TB.start(args[0], msg)) return;
+    if (await TB.command(name, args, msg, BOT_USER())) return;
     if (sp && WT.familyOf(sp[2])) {
       const ch = sp[3] && CHAIN[sp[3]] ? CHAIN[sp[3]] : undefined;
       if (sp[1] === "w") return void (await doWallet(msg, sp[2], ch));
@@ -247,6 +258,7 @@ async function onMessage(msg) {
 
 async function onCallback(q) {
   const data = q.data || "";
+  if (data[0] === "T" && await TB.callback(q)) return;
   if (data.startsWith("lb:") && q.message) {
     await tg("answerCallbackQuery", { callback_query_id: q.id });
     if (q.message.chat.type === "private" || !db.on()) return;
@@ -308,8 +320,9 @@ async function onCallback(q) {
       parse_mode: "HTML", disable_web_page_preview: true, reply_markup: c.reply_markup });
     const deep = detect(ca) === "sol" && !!process.env.HELIUS_API_KEY;
     const r = await runScan(ca, "auto", deep ? { noDeep: true, fresh: true } : undefined);
-    await edit(card(r, SITE(), { pending: deep }));
-    if (deep) { const full = await runScan(ca, "auto", { fresh: true }).catch(() => null); if (full) await edit(card(full, SITE())); }
+    const qm = { chat: q.message.chat };
+    await edit(withTrade(card(r, SITE(), { pending: deep }), r, qm));
+    if (deep) { const full = await runScan(ca, "auto", { fresh: true }).catch(() => null); if (full) await edit(withTrade(card(full, SITE()), full, qm)); }
   } catch (e) { /* message not modified or scan failed: ignore */ }
 }
 
