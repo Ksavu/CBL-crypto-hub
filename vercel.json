@@ -1,26 +1,55 @@
 {
- "cleanUrls": true,
- "functions": {
-  "api/*.js": {
-   "maxDuration": 60
-  }
- },
- "redirects": [
-  {
-   "source": "/launch",
-   "has": [
-    {
-     "type": "query",
-     "key": "t"
+  "cleanUrls": true,
+  "functions": {
+    "api/*.js": {
+      "maxDuration": 60
     }
-   ],
-   "destination": "/xrplabs",
-   "permanent": false
   },
-  {
-   "source": "/home",
-   "destination": "/",
-   "permanent": true
-  }
- ]
+  "redirects": [
+    {
+      "source": "/launch",
+      "has": [
+        {
+          "type": "query",
+          "key": "t"
+        }
+      ],
+      "destination": "/xrplabs",
+      "permanent": false
+    },
+    {
+      "source": "/home",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/app",
+      "destination": "/sniper",
+      "permanent": true
+    }
+  ],
+  "headers": [
+    {
+      "source": "/sw.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        },
+        {
+          "key": "Service-Worker-Allowed",
+          "value": "/"
+        }
+      ]
+    },
+    {
+      "source": "/manifest.webmanifest",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
+      ]
+    }
+  ]
 }

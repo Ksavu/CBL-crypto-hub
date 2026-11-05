@@ -55,6 +55,7 @@ const HOME_KB = [
   [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📥 Fund", callback_data: "Td" }],
   [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 TP / SL orders", callback_data: "To" }],
+  [{ text: "🌐 Open CBL Sniper Bot on web", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/sniper" }],
   [{ text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
 ];
 async function menuMsg(row) {

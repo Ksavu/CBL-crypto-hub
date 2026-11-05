@@ -142,3 +142,10 @@ Checked by `/api/cron?job=orders` (first step of the GitHub Actions workflow, ev
 Run `bundles.sql` once. In 👛 Wallet: ➕ add up to 5 Solana wallets, 💸 spread SOL from W1, turn 📦 Bundles on.
 Every Solana buy/sell then runs from all wallets in one Jito bundle (same block, all or nothing). Tip is set per user (default 0.001 SOL).
 Optional env: `JITO_URL` (default https://mainnet.block-engine.jito.wtf/api/v1/bundles).
+
+## CBL Sniper Bot web page (/sniper) + install as app
+Same wallets as the Telegram bot, at https://cryptobarlounge.space/sniper. Login is "Log in with Telegram" (no passwords). Private-key export stays in Telegram only.
+The Telegram bot stays as it is; its home screen just has a 🌐 link to the web page.
+1. **BotFather → /setdomain** → choose your bot → `cryptobarlounge.space` (needed for the "Log in with Telegram" button).
+2. **PC / Android / iPhone install:** open /sniper in Chrome or Edge → "Install app" (iPhone: Share → Add to Home Screen).
+3. **Android APK:** https://www.pwabuilder.com → enter `https://cryptobarlounge.space/sniper` → Package for stores → Android → Download. Put the `.apk` in the repo root as `cbl-sniper.apk` (the page then shows a "Download Android app" button) and copy the `assetlinks.json` from the PWABuilder zip to `.well-known/assetlinks.json` so it opens full-screen. Keep the signing key for future updates.
