@@ -152,6 +152,4 @@ The Telegram bot stays as it is; its home screen just has a 🌐 link to the web
 
 ## higher.fun (Solana)
 higher.fun coins run on Raydium LaunchLab, so CBL Swap, the Bartender and the scanner already trade/scan them (Jupiter routes LaunchLab).
-They are labelled ⬆️ higher.fun when their metadata points to higher.fun, or — exact — when their LaunchLab pool uses higher.fun's platform config:
-1. Open `https://cryptobarlounge.space/api/scan?padinfo=<any higher.fun coin address>`
-2. Copy `launchlab.platformId` into Vercel env `HIGHER_PLATFORM_ID` and redeploy.
+They are labelled ⬆️ higher.fun by their `…high` address ending and by higher.fun's LaunchLab platform config `7mT6fb3m6W2886ymKsShBBcnX3TYb9ZsnkDJtACsVt8V` (built in; extra ids can go in `HIGHER_PLATFORM_ID`). Check any coin with `/api/scan?padinfo=<address>`.

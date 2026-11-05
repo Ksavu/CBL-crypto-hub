@@ -144,7 +144,10 @@ async function runScan(caIn, selIn, opts) {
   if (chain === "solana" && !/pump$|bonk$|LoL$/.test(ca) && (!launchpad || launchpad === "LaunchLab" || pairs.some((p) => /launchlab|raydium/i.test(p.dexId || "")))) {
     const hi = await LP.higherOf([ca]).catch(() => new Set()); if (hi.has(ca)) launchpad = "higher.fun";
   }
-  const onCurve = pair ? !!pair.curve || (lpGuess && lpGuess.g === false) : !!launchpad;
+  let onCurve = pair ? !!pair.curve || (lpGuess && lpGuess.g === false) : !!launchpad;
+  if (launchpad === "higher.fun" || launchpad === "LaunchLab") { // Raydium LaunchLab pool status: 0 = still on the bonding curve
+    const P = await LP.launchlabPools([ca]).catch(() => ({})); if (P[ca]) onCurve = P[ca].status === 0;
+  }
   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
   let dev = null;
   if (launchpad && ex && ex.creationTx && chain === "robinhood") {

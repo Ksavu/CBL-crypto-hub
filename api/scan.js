@@ -22,8 +22,9 @@ module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "public, s-maxage=60, stale-while-revalidate=120");
   // Diagnostics: /api/scan?curvesdiag=1 runs one live refresh of the bonding-curve feed and shows what each source returned.
   // Launchpad facts for one Solana token (find higher.fun's LaunchLab platform id): /api/scan?padinfo=<mint>
-  const pi = url.searchParams.get("padinfo");
-  if (pi && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(pi)) {
+  const pi = url.searchParams.has("padinfo") ? String(url.searchParams.get("padinfo") || "").trim().replace(/[<>\s]/g, "") : null;
+  if (pi !== null && !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(pi)) return res.status(200).json({ ok: false, error: "padinfo needs a Solana token address (no < > around it)", got: pi });
+  if (pi) {
     res.setHeader("Cache-Control", "no-store");
     const LPS = require("./_lib/launchpads"), pools = await LPS.launchlabPools([pi]).catch((e) => ({ error: e.message }));
     const hi = await LPS.higherOf([pi]).catch(() => new Set());

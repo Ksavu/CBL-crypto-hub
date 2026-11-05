@@ -11,6 +11,7 @@ function launchpadOf(chain, ca, dexes, labels) {
   const curve = (ids) => d.some((x) => ids.includes(x)), grad = (ids) => d.some((x) => !ids.includes(x)); // trades elsewhere = graduated
   if (chain === "solana") {
     if (/LoL$/.test(a)) return { n: "launched.lol", k: "lol", g: null };
+    if (/high$/.test(a)) return { n: "higher.fun", k: "higher", g: null }; // higher.fun vanity ending
     if (/pump$/.test(a) || curve(["pumpfun", "pumpswap"])) return { n: "Pump.fun", k: "pump", g: !d.includes("pumpfun") || grad(["pumpfun"]) };
     if (/bonk$/.test(a) || curve(["bonkfun", "letsbonk"])) return { n: "LetsBonk", k: "bonk", g: grad(["raydium", "bonkfun", "letsbonk"]) || null };
     if (curve(["moonshot"])) return { n: "Moonshot", k: "moon", g: grad(["moonshot"]) };
@@ -92,7 +93,8 @@ async function launchlabPools(mints) {
 async function higherOf(mints) {
   const found = new Set(); mints = [...new Set(mints.filter((m) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m)))].slice(0, 300);
   if (!mints.length) return found;
-  const ids = String(process.env.HIGHER_PLATFORM_ID || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const ids = ["7mT6fb3m6W2886ymKsShBBcnX3TYb9ZsnkDJtACsVt8V"].concat(String(process.env.HIGHER_PLATFORM_ID || "").split(",").map((x) => x.trim()).filter(Boolean)); // higher.fun LaunchLab platform config
+  mints.filter((m) => /high$/.test(m)).forEach((m) => found.add(m));
   if (ids.length) { const P = await launchlabPools(mints).catch(() => ({})); for (const m of mints) if (P[m] && ids.includes(P[m].platformId)) found.add(m); }
   const rest = mints.filter((m) => !found.has(m));
   if (rest.length && helius()) {
