@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "space.cryptobarlounge.twa",
+        "sha256_cert_fingerprints": ["7E:6B:19:CF:8A:56:A5:9C:68:3C:93:23:12:D6:52:69:D1:A2:D1:70:3B:E3:9C:71:C9:8A:00:EF:B4:CE:49:A8"]
+      }
+    }]
