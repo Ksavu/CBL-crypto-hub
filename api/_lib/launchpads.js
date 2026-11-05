@@ -53,6 +53,8 @@ const PAD_INFO = {
   "Four.meme": "BNB Chain launchpad: bonding curve first, then a PancakeSwap pool.",
   Clanker: "Base token launcher: deploys the token straight into a Uniswap pool with locked liquidity.",
   "launched.lol": "Solana bonding-curve launchpad by CBL's team.",
+  "higher.fun": "Solana launchpad on Raydium LaunchLab: bonding curve first, then a Raydium pool (liquidity burned or locked).",
+  LaunchLab: "Raydium LaunchLab bonding curve: graduates to a Raydium pool.",
 };
 const launchpadByCreator = (chain, creator) => (creator && BY_CREATOR[chain] && BY_CREATOR[chain][String(creator).toLowerCase()]) || null;
 
@@ -60,4 +62,45 @@ const launchpadByCreator = (chain, creator) => (creator && BY_CREATOR[chain] && 
 const PAD_URL = { "Pump.fun": (ca) => "https://pump.fun/coin/" + ca, "Four.meme": (ca) => "https://four.meme/token/" + ca, Pons: (ca) => "https://ponsfamily.com/launchpad/" + ca };
 const padUrl = (name, ca) => (PAD_URL[name] ? PAD_URL[name](ca) : null);
 
-module.exports = { launchpadOf, launchpadByCreator, PAD_INFO, BY_CREATOR, LP_DEX, PAD_URL, padUrl };
+// ---------- higher.fun (Solana, runs on Raydium LaunchLab) ----------
+// A LaunchLab token is higher.fun's when its LaunchLab pool was created through higher.fun's platform config
+// (HIGHER_PLATFORM_ID env, comma separated; find it with /api/scan?padinfo=<higher.fun token>) or its metadata points to higher.fun.
+const LAUNCHLAB = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj", WSOL = "So11111111111111111111111111111111111111112";
+const helius = () => String(process.env.HELIUS_API_KEY || "").trim();
+async function srpc(method, params) {
+  const url = helius() ? "https://mainnet.helius-rpc.com/?api-key=" + helius() : "https://api.mainnet-beta.solana.com";
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 8000);
+  try { const r = await fetch(url, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }); const j = await r.json(); return j.result; }
+  catch (e) { return null; } finally { clearTimeout(t); }
+}
+/** LaunchLab pool facts for a mint: { pool, platformId, configId, status } or null. Pool layout: 8 disc, epoch, 5×u8, 10×u64, vesting 5×u64, configId, platformId, mintA… */
+async function launchlabPools(mints) {
+  const D = require("./devstats"), out = {};
+  const pdas = mints.map((m) => { try { return D.pda([Buffer.from("pool"), D.b58dec(m), D.b58dec(WSOL)], LAUNCHLAB); } catch (e) { return null; } });
+  for (let i = 0; i < mints.length; i += 100) {
+    const keys = pdas.slice(i, i + 100), r = await srpc("getMultipleAccounts", [keys.map((k) => k || WSOL), { encoding: "base64" }]);
+    ((r && r.value) || []).forEach((acc, j) => {
+      const m = mints[i + j]; if (!acc || acc.owner !== LAUNCHLAB) return;
+      const b = Buffer.from(acc.data[0], "base64"); if (b.length < 237) return;
+      if (D.b58enc(b.subarray(205, 237)) !== m) return; // layout self-check: mintA must be this token
+      out[m] = { pool: keys[j], status: b[17], configId: D.b58enc(b.subarray(141, 173)), platformId: D.b58enc(b.subarray(173, 205)) };
+    });
+  }
+  return out;
+}
+/** Which of these Solana mints were launched on higher.fun. Returns a Set. */
+async function higherOf(mints) {
+  const found = new Set(); mints = [...new Set(mints.filter((m) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m)))].slice(0, 300);
+  if (!mints.length) return found;
+  const ids = String(process.env.HIGHER_PLATFORM_ID || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (ids.length) { const P = await launchlabPools(mints).catch(() => ({})); for (const m of mints) if (P[m] && ids.includes(P[m].platformId)) found.add(m); }
+  const rest = mints.filter((m) => !found.has(m));
+  if (rest.length && helius()) {
+    const a = await srpc("getAssetBatch", { ids: rest });
+    (a || []).forEach((x) => { if (!x || !x.id) return; const c = x.content || {}, s = JSON.stringify([c.json_uri, c.links, c.metadata && c.metadata.description, c.metadata && c.metadata.external_url]).toLowerCase(); if (s.includes("higher.fun")) found.add(x.id); });
+  }
+  return found;
+}
+const HIGHER = { n: "higher.fun", k: "higher" };
+
+module.exports = { HIGHER, higherOf, launchlabPools, launchpadOf, launchpadByCreator, PAD_INFO, BY_CREATOR, LP_DEX, PAD_URL, padUrl };

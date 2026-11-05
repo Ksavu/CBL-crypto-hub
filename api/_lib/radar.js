@@ -153,6 +153,9 @@ async function build(budgetMs = 23000) {
   const rh = rows.filter((r) => r.chain === "robinhood" && !r.lp && !(r.ca in lpc)).slice(0, 60).map((r) => r.ca);
   Object.assign(lpc, await robinhoodPads(rh).catch(() => ({})));
   rows.forEach((r) => { if (r.chain === "robinhood" && !r.lp && lpc[r.ca]) r.lp = Object.assign({}, lpc[r.ca], { g: rhGrad(r) }); });
+  // higher.fun tokens trade on Raydium LaunchLab, then Raydium
+  const ll = rows.filter((r) => r.chain === "solana" && !/bonk$|pump$|LoL$/.test(r.ca) && (!r.lp || r.lp.k === "launchlab" || r.lp.k === "bonk" || (r.dexes || []).some((d) => /launchlab|raydium/i.test(d)))).slice(0, 120);
+  if (ll.length) { const hi = await require("./launchpads").higherOf(ll.map((r) => r.ca)).catch(() => new Set()); ll.forEach((r) => { if (hi.has(r.ca)) r.lp = Object.assign({}, require("./launchpads").HIGHER, { g: r.lp ? r.lp.g : null }); }); }
   // Score: most active first, plus everything brand new; reuse scores younger than 30 minutes.
   const todo = rows.filter((r) => { const s = scores[key(r.chain, r.ca)]; return !s || Date.now() - s.t > SCORE_TTL; })
     .sort((a, b) => (b.created && Date.now() - b.created < 6 * 3600e3 ? 1 : 0) - (a.created && Date.now() - a.created < 6 * 3600e3 ? 1 : 0) || b.trend - a.trend);

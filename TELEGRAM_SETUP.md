@@ -149,3 +149,9 @@ The Telegram bot stays as it is; its home screen just has a 🌐 link to the web
 1. **BotFather → /setdomain** → choose your bot → `cryptobarlounge.space` (needed for the "Log in with Telegram" button).
 2. **PC / Android / iPhone install:** open /bartender in Chrome or Edge → "Install app" (iPhone: Share → Add to Home Screen).
 3. **Android APK:** https://www.pwabuilder.com → enter `https://cryptobarlounge.space/bartender` → Package for stores → Android → Download. Put the `.apk` in the repo root as `cbl-bartender.apk` (the page then shows a "Download Android app" button) and copy the `assetlinks.json` from the PWABuilder zip to `.well-known/assetlinks.json` so it opens full-screen. Keep the signing key for future updates.
+
+## higher.fun (Solana)
+higher.fun coins run on Raydium LaunchLab, so CBL Swap, the Bartender and the scanner already trade/scan them (Jupiter routes LaunchLab).
+They are labelled ⬆️ higher.fun when their metadata points to higher.fun, or — exact — when their LaunchLab pool uses higher.fun's platform config:
+1. Open `https://cryptobarlounge.space/api/scan?padinfo=<any higher.fun coin address>`
+2. Copy `launchlab.platformId` into Vercel env `HIGHER_PLATFORM_ID` and redeploy.

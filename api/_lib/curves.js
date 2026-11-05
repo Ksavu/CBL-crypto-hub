@@ -5,6 +5,7 @@
 //   GeckoTerminal   per-DEX pool lists for launchpad curve DEXes (Moonshot, LaunchLab/LetsBonk, Meteora DBC, Boop,
 //                   Four.meme...). DEX ids are discovered once a day from GeckoTerminal's DEX list, so new ones appear.
 //   Robinhood Chain Pons / Hood.fun / RobinFun factory launch events via the Robinhood Blockscout explorer
+const LPS = require("./launchpads");
 const db = require("./db");
 const { runScan } = require("./scanner");
 
@@ -245,6 +246,12 @@ async function build(budgetMs = 23000) {
   const seen = new Map();
   for (const r of [...p, ...g, ...rh, ...fromRadar]) { const k = r.chain + "|" + r.ca; if (!seen.has(k)) seen.set(k, r); }
   let rows = [...seen.values()];
+  // Raydium LaunchLab hosts several launchpads: LetsBonk (…bonk), higher.fun, and others
+  const ll = rows.filter((r) => r.chain === "solana" && r.lp && (r.lp.k === "bonk" || r.lp.k === "launchlab") && !/bonk$/.test(r.ca));
+  if (ll.length) {
+    const hi = await LPS.higherOf(ll.map((r) => r.ca)).catch(() => new Set());
+    ll.forEach((r) => { r.lp = hi.has(r.ca) ? Object.assign({}, LPS.HIGHER, { g: false }) : { n: "LaunchLab", k: "launchlab", g: false }; });
+  }
   rows.forEach((r) => (r.heat = heat(r)));
   rows.sort((a, b) => b.heat - a.heat);
   // Every launchpad keeps its 15 hottest, so busy ones (Pump.fun) can't push smaller ones (Pons, Hood.fun...) off the list.

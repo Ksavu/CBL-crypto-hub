@@ -140,7 +140,10 @@ async function runScan(caIn, selIn, opts) {
   // Launchpad origin: deployer contract (EVM), else DEX ids + vanity address endings (pump, bonk, LoL, 4444, b07...).
   const lpHit = (kind === "evm" && EF.launchpadByCreator(chain, ex && ex.creator)) || null;
   const lpGuess = LP.launchpadOf(chain, ca, pairs.map((p) => p.dexId).concat(pair && pair.curve ? ["pumpfun"] : []), [].concat(...pairs.map((p) => p.labels || [])));
-  const launchpad = lpHit || (lpGuess && lpGuess.n) || null;
+  let launchpad = lpHit || (lpGuess && lpGuess.n) || null;
+  if (chain === "solana" && !/pump$|bonk$|LoL$/.test(ca) && (!launchpad || launchpad === "LaunchLab" || pairs.some((p) => /launchlab|raydium/i.test(p.dexId || "")))) {
+    const hi = await LP.higherOf([ca]).catch(() => new Set()); if (hi.has(ca)) launchpad = "higher.fun";
+  }
   const onCurve = pair ? !!pair.curve || (lpGuess && lpGuess.g === false) : !!launchpad;
   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
   let dev = null;
