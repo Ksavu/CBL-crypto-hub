@@ -76,6 +76,12 @@ module.exports = async (req, res) => {
     } catch (e) { out.error = String(e.message).slice(0, 100); }
     return res.status(200).json({ ok: true, job: "calls", ...out, ms: Date.now() - t0 });
   }
+  if (job === "orders") { // trading bot take profit / stop loss
+    const notify = (uid, html, c, ca) => fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ chat_id: uid, text: html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: [[{ text: "📊 Token", callback_data: `Tv${c}:${ca}` }, { text: "🎯 Orders", callback_data: "To" }]] } }) }).catch(() => {});
+    const r = await require("./_lib/orders").job(t0 + 52000, notify).catch((e) => ({ error: String(e.message).slice(0, 100) }));
+    return res.status(200).json({ ok: true, job: "orders", ...r });
+  }
   if (job === "devs") { const r = await require("./_lib/devstats").devJob(t0 + 50000).catch((e) => ({ error: String(e.message).slice(0, 100) })); return res.status(200).json({ ok: true, job: "devs", ...r }); }
   if (job === "curves") { const r = await require("./_lib/curves").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "curves", ...r.stats }); }
   if (job === "radar") { const r = await require("./_lib/radar").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "radar", ...r.stats }); }

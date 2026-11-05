@@ -16,6 +16,10 @@ jobs:
           echo "HTTP status: $code"
           cat body.txt || true
           echo
+          ocode=$(curl -sS -m 70 -o obody.txt -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" "https://cryptobarlounge.space/api/cron?job=orders" || true)
+          echo "TP/SL orders HTTP status: $ocode"
+          cat obody.txt || true
+          echo
           wcode=$(curl -sS -m 40 -o wbody.txt -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" "https://cryptobarlounge.space/api/cron?job=wallets" || true)
           echo "Wallet tracker HTTP status: $wcode"
           cat wbody.txt || true

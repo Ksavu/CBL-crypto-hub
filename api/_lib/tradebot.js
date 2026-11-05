@@ -3,6 +3,8 @@
 //   Paste a token address, a ticker ($PEPE) or a pump.fun / DEX Screener / Birdeye / GMGN link to trade it.
 //   Callback data starts with "T" (Telegram limit 64 bytes: action + chain code + index + address fits).
 const T = require("./trade");
+const O = require("./orders");
+const B = require("./bundle");
 const { esc, shortA } = require("./format");
 
 const CA_RE = /0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/;
@@ -23,13 +25,14 @@ const pnlTxt = (p, c) => (p.pnlNat == null ? "" : `${p.pnlNat >= 0 ? "🟢 +" : 
 const SORT = { val: "Most valuable", low: "Least valuable", az: "A → Z" };
 const PRIO = { normal: "Normal", fast: "Fast", turbo: "Turbo" };
 
+const bun = (c, st) => c === "s" && st && st.bundle; // Solana bundle mode (W1–W5 together)
 /** Buttons added to a token scan card / token panel. In groups: a deep link to trade in DM. */
 function tradeRows(r, isPrivate, botUser, st) {
   const c = T.CODE[r.chain]; if (!c || !T.on()) return [];
   const ca = r.address; st = st || T.settings(null);
   if (!isPrivate) return botUser ? [[{ text: "🤖 Trade it with CBL Bot", url: `https://t.me/${botUser.replace(/^@/, "")}?start=tr_${c}_${ca}` }]] : [];
   return [
-    [...st.presets[c].map((a, i) => ({ text: `🟢 ${a} ${nat(c)}`, callback_data: `Tb${c}${i}:${ca}` })), { text: "🟢 X", callback_data: `Tb${c}x:${ca}` }],
+    [...st.presets[c].map((a, i) => ({ text: `${bun(c, st) ? "📦" : "🟢"} ${a} ${nat(c)}`, callback_data: `Tb${c}${i}:${ca}` })), { text: `${bun(c, st) ? "📦" : "🟢"} X`, callback_data: `Tb${c}x:${ca}` }],
     [...st.sellP.map((p, i) => ({ text: `🔴 ${p}%`, callback_data: `Tx${c}${i}:${ca}` })), { text: "🔴 X%", callback_data: `Tx${c}x:${ca}` }],
     [{ text: "📊 Position", callback_data: `Tv${c}:${ca}` }],
   ];
@@ -51,8 +54,8 @@ function sortList(list, st) {
 const HOME_KB = [
   [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📥 Fund", callback_data: "Td" }],
   [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
-  [{ text: "📊 Positions", callback_data: "Tp" }, { text: "❓ Help", callback_data: "TH" }],
-  [{ text: "🔄 Refresh", callback_data: "Tm" }],
+  [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 TP / SL orders", callback_data: "To" }],
+  [{ text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
 ];
 async function menuMsg(row) {
   const st = T.settings(row);
@@ -73,9 +76,13 @@ async function menuMsg(row) {
 }
 
 async function walletMsg(row) {
-  const b = await T.balances(row), line = (c) => `${b[c] == null ? "?" : fmt(b[c], c)} ${nat(c)}`;
-  return { text: `<b>👛 Wallet</b>\n\n◎ <b>Solana</b>\n<code>${row.sol_pub}</code>\nBalance: ${line("s")}\n\n⬡ <b>EVM</b> (same address on BNB Chain, Base, Robinhood)\n<code>${row.evm_addr}</code>\nBNB Chain: ${line("b")}\nBase: ${line("e")}\nRobinhood: ${line("r")}\n\n${NOTE}`,
-    reply_markup: { inline_keyboard: [[{ text: "📥 Deposit", callback_data: "Td" }, { text: "📤 Withdraw", callback_data: "TW" }], [{ text: "🔑 Export private keys", callback_data: "Tk" }], [{ text: "⬅️ Back", callback_data: "Tm" }, { text: "🔄 Refresh", callback_data: "TA" }]] } };
+  const st = T.settings(row), [b, sw] = await Promise.all([T.balances(row), B.balances(row.tg_id).catch(() => [])]), line = (c) => `${b[c] == null ? "?" : fmt(b[c], c)} ${nat(c)}`;
+  const solLines = sw.length > 1 ? sw.map((w) => `W${w.idx} <code>${w.pub}</code>\n   ${w.bal == null ? "?" : fmt(w.bal, "s")} SOL`).join("\n") : `<code>${row.sol_pub}</code>\nBalance: ${line("s")}`;
+  return { text: `<b>👛 Wallet</b>\n\n◎ <b>Solana</b>${sw.length > 1 ? ` · ${sw.length} wallets` : ""}\n${solLines}\n\n📦 <b>Bundles</b>: ${st.bundle ? "🟢 On" : "🔴 Off"} — buy/sell from all your Solana wallets in one Jito bundle (same block, all or nothing). Tip ${st.bundleTip} SOL.\n\n⬡ <b>EVM</b> (same address on BNB Chain, Base, Robinhood)\n<code>${row.evm_addr}</code>\nBNB Chain: ${line("b")}\nBase: ${line("e")}\nRobinhood: ${line("r")}\n\n${NOTE}`,
+    reply_markup: { inline_keyboard: [
+      [{ text: `➕ Add Solana wallet (${sw.length || 1}/${B.MAX})`, callback_data: "Tg" }, { text: `📦 Bundles: ${st.bundle ? "On" : "Off"}`, callback_data: "Te" }],
+      [{ text: "💸 Spread SOL", callback_data: "Tf" }, { text: "🧲 Collect SOL to W1", callback_data: "Ti" }, { text: `✏️ Tip ${st.bundleTip}`, callback_data: "Th" }],
+      [{ text: "📥 Deposit", callback_data: "Td" }, { text: "📤 Withdraw", callback_data: "TW" }], [{ text: "🔑 Export private keys", callback_data: "Tk" }], [{ text: "⬅️ Back", callback_data: "Tm" }, { text: "🔄 Refresh", callback_data: "TA" }]] } };
 }
 
 const HELP = `<b>❓ How CBL Trading works</b>
@@ -85,7 +92,9 @@ const HELP = `<b>❓ How CBL Trading works</b>
 <b>Chains:</b> Solana (SOL), BNB Chain (BNB), Base and Robinhood Chain (ETH). EVM uses one address for all three.
 <b>Curves:</b> pump.fun, Four.meme and Pons tokens can be traded before they graduate.
 <b>Fee:</b> ${"{fee}"}% per trade, taken from the trade amount (buys) or proceeds (sells).
-<b>Settings:</b> button amounts, slippage, max price impact, auto-buy, MEV protection (BNB Chain), transaction speed, sell protection.
+<b>Take profit / stop loss:</b> on a token tap 🎯 Take profit or 🛑 Stop loss (e.g. <code>100 50</code> = at +100% sell half). Or turn on Auto TP/SL in Settings for every buy. Checked every 5 minutes.
+<b>Settings:</b> button amounts, slippage, max price impact, auto-buy, MEV protection (BNB Chain), transaction speed, sell protection, auto TP/SL.
+<b>Bundles:</b> 👛 Wallet → ➕ add up to 5 Solana wallets, 💸 spread SOL to them, turn 📦 Bundles on. Every Solana buy/sell then runs from all wallets in one Jito bundle (same block, all or nothing).
 <b>Keys:</b> 👛 Wallet → 🔑 Export. Keep them private — anyone with them controls your funds.
 
 Commands: /trade · /positions · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export · /settings`;
@@ -117,7 +126,26 @@ async function panelMsg(uid, c, ca, head) {
   if (p && p.pnlNat != null) L.push(`PnL: ${pnlTxt(p, c)}`);
   L.push(`Slippage buy ${st.slipBuy}% / sell ${st.slipSell}% · fee ${T.feeBps() / 100}%`);
   const kb = tradeRows({ chain: T.CH[c].key, address: ca }, true, null, st);
-  kb[2] = [{ text: "🔄 Refresh", callback_data: `Tv${c}:${ca}` }, { text: "📊 Positions", callback_data: "Tp" }, { text: "⬅️ Menu", callback_data: "Tm" }];
+  const ords = await O.list(uid, T.CH[c].key, ca).catch(() => []);
+  if (ords.length) L.push("Orders: " + ords.map((o) => (o.kind === "take_profit" ? `🎯 +${o.params.pct}% (sell ${o.params.sell}%)` : `🛑 -${o.params.pct}% (sell ${o.params.sell}%)`)).join(" · "));
+  kb[2] = [{ text: "🎯 Take profit", callback_data: `Tt${c}:${ca}` }, { text: "🛑 Stop loss", callback_data: `Tj${c}:${ca}` }, { text: `📋 Orders${ords.length ? " (" + ords.length + ")" : ""}`, callback_data: `To${c}:${ca}` }];
+  kb.push([{ text: "🔄 Refresh", callback_data: `Tv${c}:${ca}` }, { text: "📊 Positions", callback_data: "Tp" }, { text: "⬅️ Menu", callback_data: "Tm" }]);
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
+}
+
+async function ordersMsg(uid, c, ca) {
+  const rows = await O.list(uid, c ? T.CH[c].key : null, ca);
+  const L = [`<b>🎯 Take profit / stop loss</b>${ca ? " · " + esc(shortA(ca)) : ""}`, ""], kb = [];
+  if (!rows.length) L.push(ca ? "No orders for this token yet." : "No active orders. Open a token (📊 Positions) and tap 🎯 Take profit or 🛑 Stop loss.");
+  rows.forEach((o, i) => {
+    const cc = T.CODE[o.chain], tp = o.kind === "take_profit";
+    L.push(`${i + 1}. ${tp ? "🎯 Take profit" : "🛑 Stop loss"} ${tp ? "+" : "-"}${o.params.pct}% → sell ${o.params.sell}%
+   ${esc(shortA(o.token))} · ${T.CH[cc].name} · triggers at ${o.params.trig.toPrecision(4)} ${nat(cc)} (entry ${o.params.ref.toPrecision(4)})`);
+    kb.push([{ text: `❌ Cancel ${i + 1}`, callback_data: `Tr${o.id}` }]);
+  });
+  L.push("", "<i>Prices are checked every 5 minutes. On fast-moving tokens the sell can fill above or below the target.</i>");
+  if (ca) kb.push([{ text: "🎯 Add take profit", callback_data: `Tt${c}:${ca}` }, { text: "🛑 Add stop loss", callback_data: `Tj${c}:${ca}` }], [{ text: "⬅️ Token", callback_data: `Tv${c}:${ca}` }]);
+  kb.push([{ text: "⬅️ Menu", callback_data: "Tm" }]);
   return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
 }
 
@@ -143,7 +171,10 @@ Sell: ${s.sellP.join("% / ")}%
 
 <b>MEV PROTECT</b> (BNB Chain): ${onoff(s.mev)} — sends through a private mempool so bots can't front-run you. Base and Robinhood have no public mempool; Solana trades go through Jupiter's protected sending.
 <b>TRANSACTION SPEED</b> (EVM gas): <b>${PRIO[s.prio] || "Fast"}</b>
-<b>SELL PROTECTION</b>: ${onoff(s.sellConfirm)} — 100% sells ask for confirmation.`,
+<b>SELL PROTECTION</b>: ${onoff(s.sellConfirm)} — 100% sells ask for confirmation.
+
+<b>AUTO TAKE PROFIT</b>: ${onoff(s.autoTp.on)} — after every buy, sell ${s.autoTp.sell}% at +${s.autoTp.pct}%.
+<b>AUTO STOP LOSS</b>: ${onoff(s.autoSl.on)} — after every buy, sell ${s.autoSl.sell}% at -${s.autoSl.pct}%.`,
     reply_markup: { inline_keyboard: [
       [{ text: `💲 Min value $${s.minPos}`, callback_data: "TSm" }, { text: `↕️ Sort: ${SORT[s.sort] || SORT.val}`, callback_data: "TSo" }],
       [{ text: `⚡ Auto buy: ${s.autoBuy ? "On" : "Off"}`, callback_data: "TSa" }, { text: "✏️ Auto buy amounts", callback_data: "TSA" }],
@@ -151,6 +182,8 @@ Sell: ${s.sellP.join("% / ")}%
       [{ text: `Buy slip ${s.slipBuy}%`, callback_data: "TSB" }, { text: `Sell slip ${s.slipSell}%`, callback_data: "TSS" }, { text: `Max impact ${s.maxImpact}%`, callback_data: "TSi" }],
       [{ text: `🛡 MEV protect: ${s.mev ? "On" : "Off"}`, callback_data: "TSv" }, { text: `🚀 Speed: ${PRIO[s.prio] || "Fast"}`, callback_data: "TSp" }],
       [{ text: `🔒 Sell protection: ${s.sellConfirm ? "On" : "Off"}`, callback_data: "TSc" }],
+      [{ text: `🎯 Auto TP: ${s.autoTp.on ? "On" : "Off"}`, callback_data: "TSt" }, { text: `✏️ +${s.autoTp.pct}% / sell ${s.autoTp.sell}%`, callback_data: "TSu" }],
+      [{ text: `🛑 Auto SL: ${s.autoSl.on ? "On" : "Off"}`, callback_data: "TSl" }, { text: `✏️ -${s.autoSl.pct}% / sell ${s.autoSl.sell}%`, callback_data: "TSL" }],
       [{ text: "⬅️ Menu", callback_data: "Tm" }],
     ] } };
 }
@@ -207,8 +240,17 @@ function make(tg) {
     const st = mid ? (await edit(chat, mid, `⏳ Buying with ${esc(amount)} ${nat(c)}…`), { result: { message_id: mid } }) : await send(chat, `⏳ Buying with ${esc(amount)} ${nat(c)}…`);
     const id = st && st.result && st.result.message_id;
     try {
+      const st0 = T.settings(await T.getRow(uid));
+      if (bun(c, st0)) {
+        const r = await B.buy(uid, ca, amount);
+        const auto = await O.autoOnBuy(uid, c, ca, st0).catch(() => []);
+        const head = `✅ <b>📦 Bundle bought</b> ${big(r.out, r.dec)} tokens with ${r.n} wallets (${fmt(r.per, c)} SOL each)${r.fee > 0n ? ` · fee ${fmt(r.fee, c)}` : ""}\nAll in one block: ${r.sigs.map((x, i) => `<a href="${T.CH[c].exp}${x}">W${i + 1}</a>`).join(" · ")}` + auto.map((o) => `\n${o.kind === "TP" ? "🎯 Auto take profit" : "🛑 Auto stop loss"}: sell ${o.sell}% at ${o.kind === "TP" ? "+" : "-"}${o.pct}%`).join("");
+        return void (await edit(chat, id, await panelMsg(uid, c, ca, head)));
+      }
       const r = await T.buy(uid, c, ca, amount);
-      const head = `✅ <b>Bought</b> ${r.out > 0n ? big(r.out, r.dec) + " tokens " : ""}for ${esc(amount)} ${nat(c)} via ${esc(r.route)}${r.fee > 0n ? ` (fee ${fmt(r.fee, c)})` : ""}\n<a href="${T.CH[c].exp}${r.hash}">View transaction</a>`;
+      const row2 = await T.getRow(uid), auto = await O.autoOnBuy(uid, c, ca, T.settings(row2)).catch(() => []);
+      const autoTxt = auto.map((o) => `\n${o.kind === "TP" ? "🎯 Auto take profit" : "🛑 Auto stop loss"}: sell ${o.sell}% at ${o.kind === "TP" ? "+" : "-"}${o.pct}%`).join("");
+      const head0 = `✅ <b>Bought</b> ${r.out > 0n ? big(r.out, r.dec) + " tokens " : ""}for ${esc(amount)} ${nat(c)} via ${esc(r.route)}${r.fee > 0n ? ` (fee ${fmt(r.fee, c)})` : ""}\n<a href="${T.CH[c].exp}${r.hash}">View transaction</a>`, head = head0 + autoTxt;
       await edit(chat, id, await panelMsg(uid, c, ca, head));
     } catch (e) { await edit(chat, id, { text: errText(e), reply_markup: backBtn(c, ca) }); }
   }
@@ -216,6 +258,10 @@ function make(tg) {
     const st = mid ? (await edit(chat, mid, `⏳ Selling ${pct}%…`), { result: { message_id: mid } }) : await send(chat, `⏳ Selling ${pct}%…`);
     const id = st && st.result && st.result.message_id;
     try {
+      if (bun(c, T.settings(await T.getRow(uid)))) {
+        const r = await B.sell(uid, ca, pct);
+        return void (await edit(chat, id, await panelMsg(uid, c, ca, `✅ <b>📦 Bundle sold</b> ${pct}% from ${r.n} wallet(s) for ~${fmt(r.out, c)} SOL${r.fee > 0n ? ` (fee ${fmt(r.fee, c)})` : ""}\n${r.sigs.map((x, i) => `<a href="${T.CH[c].exp}${x}">tx ${i + 1}</a>`).join(" · ")}`)));
+      }
       const r = await T.sell(uid, c, ca, pct);
       const head = `✅ <b>Sold</b> ${pct}% (${big(r.sold, r.dec)}) for ~${fmt(r.out, c)} ${nat(c)} via ${esc(r.route)}${r.fee > 0n ? ` (fee ${fmt(r.fee, c)})` : ""}\n<a href="${T.CH[c].exp}${r.hash}">View transaction</a>`;
       await edit(chat, id, await panelMsg(uid, c, ca, head));
@@ -227,7 +273,7 @@ function make(tg) {
   }
   async function sendKeys(chat, row, first) {
     const V = require("./vault");
-    await send(chat, `🔑 <b>${first ? "Save your private keys now" : "Your private keys"}</b>\nTap to reveal. Store them somewhere safe (password manager or offline), then <b>delete this message</b>. Anyone with these keys controls your funds.\n\n◎ Solana (import into Phantom/Solflare):\n<tg-spoiler><code>${V.solExport(V.solSeed(row))}</code></tg-spoiler>\n\n⬡ EVM (MetaMask/Rabby, same on BNB/Base/Robinhood):\n<tg-spoiler><code>${V.evmPk(row)}</code></tg-spoiler>${first ? "\n\nYou can show them again any time: 👛 Wallet → 🔑 Export." : ""}`, { protect_content: true });
+    await send(chat, `🔑 <b>${first ? "Save your private keys now" : "Your private keys"}</b>\nTap to reveal. Store them somewhere safe (password manager or offline), then <b>delete this message</b>. Anyone with these keys controls your funds.\n\n◎ Solana (import into Phantom/Solflare):\n<tg-spoiler><code>${V.solExport(V.solSeed(row))}</code></tg-spoiler>\n\n⬡ EVM (MetaMask/Rabby, same on BNB/Base/Robinhood):\n<tg-spoiler><code>${V.evmPk(row)}</code></tg-spoiler>${await B.exportKeys(row.tg_id).then((l) => l.map((w) => `\n\n◎ Solana W${w.idx} <code>${w.pub}</code>:\n<tg-spoiler><code>${w.key}</code></tg-spoiler>`).join("")).catch(() => "")}${first ? "\n\nYou can show them again any time: 👛 Wallet → 🔑 Export." : ""}`, { protect_content: true });
   }
   const depositMsg = (row) => `<b>📥 Fund your wallet</b>\n\nSend <b>SOL</b> (Solana network) to:\n<code>${row.sol_pub}</code>\n\nSend <b>BNB</b> (BNB Chain) or <b>ETH</b> (Base / Robinhood Chain) to:\n<code>${row.evm_addr}</code>\n\nTap an address to copy it. Buy crypto on any exchange (Binance, Bybit, OKX…) and withdraw to these addresses on the matching network. Then tap 🔄 Refresh.`;
   const exportAsk = () => ({ text: "🔑 <b>Export private keys</b>\n\nAnyone with these keys controls your funds. Never share them, and delete the message after saving them.\n\nShow keys now?", reply_markup: { inline_keyboard: [[{ text: "Yes, show my keys", callback_data: "Tkk" }, { text: "Cancel", callback_data: "TA" }]] } });
@@ -320,6 +366,10 @@ function make(tg) {
       if (o === "v") { await save({ mev: !st.mev }); return void (await refresh(st.mev ? "MEV protect on" : "MEV protect off")) || true; }
       if (o === "c") { await save({ sellConfirm: !st.sellConfirm }); return void (await refresh(st.sellConfirm ? "Sell protection on" : "Sell protection off")) || true; }
       if (o === "p") { const order = ["normal", "fast", "turbo"]; await save({ prio: order[(order.indexOf(st.prio) + 1) % 3] }); return void (await refresh("Speed: " + PRIO[st.prio])) || true; }
+      if (o === "t") { await save({ autoTp: Object.assign(st.autoTp, { on: !st.autoTp.on }) }); return void (await refresh(st.autoTp.on ? "Auto take profit on" : "Auto take profit off")) || true; }
+      if (o === "l") { await save({ autoSl: Object.assign(st.autoSl, { on: !st.autoSl.on }) }); return void (await refresh(st.autoSl.on ? "Auto stop loss on" : "Auto stop loss off")) || true; }
+      if (o === "u") { await ack(); await prompt(chat, "Auto take profit: reply with the gain % and how much to sell, e.g. <code>100 50</code> = at +100% sell 50%", "set:autotp", "100 50"); return true; }
+      if (o === "L") { await ack(); await prompt(chat, "Auto stop loss: reply with the loss % and how much to sell, e.g. <code>30 100</code> = at -30% sell everything", "set:autosl", "30 100"); return true; }
       if (o === "B") { await ack(); await prompt(chat, "Buy slippage in %, e.g. <code>10</code>", "set:slipb", "10"); return true; }
       if (o === "S") { await ack(); await prompt(chat, "Sell slippage in %, e.g. <code>10</code>", "set:slips", "10"); return true; }
       if (o === "i") { await ack(); await prompt(chat, "Max price impact in % (trades with a bigger impact are blocked), e.g. <code>25</code>. Send <code>0</code> to turn it off.", "set:impact", "25"); return true; }
@@ -344,6 +394,20 @@ function make(tg) {
       return true;
     }
     if (k === "n") { await save({ pend: null }); await ack("Cancelled"); await edit(chat, mid, "Withdrawal cancelled."); return true; }
+    if (d === "Tg") { try { const i = await B.addWallet(uid); await ack(`Wallet W${i} created`); } catch (e) { await ack(e.message, true); } await edit(chat, mid, await walletMsg(await T.getRow(uid))); return true; }
+    if (d === "Te") { await save({ bundle: !st.bundle }); await ack(st.bundle ? "Bundles on: Solana buys/sells use all your wallets" : "Bundles off"); await edit(chat, mid, await walletMsg(await T.getRow(uid))); return true; }
+    if (d === "Tf") { await ack(); await prompt(chat, "💸 <b>Spread SOL</b>\nHow much SOL to send from W1 to <b>each</b> other wallet? e.g. <code>0.2</code>", "spread", "0.2"); return true; }
+    if (d === "Th") { await ack(); await prompt(chat, "✏️ Jito bundle tip in SOL (higher lands faster), e.g. <code>0.001</code>", "set:tip", "0.001"); return true; }
+    if (d === "Ti") { await ack("Collecting…"); try { const r = await B.collect(uid); await send(chat, `🧲 Moved ${fmt(r.total, "s")} SOL back to W1.`); } catch (e) { await send(chat, errText(e)); } await edit(chat, mid, await walletMsg(await T.getRow(uid))); return true; }
+    if (d === "To") { await ack(); await edit(chat, mid, await ordersMsg(uid)); return true; }
+    if (k === "r" && /^\d+$/.test(d.slice(2))) { await O.cancel(uid, d.slice(2)); await ack("Order cancelled"); await edit(chat, mid, await ordersMsg(uid)); return true; }
+    const om = /^T([otj])([sber]):(.+)$/.exec(d);
+    if (om) {
+      const [, oa, oc, oca] = om; await ack();
+      if (oa === "o") { await edit(chat, mid, await ordersMsg(uid, oc, oca)); return true; }
+      if (oa === "t") { await prompt(chat, `🎯 <b>Take profit</b>\nToken: <code>${oca}</code> · ${T.CH[oc].name}\nReply with the gain % and how much to sell, e.g. <code>100 50</code> = when it's up 100% from your entry, sell 50%.`, "tp:" + oc, "100 50"); return true; }
+      await prompt(chat, `🛑 <b>Stop loss</b>\nToken: <code>${oca}</code> · ${T.CH[oc].name}\nReply with the loss % (and optionally how much to sell), e.g. <code>30</code> = when it's down 30% from your entry, sell everything.`, "sl:" + oc, "30"); return true;
+    }
     // token actions: Tv/TV<c>:<ca> (panel)  Tb<c><i|x>:<ca> (buy)  Tx<c><i|x>:<ca> (sell)  Tz<c><i>:<ca> (confirmed 100% sell)
     const m = /^T([vVbxz])([sber])([0-9x]?):(.+)$/.exec(d);
     if (!m) { await ack(); return true; }
@@ -366,13 +430,18 @@ function make(tg) {
   /** Replies to the bot's ✏️ prompts. Returns true when handled. Find-token replies return { ca, chain } to scan. */
   async function replyPrompt(msg) {
     const r = msg.reply_to_message; if (!r || !r.from || !r.from.is_bot || msg.chat.type !== "private") return false;
-    const tag = /#(buy|sell|withdraw|set|find)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
+    const tag = /#(buy|sell|withdraw|set|find|tp|sl|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
     const [, kind, a1, a2] = tag, uid = msg.from.id, chat = msg.chat.id, txt = (msg.text || "").trim();
     if (kind === "find") {
       const link = /https?:\/\//.test(txt) ? await fromLink(txt) : null; if (link) return link;
       const ca = (txt.match(CA_RE) || [])[0]; if (ca) return { ca, chain: null };
       const handled = await textInput({ chat: msg.chat, text: txt.startsWith("$") ? txt : "$" + txt }); return handled || true;
+    }
+    if (kind === "spread") {
+      if (!/^\d*\.?\d+$/.test(txt)) { await send(chat, "Reply with an amount, e.g. <code>0.2</code>"); return true; }
+      try { const r = await B.spread(uid, txt); await send(chat, { text: `💸 Sent ${fmt(r.amt, "s")} SOL from W1 to ${r.n} wallet(s).`, reply_markup: { inline_keyboard: [[{ text: "👛 Wallet", callback_data: "TA" }]] } }); } catch (e) { await send(chat, errText(e)); }
+      return true;
     }
     const row = await T.getRow(uid); if (!row) return true;
     const st = T.settings(row), num = (x) => (/^\d*\.?\d+$/.test(x) ? Number(x) : NaN), save = (p) => T.saveSettings(uid, Object.assign(st, p));
@@ -384,10 +453,26 @@ function make(tg) {
       if (a1 === "impact" && nums[0] >= 0 && nums[0] <= 100) { await save({ maxImpact: nums[0] }); return void (await ok(nums[0] ? `Max price impact: ${nums[0]}%` : "Max price impact check off")) || true; }
       if (a1 === "sellp" && nums.length === 3 && nums.every((x) => x >= 1 && x <= 100)) { await save({ sellP: nums.map(Math.round) }); return void (await ok(`Sell buttons: ${nums.map(Math.round).join("% / ")}%`)) || true; }
       if (a1 === "buyp" && T.CH[a2] && nums.length === 3 && nums.every((x) => x > 0)) { await save({ presets: Object.assign(st.presets, { [a2]: nums }) }); return void (await ok(`Buy buttons (${nat(a2)}): ${nums.join(" / ")}`)) || true; }
+      if ((a1 === "autotp" || a1 === "autosl") && nums[0] > 0 && (a1 === "autotp" || nums[0] < 100)) {
+        const sell = nums[1] >= 1 && nums[1] <= 100 ? Math.round(nums[1]) : a1 === "autotp" ? 50 : 100, k2 = a1 === "autotp" ? "autoTp" : "autoSl";
+        await save({ [k2]: Object.assign(st[k2], { pct: nums[0], sell, on: true }) });
+        return void (await ok(`${a1 === "autotp" ? "Auto take profit: +" : "Auto stop loss: -"}${nums[0]}%, sell ${sell}% (turned on)`)) || true;
+      }
+      if (a1 === "tip" && nums[0] > 0 && nums[0] <= 0.1) { await save({ bundleTip: nums[0] }); await send(chat, { text: `✅ Bundle tip: ${nums[0]} SOL`, reply_markup: { inline_keyboard: [[{ text: "👛 Wallet", callback_data: "TA" }]] } }); return true; }
       if (a1 === "auto" && T.CH[a2] && nums[0] > 0) { await save({ autoAmt: Object.assign(st.autoAmt, { [a2]: nums[0] }) }); return void (await ok(`Auto buy amount (${nat(a2)} on ${T.CH[a2].name}): ${nums[0]}`)) || true; }
       await send(chat, "That doesn't look right. Open ⚙️ Settings and try again."); return true;
     }
     const c = a1;
+    if (kind === "tp" || kind === "sl") {
+      const ca = ((r.text || "").match(CA_RE) || [])[0]; if (!ca || !T.CH[c]) return true;
+      const nums = txt.replace(/[%+-]/g, "").split(/[\s,\/]+/).map(num);
+      if (!(nums[0] > 0)) { await send(chat, kind === "tp" ? "Reply like <code>100 50</code> (gain %, sell %)." : "Reply like <code>30</code> or <code>30 100</code> (loss %, sell %)."); return true; }
+      try {
+        const o = await O.add(uid, c, ca, kind === "tp" ? "take_profit" : "stop_loss", nums[0], nums[1] || (kind === "tp" ? 50 : 100));
+        await send(chat, { text: `✅ ${kind === "tp" ? "🎯 Take profit" : "🛑 Stop loss"} set: sell ${o.sell}% when the price ${kind === "tp" ? "rises" : "falls"} ${o.pct}% from ${o.from} (${o.ref.toPrecision(4)} → ${o.trig.toPrecision(4)} ${nat(c)}).`, reply_markup: { inline_keyboard: [[{ text: "📋 Orders", callback_data: `To${c}:${ca}` }, { text: "⬅️ Token", callback_data: `Tv${c}:${ca}` }]] } });
+      } catch (e) { await send(chat, errText(e)); }
+      return true;
+    }
     if (kind === "withdraw") {
       const [amt, to] = txt.split(/\s+/);
       if (!amt || !to || !(/^all$/i.test(amt) || /^\d*\.?\d+$/.test(amt))) { await send(chat, "Reply with the amount and address, e.g. <code>0.5 ADDRESS</code> or <code>all ADDRESS</code>."); return true; }

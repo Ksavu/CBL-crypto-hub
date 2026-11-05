@@ -38,11 +38,13 @@ async function ensure(uid) {
 }
 // BonkBot-style settings (stored in bot_wallets.settings)
 const DEFAULTS = { slipBuy: 10, slipSell: 10, maxImpact: 25, minPos: 0.5, sort: "val", autoBuy: false, autoAmt: { s: 0.1, b: 0.05, e: 0.01, r: 0.01 },
-  presets: { s: [0.1, 0.5, 1], b: [0.05, 0.1, 0.5], e: [0.01, 0.05, 0.1], r: [0.01, 0.05, 0.1] }, sellP: [25, 50, 100], mev: true, prio: "fast", sellConfirm: true };
+  presets: { s: [0.1, 0.5, 1], b: [0.05, 0.1, 0.5], e: [0.01, 0.05, 0.1], r: [0.01, 0.05, 0.1] }, sellP: [25, 50, 100], mev: true, prio: "fast", sellConfirm: true,
+  autoTp: { on: false, pct: 100, sell: 50 }, autoSl: { on: false, pct: 30, sell: 100 }, bundle: false, bundleTip: 0.001 };
 function settings(row) {
   const s = Object.assign({}, DEFAULTS, (row && row.settings) || {});
   if (row && row.settings && row.settings.slip && !row.settings.slipBuy) s.slipBuy = s.slipSell = row.settings.slip; // old single slippage
   s.presets = Object.assign({}, DEFAULTS.presets, s.presets || {}); s.autoAmt = Object.assign({}, DEFAULTS.autoAmt, s.autoAmt || {});
+  s.autoTp = Object.assign({}, DEFAULTS.autoTp, s.autoTp || {}); s.autoSl = Object.assign({}, DEFAULTS.autoSl, s.autoSl || {});
   return s;
 }
 const PRIO = { normal: 100n, fast: 125n, turbo: 160n }; // EVM gas price multiplier (%)
@@ -320,7 +322,11 @@ async function positions(uid) {
     if (t.side === "buy") a.spent += BigInt(t.native_raw); else a.got += BigInt(t.native_raw);
     agg.set(k, a);
   }
-  const sol = await solTokens(row.sol_pub).catch(() => []);
+  // Solana holdings across the main wallet and any bundle wallets (W2–W5)
+  const subs = (await db.select("bot_subwallets", `tg_id=eq.${uid}&select=sol_pub`).catch(() => [])) || [];
+  const solAll = await Promise.all([row.sol_pub, ...subs.map((x) => x.sol_pub)].map((a) => solTokens(a).catch(() => [])));
+  const sm = new Map(); solAll.flat().forEach((t) => { const p = sm.get(t.mint); sm.set(t.mint, { mint: t.mint, dec: t.dec, raw: (p ? p.raw : 0n) + t.raw }); });
+  const sol = [...sm.values()];
   for (const t of sol) if (!agg.has("solana|" + t.mint)) agg.set("solana|" + t.mint, { chain: "solana", token: t.mint, spent: 0n, got: 0n, dec: t.dec });
   const list = [...agg.values()];
   await Promise.all(list.map(async (p) => {
@@ -348,4 +354,6 @@ async function tokenView(uid, c, ca) {
   return list.find((p) => p.chain === CH[c].key && p.token === k) || null;
 }
 
-module.exports = { DEFAULTS, on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf };
+// internals shared with bundle.js
+module.exports._ = { srpc, solTokens, solBal, solDecimals, jfetch, lock, unlock, record, feeTo, fail, toUnits, SOL_MINT, clean };
+Object.assign(module.exports, { DEFAULTS, on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf });

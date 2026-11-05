@@ -72,6 +72,9 @@ function create(uid) {
   return { tg_id: uid, sol_pub: s.address, sol_enc: seal(s.seed, uid), evm_addr: e.address, evm_enc: seal(Buffer.from(e.pk.slice(2), "hex"), uid) };
 }
 const solSeed = (row) => open(row.sol_enc, row.tg_id);
+/** Extra Solana wallet for bundles (W2–W5); the key is bound to user + wallet number. */
+function createSub(uid, idx) { const w = solNew(); return { tg_id: uid, idx, sol_pub: w.address, sol_enc: seal(w.seed, uid + ":" + idx) }; }
+const subSeed = (sub) => open(sub.sol_enc, sub.tg_id + ":" + sub.idx);
 const evmPk = (row) => "0x" + open(row.evm_enc, row.tg_id).toString("hex");
 
-module.exports = { on, seal, open, create, solSeed, evmPk, solExport, solSignTx, solTransferTx, solPubOf, ethers, cu16, encCu16 };
+module.exports = { on, seal, open, create, createSub, subSeed, solSeed, evmPk, solExport, solSignTx, solTransferTx, solPubOf, ethers, cu16, encCu16 };

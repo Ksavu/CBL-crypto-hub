@@ -133,3 +133,12 @@ Private keys are encrypted with AES-256-GCM using `BOT_WALLET_KEY` and stored in
 How it works: paste a token in DM → 🟢 Buy (presets or ✏️ custom) / 🔴 Sell 25/50/100%. Solana routes through Jupiter (incl. pump.fun curves),
 EVM through LI.FI, and Four.meme / Pons curve tokens trade on the launchpad contract directly. The fee is a separate transfer after each successful trade.
 In groups, scans show "🤖 Trade it with CBL Bot", which opens the token in DM.
+
+### Take profit / stop loss
+On a token panel: 🎯 Take profit / 🛑 Stop loss (e.g. `100 50` = at +100% from entry sell 50%). Settings → Auto TP / Auto SL attaches them to every buy.
+Checked by `/api/cron?job=orders` (first step of the GitHub Actions workflow, every 5 minutes). Prices are DEX Screener native-pair prices.
+
+### Bundles (Solana)
+Run `bundles.sql` once. In 👛 Wallet: ➕ add up to 5 Solana wallets, 💸 spread SOL from W1, turn 📦 Bundles on.
+Every Solana buy/sell then runs from all wallets in one Jito bundle (same block, all or nothing). Tip is set per user (default 0.001 SOL).
+Optional env: `JITO_URL` (default https://mainnet.block-engine.jito.wtf/api/v1/bundles).
