@@ -24,7 +24,12 @@
     },
     {
       "source": "/app",
-      "destination": "/sniper",
+      "destination": "/bartender",
+      "permanent": true
+    },
+    {
+      "source": "/sniper",
+      "destination": "/bartender",
       "permanent": true
     }
   ],

@@ -113,7 +113,7 @@ Set `WC_PROJECT_ID` in Vercel (Settings, Environment Variables) and redeploy. Th
 - The checks are offline pattern rules (mint, blacklist, uncapped fees, trading switch, router/pair changes, upgradeable code, selfdestruct, tx.origin, old compilers and more). Not a manual audit.
 - AI review can be added later: the result already carries an `audit.ai` slot, and `api/audit.js` is the single place to call it from.
 
-## Trading bot (/trade) — BonkBot-style custodial wallets
+## 🍸 CBL Bartender — trading bot (/trade), BonkBot-style custodial wallets
 
 Each Telegram user gets one Solana wallet and one EVM wallet (same address on BNB Chain, Base and Robinhood Chain).
 Private keys are encrypted with AES-256-GCM using `BOT_WALLET_KEY` and stored in Supabase (`bot_wallets`). Trading works only in private chat.
@@ -132,7 +132,7 @@ Private keys are encrypted with AES-256-GCM using `BOT_WALLET_KEY` and stored in
 
 How it works: paste a token in DM → 🟢 Buy (presets or ✏️ custom) / 🔴 Sell 25/50/100%. Solana routes through Jupiter (incl. pump.fun curves),
 EVM through LI.FI, and Four.meme / Pons curve tokens trade on the launchpad contract directly. The fee is a separate transfer after each successful trade.
-In groups, scans show "🤖 Trade it with CBL Bot", which opens the token in DM.
+In groups, scans show "🍸 Order it from the Bartender", which opens the token in DM.
 
 ### Take profit / stop loss
 On a token panel: 🎯 Take profit / 🛑 Stop loss (e.g. `100 50` = at +100% from entry sell 50%). Settings → Auto TP / Auto SL attaches them to every buy.
@@ -143,9 +143,9 @@ Run `bundles.sql` once. In 👛 Wallet: ➕ add up to 5 Solana wallets, 💸 spr
 Every Solana buy/sell then runs from all wallets in one Jito bundle (same block, all or nothing). Tip is set per user (default 0.001 SOL).
 Optional env: `JITO_URL` (default https://mainnet.block-engine.jito.wtf/api/v1/bundles).
 
-## CBL Sniper Bot web page (/sniper) + install as app
-Same wallets as the Telegram bot, at https://cryptobarlounge.space/sniper. Login is "Log in with Telegram" (no passwords). Private-key export stays in Telegram only.
+## 🍸 CBL Bartender web page (/bartender) + install as app
+Same wallets as the Telegram bot, at https://cryptobarlounge.space/bartender. Login is "Log in with Telegram" (no passwords). Private-key export stays in Telegram only.
 The Telegram bot stays as it is; its home screen just has a 🌐 link to the web page.
 1. **BotFather → /setdomain** → choose your bot → `cryptobarlounge.space` (needed for the "Log in with Telegram" button).
-2. **PC / Android / iPhone install:** open /sniper in Chrome or Edge → "Install app" (iPhone: Share → Add to Home Screen).
-3. **Android APK:** https://www.pwabuilder.com → enter `https://cryptobarlounge.space/sniper` → Package for stores → Android → Download. Put the `.apk` in the repo root as `cbl-sniper.apk` (the page then shows a "Download Android app" button) and copy the `assetlinks.json` from the PWABuilder zip to `.well-known/assetlinks.json` so it opens full-screen. Keep the signing key for future updates.
+2. **PC / Android / iPhone install:** open /bartender in Chrome or Edge → "Install app" (iPhone: Share → Add to Home Screen).
+3. **Android APK:** https://www.pwabuilder.com → enter `https://cryptobarlounge.space/bartender` → Package for stores → Android → Download. Put the `.apk` in the repo root as `cbl-bartender.apk` (the page then shows a "Download Android app" button) and copy the `assetlinks.json` from the PWABuilder zip to `.well-known/assetlinks.json` so it opens full-screen. Keep the signing key for future updates.

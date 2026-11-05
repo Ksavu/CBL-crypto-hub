@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>CBL Bartender</title>
+<meta name="description" content="CBL Bartender: tell it your order and it trades any token on Solana, BNB Chain, Base and Robinhood Chain.">
+<meta name="theme-color" content="#17132d">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/cbl-192.png">
+<link rel="apple-touch-icon" href="/icons/cbl-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Onest:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--night:#17132d;--panel:#211a40;--panel2:#2a2150;--line:#3a2f6b;--text:#f4f0ff;--muted:#a99fd0;--buy:#35d39b;--sell:#ff5d8f;--violet:#8a4dff;--blue:#3b7bff;--pink:#ff3fb4;--warn:#ffc65c}
+*{box-sizing:border-box}html,body{margin:0;background:var(--night);color:var(--text);font:15px/1.45 Onest,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{min-height:100dvh;padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+button,input,select{font:inherit;color:inherit}button{cursor:pointer;border:0;background:none}
+a{color:#c7b4ff}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:8px}
+.app{width:min(560px,100%);margin:auto;padding:0 16px}
+header{display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top)) 0 10px}
+.logo{font:800 22px/1 "Bricolage Grotesque",sans-serif;letter-spacing:-.04em}
+.logo b{background:linear-gradient(95deg,var(--violet),var(--blue) 55%,var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent}
+.icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--panel);font-size:18px}
+h1,h2,h3{font-family:"Bricolage Grotesque",sans-serif;letter-spacing:-.03em;margin:0}
+h2{font-size:20px;margin:22px 0 10px}
+.muted{color:var(--muted)}.small{font-size:13px}
+.search{display:flex;gap:8px;margin:6px 0 4px}
+.search input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:13px 14px;outline:0}
+.search input:focus{border-color:var(--violet)}
+.btn{border-radius:14px;padding:12px 16px;font-weight:700;background:var(--panel2)}
+.btn.main{background:linear-gradient(95deg,var(--violet),var(--blue));color:#fff}
+.btn.buy{background:var(--buy);color:#05261a}.btn.sell{background:var(--sell);color:#3a0618}
+.btn.ghost{background:transparent;border:1px solid var(--line)}
+.btn:disabled{opacity:.5;cursor:default}
+.purse{margin-top:14px;border-radius:22px;padding:18px;background:radial-gradient(120% 140% at 0% 0%,#3b2a85 0%,#241b4c 45%,#1d173c 100%);border:1px solid #4a3a8c}
+.purse .total{font:800 38px/1.05 "Bricolage Grotesque",sans-serif;letter-spacing:-.04em;margin:4px 0 12px}
+.coins{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.coin{background:#ffffff0d;border-radius:14px;padding:10px 12px}
+.coin b{display:block;font:700 17px "Bricolage Grotesque",sans-serif}
+.addr{display:flex;align-items:center;gap:8px;background:#0000002b;border-radius:12px;padding:9px 10px;margin-top:8px;font-size:13px}
+.addr code{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e3dbff}
+.addr button{color:#c7b4ff;font-weight:600;font-size:13px}
+.list{display:flex;flex-direction:column}
+.row{display:flex;align-items:center;gap:12px;padding:13px 2px;border-bottom:1px solid #ffffff12}
+.row:last-child{border-bottom:0}
+.row .grow{flex:1;min-width:0}.row .grow b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:#ffffff14;color:var(--muted)}
+.up{color:var(--buy)}.down{color:var(--sell)}
+.empty{padding:22px 4px;color:var(--muted)}
+.tok{margin-top:10px}
+.tok .name{font:800 28px/1.1 "Bricolage Grotesque",sans-serif;letter-spacing:-.03em}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.stat{background:var(--panel);border-radius:14px;padding:10px}.stat span{display:block;font-size:12px;color:var(--muted)}.stat b{font-weight:700}
+.chart{width:100%;height:340px;border:0;border-radius:16px;background:var(--panel);display:block}
+.pad{background:var(--panel);border-radius:20px;padding:14px;margin-top:12px}
+.pad .lab{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);margin:2px 2px 8px}
+.keys{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.keys .btn{padding:14px 6px;font-size:15px}
+.custom{display:flex;gap:8px;margin-top:8px}.custom>*{min-width:0}.custom input{flex:1;min-width:0;background:var(--night);border:1px solid var(--line);border-radius:12px;padding:11px 12px;outline:0}
+.verdict{display:inline-flex;align-items:center;gap:6px;font-weight:700;border-radius:999px;padding:4px 10px;font-size:13px}
+.v-good{background:#35d39b22;color:var(--buy)}.v-mid{background:#ffc65c22;color:var(--warn)}.v-bad{background:#ff5d8f22;color:var(--sell)}
+.pills{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.pill{border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-weight:600}
+.pill[aria-pressed="true"]{background:var(--violet);border-color:var(--violet)}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;background:#120e25f2;backdrop-filter:blur(12px);border-top:1px solid #ffffff12;padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:20}
+nav.tabs .in{width:min(560px,100%);margin:auto;display:grid;grid-template-columns:repeat(5,1fr)}
+nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:11px;color:var(--muted);border-radius:12px}
+nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#fff;background:#ffffff0f}
+.field{display:flex;flex-direction:column;gap:6px;margin:12px 0}.field label{font-size:13px;color:var(--muted)}
+.field input,.field select{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 12px;outline:0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.two>*{min-width:0}.field input,.field select{width:100%;min-width:0}
+.switch{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #ffffff12;gap:12px}
+.switch input{width:46px;height:26px;appearance:none;background:#ffffff22;border-radius:999px;position:relative;cursor:pointer;flex:none}
+.switch input::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.switch input:checked{background:var(--buy)}.switch input:checked::after{left:23px}
+.toast{position:fixed;left:50%;top:calc(14px + env(safe-area-inset-top));transform:translate(-50%,-160%);background:#fff;color:#17132d;padding:12px 16px;border-radius:14px;font-weight:600;max-width:min(520px,92vw);z-index:50;transition:transform .3s cubic-bezier(.2,1.3,.3,1);box-shadow:0 18px 40px #0008}
+.toast.show{transform:translate(-50%,0)}.toast.err{background:var(--sell);color:#fff}
+.sheet{position:fixed;inset:0;background:#0009;display:flex;align-items:flex-end;justify-content:center;z-index:40}
+.sheet .box{background:var(--panel);width:min(560px,100%);border-radius:22px 22px 0 0;padding:20px 16px calc(20px + env(safe-area-inset-bottom));max-height:88dvh;overflow:auto}
+.login{text-align:center;padding:12vh 8px 0}
+.login h1{font-size:40px;line-height:1.02;margin:18px 0 10px}
+.spin{width:18px;height:18px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;display:inline-block;animation:sp .7s linear infinite;vertical-align:-3px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.install{margin-top:18px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="app">
+  <header><div class="logo">CBL <b>Bartender</b></div><div style="display:flex;gap:8px"><button class="icon" id="refresh" aria-label="Refresh">⟳</button><button class="icon" id="gear" aria-label="Settings">⚙</button></div></header>
+  <main id="view"><div class="empty"><span class="spin"></span> Loading…</div></main>
+</div>
+<nav class="tabs" id="tabs" hidden><div class="in">
+  <button data-tab="home" aria-current="page"><span>◎</span>Home</button>
+  <button data-tab="trade"><span>⇅</span>Trade</button>
+  <button data-tab="positions"><span>▤</span>Positions</button>
+  <button data-tab="orders"><span>⊕</span>TP / SL</button>
+  <button data-tab="wallet"><span>▣</span>Wallet</button>
+</div></nav>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+const tg = window.Telegram && Telegram.WebApp && Telegram.WebApp.initData ? Telegram.WebApp : null;
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor("#17132d"); tg.setBackgroundColor("#17132d"); } catch (e) {} }
+const $ = (s, r) => (r || document).querySelector(s), view = $("#view");
+const S = { cfg: null, home: null, tab: "home", tok: null };
+const E = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
+const CH = { s: { key: "solana", name: "Solana", nat: "SOL" }, b: { key: "bsc", name: "BNB Chain", nat: "BNB" }, e: { key: "base", name: "Base", nat: "ETH" }, r: { key: "robinhood", name: "Robinhood", nat: "ETH" } };
+const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
+const usd = (x) => x == null ? "–" : x >= 1e9 ? "$" + (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? "$" + (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? "$" + (x / 1e3).toFixed(1) + "K" : "$" + Number(x).toFixed(x < 1 ? 4 : 2);
+const num = (x) => x == null ? "–" : x >= 1e9 ? (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? (x / 1e3).toFixed(1) + "K" : Number(x).toPrecision(4);
+const nat = (x) => x == null ? "–" : Math.abs(x) >= 1 ? Number(x).toFixed(3) : Number(x).toPrecision(3);
+const short = (a) => a && a.length > 14 ? a.slice(0, 6) + "…" + a.slice(-4) : a;
+let tt; function toast(m, err) { const t = $("#toast"); t.textContent = m; t.classList.toggle("err", !!err); t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 3800); if (tg && tg.HapticFeedback) try { tg.HapticFeedback.notificationOccurred(err ? "error" : "success"); } catch (e) {} }
+
+function auth() { if (tg) return { tma: tg.initData }; const l = store.get("cbl_tgl"); return l ? { tgl: l } : null; }
+async function api(action, params) {
+  const r = await fetch("/api/app", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, params, auth: auth() }) });
+  let d = {}; try { d = await r.json(); } catch (e) { d = { ok: false, error: "Server error (" + r.status + ")" }; }
+  if (d.login) { if (!tg) { store.del("cbl_tgl"); } showLogin(d.error); throw Object.assign(new Error(d.error), { quiet: true }); }
+  if (!d.ok) throw new Error(d.error || "Request failed");
+  return d;
+}
+async function busy(btn, fn) { const t = btn && btn.innerHTML; if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; } try { return await fn(); } catch (e) { if (!e.quiet) toast(e.message, true); } finally { if (btn) { btn.disabled = false; btn.innerHTML = t; } } }
+function copy(t) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(() => toast("Copied"), () => { prompt("Copy:", t); }); }
+
+/* ---------- login ---------- */
+function showLogin(msg) {
+  $("#tabs").hidden = true;
+  view.innerHTML = `<section class="login"><div class="logo" style="font-size:30px">🍸 CBL <b>Bartender</b></div>
+    <h1>Tell the Bartender your order.</h1>
+    <p class="muted">Buy, sell, take profit and stop loss on Solana, BNB Chain, Base and Robinhood Chain. Same wallet as the Bartender in Telegram — sign in with your Telegram account.</p>
+    ${msg ? `<p style="color:var(--warn)">${E(msg)}</p>` : ""}
+    <div id="tgw" style="margin:22px 0;min-height:48px"></div>
+    <p class="small muted">Prefer Telegram? Trade the same wallet in <a href="https://t.me/${E((S.cfg && S.cfg.bot) || "CBLScannerBot")}?start=trade">@${E((S.cfg && S.cfg.bot) || "CBLScannerBot")}</a>.</p>
+    <div class="install" id="inst"></div></section>`;
+  const s = document.createElement("script");
+  s.src = "https://telegram.org/js/telegram-widget.js?22"; s.async = true;
+  s.setAttribute("data-telegram-login", (S.cfg && S.cfg.bot) || "CBLScannerBot"); s.setAttribute("data-size", "large"); s.setAttribute("data-radius", "14"); s.setAttribute("data-onauth", "cblAuth(user)"); s.setAttribute("data-request-access", "write");
+  $("#tgw").appendChild(s); installUI();
+}
+window.cblAuth = (user) => { store.set("cbl_tgl", user); toast("Signed in as " + (user.first_name || user.username)); start(); };
+
+/* ---------- install (PWA / APK) ---------- */
+let deferred = null;
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; installUI(); });
+function installUI() {
+  const box = $("#inst"); if (!box || tg) return;
+  const standalone = matchMedia("(display-mode: standalone)").matches;
+  if (standalone) { box.innerHTML = ""; return; }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  box.innerHTML = (deferred ? '<button class="btn main" id="ib">Install app</button>' : "") + '<a class="btn ghost" href="/cbl-bartender.apk" id="apk" hidden download>Download Android app (APK)</a>' + (ios ? '<p class="small muted" style="width:100%">On iPhone: tap Share → Add to Home Screen.</p>' : "");
+  if (deferred) $("#ib").onclick = async () => { deferred.prompt(); await deferred.userChoice; deferred = null; installUI(); };
+  fetch("/cbl-bartender.apk", { method: "HEAD" }).then((r) => { if (r.ok && $("#apk")) $("#apk").hidden = false; }).catch(() => {});
+}
+
+function installPage() {
+  $("#tabs").hidden = !auth();
+  view.innerHTML = `<section class="login" style="padding-top:6vh"><div class="logo" style="font-size:30px">🍸 CBL <b>Bartender</b></div><h1 style="font-size:32px">Get the app</h1>
+    <p class="muted">Install the Bartender on your phone or computer. It opens full-screen with its own icon.</p>
+    <div class="install" id="inst"></div>
+    <div style="text-align:left;margin-top:22px" class="small muted"><p><b>Android:</b> tap Install app above, or download the APK if it's shown.</p><p><b>PC / Mac (Chrome or Edge):</b> click Install app above, or the install icon in the address bar.</p><p><b>iPhone / iPad (Safari):</b> tap Share → Add to Home Screen.</p></div>
+    <button class="btn main" onclick="location.hash='';start()" style="margin-top:12px">Open the Bartender</button></section>`;
+  installUI();
+  if (!$("#ib") && !/iphone|ipad|ipod/i.test(navigator.userAgent)) $("#inst").insertAdjacentHTML("afterbegin", '<p class="small muted" style="width:100%">If no Install button shows, use your browser menu → Install app / Add to Home screen.</p>');
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll("nav.tabs button").forEach((b) => b.onclick = () => go(b.dataset.tab));
+$("#gear").onclick = () => settingsSheet();
+$("#refresh").onclick = () => go(S.tab, true);
+function go(tab, force) {
+  S.tab = tab; document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-current", b.dataset.tab === tab ? "page" : "false"));
+  if (tab === "home") return homeView(force);
+  if (tab === "trade") return S.tok ? tokenView(S.tok.ca, S.tok.c) : tradeView();
+  if (tab === "positions") return positionsView();
+  if (tab === "orders") return ordersView();
+  if (tab === "wallet") return walletView(force);
+}
+
+/* ---------- home ---------- */
+async function loadHome(force) { if (!S.home || force) S.home = await api("home"); return S.home; }
+async function homeView(force) {
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading your wallet…</div>';
+  let h; try { h = await loadHome(force); } catch (e) { if (!e.quiet) view.innerHTML = `<p class="empty">${E(e.message)}</p>`; return; }
+  $("#tabs").hidden = false;
+  if (!h.wallet) {
+    view.innerHTML = `<section class="purse"><h1 style="font-size:26px">Welcome to the bar${h.user && h.user.name ? ", " + E(h.user.name) : ""}</h1>
+      <p class="muted">Create your trading wallets: one for Solana and one for BNB Chain, Base and Robinhood Chain (same address). Fee: ${h.fee}% per trade.</p>
+      <p class="small muted">CBL keeps the keys encrypted so trades run instantly. Only deposit what you're willing to risk. Export your keys any time in the Telegram bot.</p>
+      <button class="btn main" id="create" style="width:100%;margin-top:6px">Create my wallets</button></section>`;
+    $("#create").onclick = (ev) => busy(ev.currentTarget, async () => { S.home = await api("create"); toast("Wallets created. Your keys are in the Telegram bot under 👛 Wallet → Export."); homeView(); });
+    return;
+  }
+  const w = h.wallet, b = w.balances, pos = h.positions || [];
+  const posUsd = pos.reduce((a, p) => a + (p.valueUsd || 0), 0);
+  view.innerHTML = `
+    <form class="search" id="sf"><input id="q" placeholder="Token address, $ticker or link" autocomplete="off" spellcheck="false" aria-label="Find a token"><button class="btn main">Find</button></form>
+    <section class="purse">
+      <span class="muted small">Holdings in tokens</span>
+      <div class="total">${usd(posUsd)}</div>
+      <div class="coins">${Object.keys(CH).map((c) => `<div class="coin"><span class="muted small">${CH[c].name}</span><b>${b[c] == null ? "–" : nat(Number(b[c]))} ${CH[c].nat}</b></div>`).join("")}</div>
+      <div class="addr"><span>◎</span><code>${E(w.sol)}</code><button data-copy="${E(w.sol)}">Copy</button></div>
+      <div class="addr"><span>⬡</span><code>${E(w.evm)}</code><button data-copy="${E(w.evm)}">Copy</button></div>
+    </section>
+    <h2>Positions</h2>
+    <div class="list">${pos.length ? pos.slice(0, 8).map(posRow).join("") : '<p class="empty">No positions yet. Paste a token above to buy your first one.</p>'}</div>`;
+  bindCommon();
+}
+const posRow = (p) => `<button class="row" data-open="${E(p.token)}" data-c="${p.c}" style="text-align:left;width:100%"><div class="grow"><b>${E(p.sym || short(p.token))}</b><span class="small muted">${CH[p.c].name} · ${num(p.amount)}</span></div><div style="text-align:right"><b>${usd(p.valueUsd)}</b><div class="small ${p.pnlNat == null ? "muted" : p.pnlNat >= 0 ? "up" : "down"}">${p.pnlNat == null ? "–" : (p.pnlNat >= 0 ? "+" : "") + nat(p.pnlNat) + " " + CH[p.c].nat + (p.pnlPct != null ? ` (${p.pnlPct >= 0 ? "+" : ""}${p.pnlPct.toFixed(0)}%)` : "")}</div></div></button>`;
+function bindCommon() {
+  view.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copy(b.dataset.copy));
+  view.querySelectorAll("[data-open]").forEach((b) => b.onclick = () => { go("trade"); tokenView(b.dataset.open, b.dataset.c); });
+  const f = $("#sf"); if (f) f.onsubmit = (ev) => { ev.preventDefault(); find($("#q").value.trim()); };
+}
+
+/* ---------- find a token: address, $ticker, link ---------- */
+async function jget(u) { try { const r = await fetch(u); return r.ok ? await r.json() : null; } catch (e) { return null; } }
+async function find(q) {
+  if (!q) return;
+  S.tab = "trade"; document.querySelectorAll("nav.tabs button").forEach((b) => b.setAttribute("aria-current", b.dataset.tab === "trade" ? "page" : "false"));
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Looking it up…</div>';
+  let ca = null, chain = null;
+  const link = q.match(/https?:\/\/\S+/);
+  if (link) {
+    try {
+      const u = new URL(link[0]), parts = u.pathname.split("/").filter(Boolean), a = parts.find((x) => /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.test(x));
+      const hint = (u.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood)$/i.test(x)) || "").toLowerCase();
+      chain = { sol: "solana", bnb: "bsc" }[hint] || hint || null; ca = a;
+      if (a && /dexscreener\.com$/.test(u.hostname.replace(/^www\./, ""))) { const j = await jget(`https://api.dexscreener.com/latest/dex/pairs/${chain || parts[0]}/${a}`); const p = j && (j.pair || (j.pairs && j.pairs[0])); if (p) { ca = p.baseToken.address; chain = p.chainId; } }
+    } catch (e) {}
+  } else if (/^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.test(q)) ca = q;
+  else {
+    const t = q.replace(/^\$/, ""), j = await jget(`https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(t)}`), seen = new Set();
+    const hits = ((j && j.pairs) || []).filter((p) => CODE[p.chainId] && p.baseToken && String(p.baseToken.symbol).toLowerCase() === t.toLowerCase()).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0)).filter((p) => { const k = p.chainId + p.baseToken.address; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 8);
+    if (!hits.length) { view.innerHTML = `<p class="empty">No token called ${E(t.toUpperCase())} on Solana, BNB Chain, Base or Robinhood. Paste its contract address instead.</p>`; return; }
+    view.innerHTML = `<h2>Pick ${E(t.toUpperCase())}</h2><p class="small muted">Highest liquidity first. Check the address before you buy.</p><div class="list">${hits.map((p) => `<button class="row" data-open="${E(p.baseToken.address)}" data-c="${CODE[p.chainId]}" style="text-align:left;width:100%"><div class="grow"><b>${E(p.baseToken.symbol)} · ${E(p.baseToken.name || "")}</b><span class="small muted">${CH[CODE[p.chainId]].name} · ${short(p.baseToken.address)}</span></div><div style="text-align:right"><b>${usd(p.marketCap || p.fdv)}</b><div class="small muted">liq ${usd(p.liquidity && p.liquidity.usd)}</div></div></button>`).join("")}</div>`;
+    return bindCommon();
+  }
+  if (!ca) { view.innerHTML = '<p class="empty">Couldn\'t read a token from that. Paste the contract address.</p>'; return; }
+  let c = chain && CODE[chain];
+  if (!c && /^0x/.test(ca)) { // detect the EVM chain from DEX Screener
+    const j = await jget(`https://api.dexscreener.com/latest/dex/tokens/${ca}`); const p = ((j && j.pairs) || []).filter((x) => CODE[x.chainId]).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
+    if (p) c = CODE[p.chainId];
+    else { view.innerHTML = `<h2>Which chain?</h2><p class="muted small">${E(short(ca))} isn't listed yet. Pick where it lives.</p><div class="pills">${["b", "e", "r"].map((k) => `<button class="pill" data-open="${E(ca)}" data-c="${k}">${CH[k].name}</button>`).join("")}</div>`; return bindCommon(); }
+  }
+  tokenView(ca, c || "s");
+}
+function tradeView() {
+  view.innerHTML = `<h2>Trade</h2><form class="search" id="sf"><input id="q" placeholder="Token address, $ticker or link" autocomplete="off" spellcheck="false" aria-label="Find a token"><button class="btn main">Find</button></form>
+    <p class="small muted">Works with pump.fun, DEX Screener, Birdeye and GMGN links, and with bonding-curve tokens on pump.fun, Four.meme and Pons.</p>`;
+  bindCommon(); $("#q").focus();
+}
+
+/* ---------- token ---------- */
+async function tokenView(ca, c) {
+  S.tok = { ca, c };
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Scanning token…</div>';
+  let d; try { d = await api("token", { ca, chain: CH[c].key }); } catch (e) { if (!e.quiet) view.innerHTML = `<p class="empty">${E(e.message)}</p>`; return; }
+  const sc = d.scan || {}, m = sc.market || {}, t = sc.token || {}, st = d.settings, h = d.holding, cc = d.c;
+  const v = sc.score == null ? "" : sc.score >= 70 ? "v-good" : sc.score >= 40 ? "v-mid" : "v-bad";
+  view.innerHTML = `<section class="tok">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <div><div class="name">${E(t.symbol || short(ca))}</div><div class="small muted">${E(t.name || "")} · ${CH[cc].name}${d.curve || sc.onCurve ? " · on " + E(d.curve || sc.launchpad || "bonding") + " curve" : ""}</div></div>
+      ${sc.score != null ? `<span class="verdict ${v}">CBL score ${sc.score}</span>` : ""}</div>
+    <div class="addr"><code>${E(ca)}</code><button data-copy="${E(ca)}">Copy</button></div>
+    <div class="stats"><div class="stat"><span>Price</span><b>${m.price ? "$" + Number(m.price).toPrecision(4) : "–"}</b></div><div class="stat"><span>Market cap</span><b>${usd(m.marketCap || m.fdv)}</b></div><div class="stat"><span>Liquidity</span><b>${usd(m.liquidity)}</b></div></div>
+    ${(sc.reasons || []).length ? `<details class="small"><summary class="muted">Scan notes (${sc.reasons.length})</summary><ul style="padding-left:18px;margin:6px 0">${sc.reasons.map((r) => `<li>${r.sev === "critical" || r.sev === "high" ? "⚠️ " : ""}<b>${E(r.title || r)}</b>${r.detail ? " — " + E(String(r.detail).replace(/<[^>]+>/g, "")) : ""}</li>`).join("")}</ul></details>` : ""}
+    <iframe class="chart" title="Price chart" loading="lazy" src="https://dexscreener.com/${CH[cc].key}/${encodeURIComponent(ca)}?embed=1&loadChartSettings=0&trades=0&tabs=0&info=0&chartLeftToolbar=0&chartTheme=dark&theme=dark&chartStyle=1&chartType=usd&interval=15"></iframe>
+    <div class="pad">
+      <div class="lab"><span>Buy with ${CH[cc].nat}${cc === "s" && st.bundle ? " · 📦 bundle" : ""}</span><span>Wallet ${d.wallet == null ? "–" : nat(Number(d.wallet))} ${CH[cc].nat}</span></div>
+      <div class="keys">${st.presets[cc].map((a) => `<button class="btn buy" data-buy="${a}">${a}</button>`).join("")}<button class="btn buy" data-buy="max" aria-label="Custom amount">…</button></div>
+      <form class="custom" id="cb" hidden><input id="cbv" inputmode="decimal" placeholder="Amount in ${CH[cc].nat}" aria-label="Custom buy amount"><button class="btn buy">Buy</button></form>
+    </div>
+    <div class="pad">
+      <div class="lab"><span>Sell</span><span>${h ? `${num(h.amount)} held · ${usd(h.valueUsd)}` : "You don't hold this yet"}</span></div>
+      ${h && h.pnlNat != null ? `<div class="lab"><span>Profit / loss</span><span class="${h.pnlNat >= 0 ? "up" : "down"}">${h.pnlNat >= 0 ? "+" : ""}${nat(h.pnlNat)} ${CH[cc].nat}${h.pnlPct != null ? ` (${h.pnlPct >= 0 ? "+" : ""}${h.pnlPct.toFixed(1)}%)` : ""}</span></div>` : ""}
+      <div class="keys">${st.sellP.map((p) => `<button class="btn sell" data-sell="${p}">${p}%</button>`).join("")}<button class="btn sell" data-sell="x" aria-label="Custom percent">…</button></div>
+      <form class="custom" id="cs" hidden><input id="csv" inputmode="decimal" placeholder="Percent to sell (1–100)" aria-label="Custom sell percent"><button class="btn sell">Sell</button></form>
+    </div>
+    <div class="pad">
+      <div class="lab"><span>Take profit / stop loss</span><span>checked every 5 min</span></div>
+      <div class="list" id="ol">${ordersList(d.orders)}</div>
+      <div style="margin-top:8px">
+        <form class="custom" id="tpf"><input id="tpv" inputmode="decimal" placeholder="TP +%" aria-label="Take profit percent"><input id="tps" inputmode="decimal" placeholder="sell %" value="50" aria-label="Take profit sell percent" style="max-width:76px"><button class="btn" aria-label="Add take profit">＋</button></form>
+        <form class="custom" id="slf"><input id="slv" inputmode="decimal" placeholder="SL −%" aria-label="Stop loss percent"><input id="sls" inputmode="decimal" placeholder="sell %" value="100" aria-label="Stop loss sell percent" style="max-width:76px"><button class="btn" aria-label="Add stop loss">＋</button></form>
+      </div>
+    </div>
+    <p class="small muted" style="margin-top:14px">Slippage buy ${st.slipBuy}% · sell ${st.slipSell}% · fee ${(S.home && S.home.fee) || 1}%. Change it under ⚙.</p>
+  </section>`;
+  bindCommon();
+  view.querySelectorAll("[data-buy]").forEach((b) => b.onclick = () => { if (b.dataset.buy === "max") { $("#cb").hidden = false; $("#cbv").focus(); } else doBuy(b, b.dataset.buy); });
+  $("#cb").onsubmit = (ev) => { ev.preventDefault(); doBuy(ev.submitter, $("#cbv").value.trim()); };
+  view.querySelectorAll("[data-sell]").forEach((b) => b.onclick = () => { if (b.dataset.sell === "x") { $("#cs").hidden = false; $("#csv").focus(); } else doSell(b, Number(b.dataset.sell)); });
+  $("#cs").onsubmit = (ev) => { ev.preventDefault(); doSell(ev.submitter, Number($("#csv").value)); };
+  $("#tpf").onsubmit = (ev) => { ev.preventDefault(); addOrder(ev.submitter, "tp", $("#tpv").value, $("#tps").value); };
+  $("#slf").onsubmit = (ev) => { ev.preventDefault(); addOrder(ev.submitter, "sl", $("#slv").value, $("#sls").value); };
+  bindOrders();
+  function txLinks(r) { const exp = { s: "https://solscan.io/tx/", b: "https://bscscan.com/tx/", e: "https://basescan.org/tx/", r: "https://robinhoodchain.blockscout.com/tx/" }[cc]; return (r.txs || [r.tx]).filter(Boolean).map((x) => exp + x); }
+  async function doBuy(btn, amt) {
+    if (!(Number(amt) > 0)) return toast("Enter an amount", true);
+    await busy(btn, async () => { const r = await api("buy", { ca, chain: CH[cc].key, amount: amt }); toast(`Bought ${r.out ? num(Number(r.out)) + " tokens" : ""} for ${amt} ${CH[cc].nat}${r.bundle ? ` with ${r.wallets} wallets` : ""}`); S.home = null; lastTx(txLinks(r)); tokenView(ca, cc); });
+  }
+  async function doSell(btn, pct) {
+    if (!(pct >= 1 && pct <= 100)) return toast("Choose 1–100%", true);
+    if (pct >= 100 && st.sellConfirm && !confirm("Sell 100% of this token?")) return;
+    await busy(btn, async () => { const r = await api("sell", { ca, chain: CH[cc].key, pct }); toast(`Sold ${pct}% for ~${nat(Number(r.received))} ${CH[cc].nat}`); S.home = null; lastTx(txLinks(r)); tokenView(ca, cc); });
+  }
+  async function addOrder(btn, kind, pct, sell) {
+    if (!(Number(pct) > 0)) return toast(kind === "tp" ? "Enter the gain %, e.g. 100" : "Enter the loss %, e.g. 30", true);
+    await busy(btn, async () => { const r = await api("addOrder", { ca, chain: CH[cc].key, kind, pct: Number(pct), sell: Number(sell) || 100 }); toast(kind === "tp" ? `Take profit set at +${pct}%` : `Stop loss set at −${pct}%`); $("#ol").innerHTML = ordersList(r.orders); bindOrders(); });
+  }
+}
+function lastTx(links) { if (!links.length) return; const p = document.createElement("p"); p.className = "small"; p.innerHTML = "Transaction: " + links.map((l, i) => `<a href="${l}" target="_blank" rel="noopener">${links.length > 1 ? "tx " + (i + 1) : "view"}</a>`).join(" · "); setTimeout(() => { const s = view.querySelector(".tok"); if (s) s.prepend(p); }, 900); }
+const ordersList = (os) => (os || []).length ? os.map((o) => `<div class="row"><div class="grow"><b>${o.kind === "take_profit" ? "Take profit +" : "Stop loss −"}${o.pct}% → sell ${o.sell}%</b><span class="small muted">${CH[o.c].name} · ${short(o.token)} · at ${Number(o.trig).toPrecision(4)} ${CH[o.c].nat}</span></div><button class="btn ghost small" data-cancel="${o.id}">Cancel</button></div>`).join("") : '<p class="small muted" style="margin:4px 2px">No orders. Add a take profit or stop loss below.</p>';
+function bindOrders() { view.querySelectorAll("[data-cancel]").forEach((b) => b.onclick = () => busy(b, async () => { const r = await api("cancelOrder", { id: Number(b.dataset.cancel) }); toast("Order cancelled"); if (S.tab === "orders") ordersView(); else { const el = $("#ol"); if (el) { el.innerHTML = ordersList(r.orders.filter((o) => S.tok && o.token.toLowerCase() === S.tok.ca.toLowerCase())); bindOrders(); } } })); }
+
+/* ---------- positions / orders ---------- */
+async function positionsView() {
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading positions…</div>';
+  try { const d = await api("positions"); view.innerHTML = `<h2>Positions</h2><div class="list">${d.positions.length ? d.positions.map(posRow).join("") : '<p class="empty">No positions yet. Find a token in Trade to buy one.</p>'}</div><p class="small muted">Profit / loss counts trades made with your CBL wallet.</p>`; bindCommon(); } catch (e) { if (!e.quiet) view.innerHTML = `<p class="empty">${E(e.message)}</p>`; }
+}
+async function ordersView() {
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading orders…</div>';
+  try { S.home = await api("home"); view.innerHTML = `<h2>Take profit / stop loss</h2><div class="list">${ordersList(S.home.orders)}</div><p class="small muted">Open a token to add orders. Prices are checked every 5 minutes, so fast moves can fill past the target.</p>`; bindOrders(); } catch (e) { if (!e.quiet) view.innerHTML = `<p class="empty">${E(e.message)}</p>`; }
+}
+
+/* ---------- wallet ---------- */
+async function walletView(force) {
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading wallet…</div>';
+  let h; try { h = await loadHome(force); } catch (e) { return; }
+  if (!h.wallet) return homeView();
+  const w = h.wallet, st = h.settings, subs = w.subs || [];
+  view.innerHTML = `<h2>Deposit</h2>
+    <p class="small muted">Send SOL on Solana, or BNB / ETH on BNB Chain, Base or Robinhood Chain. Only use these networks.</p>
+    <div class="addr"><span>◎</span><code>${E(w.sol)}</code><button data-copy="${E(w.sol)}">Copy</button></div>
+    <div class="addr"><span>⬡</span><code>${E(w.evm)}</code><button data-copy="${E(w.evm)}">Copy</button></div>
+    <h2>Withdraw</h2>
+    <form id="wd"><div class="two"><div class="field"><label for="wc">Coin</label><select id="wc">${Object.keys(CH).map((c) => `<option value="${c}">${CH[c].nat} · ${CH[c].name} (${w.balances[c] == null ? "–" : nat(Number(w.balances[c]))})</option>`).join("")}</select></div>
+    <div class="field"><label for="wa">Amount</label><input id="wa" inputmode="decimal" placeholder="0.5 or all"></div></div>
+    <div class="field"><label for="wt">To address</label><input id="wt" autocomplete="off" spellcheck="false" placeholder="Destination address"></div>
+    <button class="btn main" style="width:100%">Withdraw</button></form>
+    <h2>Bundles · Solana</h2>
+    <p class="small muted">Buy and sell from up to 5 of your Solana wallets in one Jito bundle: same block, all or nothing.</p>
+    <div class="switch"><span>Bundle mode</span><input type="checkbox" id="bm" ${st.bundle ? "checked" : ""} aria-label="Bundle mode"></div>
+    <div class="list">${subs.map((s) => `<div class="row"><div class="grow"><b>W${s.idx}</b><span class="small muted">${short(s.pub)}</span></div><b>${s.bal == null ? "–" : nat(Number(s.bal))} SOL</b><button class="btn ghost small" data-copy="${E(s.pub)}">Copy</button></div>`).join("")}</div>
+    <div class="two" style="margin-top:10px"><button class="btn" id="aw" ${subs.length >= 5 ? "disabled" : ""}>Add wallet (${subs.length || 1}/5)</button><button class="btn" id="col">Collect SOL to W1</button></div>
+    <form class="custom" id="spf"><input id="spv" inputmode="decimal" placeholder="SOL to send to each wallet"><button class="btn">Spread</button></form>
+    <p class="small muted" style="margin-top:22px">Private keys can only be exported in the Telegram bot (👛 Wallet → 🔑 Export).</p>`;
+  bindCommon();
+  $("#wd").onsubmit = (ev) => { ev.preventDefault(); const c = $("#wc").value, a = $("#wa").value.trim(), to = $("#wt").value.trim(); if (!a || !to) return toast("Enter amount and address", true);
+    if (!confirm(`Send ${a} ${CH[c].nat} on ${CH[c].name} to\n${to}?\n\nThis can't be undone.`)) return;
+    busy(ev.submitter, async () => { const r = await api("withdraw", { c, amount: a, to }); toast(`Sent ${r.amount} ${r.nat}`); S.home = null; walletView(true); }); };
+  $("#bm").onchange = (ev) => busy(null, async () => { await api("settings", { bundle: ev.target.checked }); S.home = null; toast(ev.target.checked ? "Bundle mode on" : "Bundle mode off"); });
+  $("#aw").onclick = (ev) => busy(ev.currentTarget, async () => { S.home = await api("addWallet"); toast("Wallet added"); walletView(); });
+  $("#col").onclick = (ev) => busy(ev.currentTarget, async () => { const r = await api("collect"); toast(`Moved ${r.total} SOL to W1`); walletView(true); });
+  $("#spf").onsubmit = (ev) => { ev.preventDefault(); busy(ev.submitter, async () => { const r = await api("spread", { each: $("#spv").value.trim() }); toast(`Sent ${r.sent} SOL to ${r.n} wallet(s)`); walletView(true); }); };
+}
+
+/* ---------- settings ---------- */
+async function settingsSheet() {
+  let h; try { h = await loadHome(); } catch (e) { return; } if (!h.wallet) return toast("Create your wallet first", true);
+  const s = h.settings, el = document.createElement("div"); el.className = "sheet";
+  const sw = (id, label, on, hint) => `<div class="switch"><span>${label}${hint ? `<br><span class="small muted">${hint}</span>` : ""}</span><input type="checkbox" id="${id}" ${on ? "checked" : ""} aria-label="${label}"></div>`;
+  el.innerHTML = `<form class="box" id="sform"><h2 style="margin-top:0">Settings</h2>
+    <div class="two"><div class="field"><label for="s1">Buy slippage %</label><input id="s1" inputmode="decimal" value="${s.slipBuy}"></div><div class="field"><label for="s2">Sell slippage %</label><input id="s2" inputmode="decimal" value="${s.slipSell}"></div></div>
+    <div class="two"><div class="field"><label for="s3">Max price impact %</label><input id="s3" inputmode="decimal" value="${s.maxImpact}"></div><div class="field"><label for="s4">Hide positions under $</label><input id="s4" inputmode="decimal" value="${s.minPos}"></div></div>
+    <div class="two"><div class="field"><label for="s5">Sort positions</label><select id="s5"><option value="val">Most valuable</option><option value="low">Least valuable</option><option value="az">A to Z</option></select></div><div class="field"><label for="s6">Speed (EVM gas)</label><select id="s6"><option value="normal">Normal</option><option value="fast">Fast</option><option value="turbo">Turbo</option></select></div></div>
+    ${Object.keys(CH).map((c) => `<div class="field"><label for="p${c}">Buy buttons · ${CH[c].nat} on ${CH[c].name}</label><input id="p${c}" value="${s.presets[c].join(" ")}"></div>`).join("")}
+    <div class="field"><label for="sp">Sell buttons (%)</label><input id="sp" value="${s.sellP.join(" ")}"></div>
+    ${sw("s7", "MEV protect", s.mev, "BNB Chain trades go through a private mempool")}
+    ${sw("s8", "Sell protection", s.sellConfirm, "Ask before selling 100%")}
+    ${sw("s9", "Auto take profit", s.autoTp.on, "Added to every buy")}
+    <div class="two"><div class="field"><label for="t1">At +%</label><input id="t1" inputmode="decimal" value="${s.autoTp.pct}"></div><div class="field"><label for="t2">Sell %</label><input id="t2" inputmode="decimal" value="${s.autoTp.sell}"></div></div>
+    ${sw("s10", "Auto stop loss", s.autoSl.on, "Added to every buy")}
+    <div class="two"><div class="field"><label for="l1">At −%</label><input id="l1" inputmode="decimal" value="${s.autoSl.pct}"></div><div class="field"><label for="l2">Sell %</label><input id="l2" inputmode="decimal" value="${s.autoSl.sell}"></div></div>
+    <div class="field"><label for="bt">Bundle tip (SOL)</label><input id="bt" inputmode="decimal" value="${s.bundleTip}"></div>
+    <div class="two" style="margin-top:10px"><button type="button" class="btn ghost" id="sx">Close</button><button class="btn main">Save settings</button></div>
+    ${tg ? "" : '<button type="button" class="btn ghost" id="lo" style="width:100%;margin-top:10px">Sign out</button>'}</form>`;
+  document.body.appendChild(el);
+  $("#s5", el).value = s.sort; $("#s6", el).value = s.prio;
+  const close = () => el.remove(); $("#sx", el).onclick = close; el.onclick = (ev) => { if (ev.target === el) close(); };
+  if ($("#lo", el)) $("#lo", el).onclick = () => { store.del("cbl_tgl"); close(); S.home = null; showLogin(); };
+  const nums = (v) => v.trim().split(/[\s,\/]+/).map(Number);
+  $("#sform", el).onsubmit = (ev) => { ev.preventDefault(); const g = (id) => $("#" + id, el);
+    const p = { slipBuy: +g("s1").value, slipSell: +g("s2").value, maxImpact: +g("s3").value, minPos: +g("s4").value, sort: g("s5").value, prio: g("s6").value, mev: g("s7").checked, sellConfirm: g("s8").checked,
+      autoTp: { on: g("s9").checked, pct: +g("t1").value, sell: +g("t2").value }, autoSl: { on: g("s10").checked, pct: +g("l1").value, sell: +g("l2").value }, bundleTip: +g("bt").value,
+      sellP: nums(g("sp").value), presets: Object.fromEntries(Object.keys(CH).map((c) => [c, nums(g("p" + c).value)])) };
+    busy(ev.submitter, async () => { const r = await api("settings", p); if (S.home) S.home.settings = r.settings; toast("Settings saved"); close(); if (S.tab === "trade" && S.tok) tokenView(S.tok.ca, S.tok.c); }); };
+}
+
+/* ---------- start ---------- */
+async function start() {
+  try { S.cfg = await (await fetch("/api/app", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "config" }) })).json(); } catch (e) { S.cfg = {}; }
+  if (S.cfg && S.cfg.on === false) { view.innerHTML = '<p class="empty">Trading isn\'t switched on yet. Check back soon.</p>'; return; }
+  if (location.hash === "#install") return installPage();
+  if (!auth()) return showLogin();
+  const q = new URLSearchParams(location.search), ca = q.get("ca") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param && tg.initDataUnsafe.start_param.replace(/^tr_[sber]_/, ""));
+  if (ca) { $("#tabs").hidden = false; return find(ca); }
+  go("home");
+}
+if ("serviceWorker" in navigator && !tg) navigator.serviceWorker.register("/sw.js").catch(() => {});
+start();
+</script>
+</body>
+</html>

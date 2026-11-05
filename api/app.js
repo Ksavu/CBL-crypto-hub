@@ -1,4 +1,4 @@
-// CBL Sniper Bot (website) API: POST /api/app  { auth, action, ...params }
+// CBL Bartender (website) API: POST /api/app  { auth, action, ...params }
 // Same custodial wallets as the Telegram bot. The user is identified ONLY by a Telegram-signed login:
 //   auth.tma = Telegram Mini App initData (opened inside Telegram)   → HMAC with key "WebAppData"
 //   auth.tgl = Telegram Login Widget data (opened in a browser/PWA)    → HMAC with SHA256(bot token)

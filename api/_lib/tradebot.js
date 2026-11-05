@@ -30,7 +30,7 @@ const bun = (c, st) => c === "s" && st && st.bundle; // Solana bundle mode (W1�
 function tradeRows(r, isPrivate, botUser, st) {
   const c = T.CODE[r.chain]; if (!c || !T.on()) return [];
   const ca = r.address; st = st || T.settings(null);
-  if (!isPrivate) return botUser ? [[{ text: "🤖 Trade it with CBL Bot", url: `https://t.me/${botUser.replace(/^@/, "")}?start=tr_${c}_${ca}` }]] : [];
+  if (!isPrivate) return botUser ? [[{ text: "🍸 Order it from the Bartender", url: `https://t.me/${botUser.replace(/^@/, "")}?start=tr_${c}_${ca}` }]] : [];
   return [
     [...st.presets[c].map((a, i) => ({ text: `${bun(c, st) ? "📦" : "🟢"} ${a} ${nat(c)}`, callback_data: `Tb${c}${i}:${ca}` })), { text: `${bun(c, st) ? "📦" : "🟢"} X`, callback_data: `Tb${c}x:${ca}` }],
     [...st.sellP.map((p, i) => ({ text: `🔴 ${p}%`, callback_data: `Tx${c}${i}:${ca}` })), { text: "🔴 X%", callback_data: `Tx${c}x:${ca}` }],
@@ -39,7 +39,7 @@ function tradeRows(r, isPrivate, botUser, st) {
 }
 
 function introMsg() {
-  return { text: `<b>🤖 Welcome to CBL Trading</b>\nBuy and sell any token on <b>Solana, BNB Chain, Base and Robinhood Chain</b> right here, including pump.fun, Four.meme and Pons bonding-curve tokens.\n\n• Paste a token address, ticker or link to trade\n• One-tap buy/sell from any scan\n• Positions with profit/loss\n• Fee: <b>${T.feeBps() / 100}%</b> per trade\n\n${NOTE}\n\nTap below to create your wallets (one Solana + one EVM wallet for BNB/Base/Robinhood).`,
+  return { text: `<b>🍸 Welcome to CBL Bartender</b>\nTell the Bartender your order: buy and sell any token on <b>Solana, BNB Chain, Base and Robinhood Chain</b> right here, including pump.fun, Four.meme and Pons bonding-curve tokens.\n\n• Paste a token address, ticker or link to trade\n• One-tap buy/sell from any scan\n• Positions with profit/loss\n• Fee: <b>${T.feeBps() / 100}%</b> per trade\n\n${NOTE}\n\nTap below to create your wallets (one Solana + one EVM wallet for BNB/Base/Robinhood).`,
     reply_markup: { inline_keyboard: [[{ text: "✅ Create my wallets", callback_data: "Tc" }]] } };
 }
 
@@ -55,7 +55,7 @@ const HOME_KB = [
   [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📥 Fund", callback_data: "Td" }],
   [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 TP / SL orders", callback_data: "To" }],
-  [{ text: "🌐 Open CBL Sniper Bot on web", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/sniper" }],
+  [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
   [{ text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
 ];
 async function menuMsg(row) {
@@ -63,7 +63,7 @@ async function menuMsg(row) {
   const [b, pos] = await Promise.all([T.balances(row), T.positions(row.tg_id).catch(() => ({ list: [] }))]);
   const line = (c) => `${b[c] == null ? "?" : fmt(b[c], c)} ${nat(c)}`;
   const empty = Object.values(b).every((v) => v == null || v === 0n);
-  const L = ["<b>🤖 CBL Trading</b>", ""];
+  const L = ["<b>🍸 CBL Bartender</b> · what are you having?", ""];
   if (empty) L.push("You have no funds yet. To start trading, deposit to your wallets:", "");
   L.push(`◎ <b>Solana</b> · ${line("s")}`, `<code>${row.sol_pub}</code> (tap to copy)`, "",
     `⬡ <b>EVM</b> · BNB ${line("b").replace(" BNB", "")} · Base ${line("e")} · Robinhood ${line("r")}`, `<code>${row.evm_addr}</code> (tap to copy)`);
@@ -86,7 +86,7 @@ async function walletMsg(row) {
       [{ text: "📥 Deposit", callback_data: "Td" }, { text: "📤 Withdraw", callback_data: "TW" }], [{ text: "🔑 Export private keys", callback_data: "Tk" }], [{ text: "⬅️ Back", callback_data: "Tm" }, { text: "🔄 Refresh", callback_data: "TA" }]] } };
 }
 
-const HELP = `<b>❓ How CBL Trading works</b>
+const HELP = `<b>❓ How the CBL Bartender works</b>
 
 <b>Buy:</b> send a token address, a ticker like <code>$PEPE</code>, or a link from pump.fun, DEX Screener, Birdeye or GMGN. Tap a 🟢 buy button, or 🟢 X for a custom amount.
 <b>Sell:</b> open the token (📊 Positions or paste it again) and tap 🔴 25% / 50% / 100% or 🔴 X%.
@@ -233,7 +233,7 @@ async function searchTicker(q) {
 function make(tg) {
   const send = (chat, m, extra) => tg("sendMessage", Object.assign({ chat_id: chat, text: m.text || m, parse_mode: "HTML", disable_web_page_preview: true }, m.reply_markup ? { reply_markup: m.reply_markup } : {}, extra || {}));
   const edit = (chat, mid, m) => tg("editMessageText", { chat_id: chat, message_id: mid, text: m.text || m, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: m.reply_markup });
-  const notReady = () => (!T.on() ? "Trading isn't switched on yet." : null);
+  const notReady = () => (!T.on() ? "The Bartender isn't serving yet (trading not switched on)." : null);
   const prompt = (chat, text, tag, ph) => send(chat, `${text}\n#${tag}`, { reply_markup: { force_reply: true, input_field_placeholder: ph || "" } });
   const backBtn = (c, ca) => ({ inline_keyboard: [[{ text: "📊 Token panel", callback_data: `Tv${c}:${ca}` }, { text: "⬅️ Menu", callback_data: "Tm" }]] });
 
@@ -285,7 +285,7 @@ function make(tg) {
   async function command(name, args, msg, botUser) {
     const map = { trade: 1, menu: 1, home: 1, positions: 1, pos: 1, withdraw: 1, export: 1, settings: 1, buy: 1, sell: 1 };
     if (!map[name]) return false;
-    if (dmOnly(msg)) { await send(msg.chat.id, botUser ? `Trading works in a private chat: <a href="https://t.me/${botUser.replace(/^@/, "")}?start=trade">open CBL Bot</a>` : "Trading works in a private chat with me."); return true; }
+    if (dmOnly(msg)) { await send(msg.chat.id, botUser ? `🍸 The Bartender only takes orders in private: <a href="https://t.me/${botUser.replace(/^@/, "")}?start=trade">open CBL Bartender</a>` : "🍸 The Bartender only takes orders in a private chat with me."); return true; }
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
     const uid = msg.from.id, chat = msg.chat.id;
     if (name === "trade" || name === "menu" || name === "home") { await openMenu(chat, uid); return true; }
