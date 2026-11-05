@@ -7,8 +7,8 @@
 <meta name="description" content="CBL Bartender: tell it your order and it trades any token on Solana, BNB Chain, Base and Robinhood Chain.">
 <meta name="theme-color" content="#17132d">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="icon" href="/icons/cbl-192.png">
-<link rel="apple-touch-icon" href="/icons/cbl-192.png">
+<link rel="icon" href="/icons/bartender-192.png">
+<link rel="apple-touch-icon" href="/icons/bartender-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,6 +24,10 @@ a{color:#c7b4ff}
 .app{width:min(560px,100%);margin:auto;padding:0 16px}
 header{display:flex;align-items:center;justify-content:space-between;padding:calc(14px + env(safe-area-inset-top)) 0 10px}
 .logo{font:800 22px/1 "Bricolage Grotesque",sans-serif;letter-spacing:-.04em}
+.mark{display:inline-grid;place-items:center;width:38px;height:38px;border-radius:13px;background:linear-gradient(135deg,#8649ff 0%,#366ef6 55%,#e744ac 100%);color:#fff;font:900 13px Onest,sans-serif;letter-spacing:-.02em;vertical-align:4px;margin-right:4px;box-shadow:0 7px 18px #7749de44}
+.hero{position:relative;border-radius:24px;overflow:hidden;aspect-ratio:16/10;background:radial-gradient(80% 90% at 70% 30%,#e744ac55 0%,transparent 60%),radial-gradient(90% 100% at 20% 80%,#366ef655 0%,transparent 60%),linear-gradient(135deg,#2a1d63,#17132d);background-size:cover;background-position:center;margin:6px 0 18px}
+.hero::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,#17132dd9 100%)}
+.hero .badge{position:absolute;left:14px;bottom:14px;z-index:1;display:flex;align-items:center;gap:8px;font:800 18px "Bricolage Grotesque",sans-serif;color:#fff}
 .logo b{background:linear-gradient(95deg,var(--violet),var(--blue) 55%,var(--pink));-webkit-background-clip:text;background-clip:text;color:transparent}
 .icon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--panel);font-size:18px}
 h1,h2,h3{font-family:"Bricolage Grotesque",sans-serif;letter-spacing:-.03em;margin:0}
@@ -92,7 +96,7 @@ nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#
 </head>
 <body>
 <div class="app">
-  <header><div class="logo">CBL <b>Bartender</b></div><div style="display:flex;gap:8px"><button class="icon" id="refresh" aria-label="Refresh">⟳</button><button class="icon" id="gear" aria-label="Settings">⚙</button></div></header>
+  <header><div class="logo"><span class="mark">CBL</span> <b>Bartender</b></div><div style="display:flex;gap:8px"><button class="icon" id="refresh" aria-label="Refresh">⟳</button><button class="icon" id="gear" aria-label="Settings">⚙</button></div></header>
   <main id="view"><div class="empty"><span class="spin"></span> Loading…</div></main>
 </div>
 <nav class="tabs" id="tabs" hidden><div class="in">
@@ -133,7 +137,7 @@ function copy(t) { (navigator.clipboard ? navigator.clipboard.writeText(t) : Pro
 /* ---------- login ---------- */
 function showLogin(msg) {
   $("#tabs").hidden = true;
-  view.innerHTML = `<section class="login"><div class="logo" style="font-size:30px">🍸 CBL <b>Bartender</b></div>
+  view.innerHTML = `<section class="login" style="padding-top:2vh"><div class="hero" data-photo="/img/bartender/hero.jpg"><div class="badge"><span class="mark">CBL</span> Bartender</div></div>
     <h1>Tell the Bartender your order.</h1>
     <p class="muted">Buy, sell, take profit and stop loss on Solana, BNB Chain, Base and Robinhood Chain. Same wallet as the Bartender in Telegram — sign in with your Telegram account.</p>
     ${msg ? `<p style="color:var(--warn)">${E(msg)}</p>` : ""}
@@ -150,25 +154,33 @@ window.cblAuth = (user) => { store.set("cbl_tgl", user); toast("Signed in as " +
 /* ---------- install (PWA / APK) ---------- */
 let deferred = null;
 window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferred = e; installUI(); });
+/* Each device gets its own install path: Android → APK, Windows/Mac → desktop app from the browser, iPhone → Home Screen app. */
+const UA = navigator.userAgent, DEV = /android/i.test(UA) ? "android" : (/iphone|ipad|ipod/i.test(UA) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) ? "ios" : /windows/i.test(UA) ? "windows" : /mac/i.test(UA) ? "mac" : "desktop";
+const SHARE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
 function installUI() {
   const box = $("#inst"); if (!box || tg) return;
-  const standalone = matchMedia("(display-mode: standalone)").matches;
-  if (standalone) { box.innerHTML = ""; return; }
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  box.innerHTML = (deferred ? '<button class="btn main" id="ib">Install app</button>' : "") + '<a class="btn ghost" href="/cbl-bartender.apk" id="apk" hidden download>Download Android app (APK)</a>' + (ios ? '<p class="small muted" style="width:100%">On iPhone: tap Share → Add to Home Screen.</p>' : "");
-  if (deferred) $("#ib").onclick = async () => { deferred.prompt(); await deferred.userChoice; deferred = null; installUI(); };
-  fetch("/cbl-bartender.apk", { method: "HEAD" }).then((r) => { if (r.ok && $("#apk")) $("#apk").hidden = false; }).catch(() => {});
+  if (matchMedia("(display-mode: standalone)").matches) { box.innerHTML = '<p class="small muted">✅ You are using the installed app.</p>'; return; }
+  const ib = deferred ? `<button class="btn ${DEV === "android" ? "ghost" : "main"}" id="ib">${DEV === "android" ? "Install from browser instead" : DEV === "windows" ? "Install for Windows" : DEV === "mac" ? "Install for Mac" : "Install app"}</button>` : "";
+  if (DEV === "android") {
+    box.innerHTML = '<a class="btn main" href="/cbl-bartender.apk" id="apk" download hidden>Download for Android (APK)</a>' + ib +
+      '<p class="small muted" style="width:100%">After downloading, open the file. If Android asks, allow "Install unknown apps" for your browser.</p>';
+    fetch("/cbl-bartender.apk", { method: "HEAD" }).then((r) => { if (r.ok && $("#apk")) $("#apk").hidden = false; else if (!deferred && $("#apk")) box.insertAdjacentHTML("afterbegin", '<p class="small muted" style="width:100%">Open your browser menu ⋮ → Install app.</p>'); }).catch(() => {});
+  } else if (DEV === "ios") {
+    box.innerHTML = `<div class="pad" style="text-align:left;width:100%;margin:0"><b>Add CBL Bartender to your iPhone</b><ol class="small" style="padding-left:18px;margin:8px 0 0;line-height:1.9"><li>Open this page in <b>Safari</b></li><li>Tap Share ${SHARE} at the bottom</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b></li></ol><p class="small muted" style="margin:8px 0 0">It opens full-screen from your Home Screen like any app.</p></div>`;
+  } else {
+    box.innerHTML = ib || `<p class="small muted" style="width:100%">In <b>Chrome or Edge</b>, click the install icon at the right end of the address bar (or menu ⋮ → <b>Install CBL Bartender</b>). It then opens from your ${DEV === "mac" ? "Dock and Launchpad" : "Start menu and taskbar"}.</p>`;
+  }
+  if (deferred && $("#ib")) $("#ib").onclick = async () => { deferred.prompt(); await deferred.userChoice; deferred = null; installUI(); };
 }
 
 function installPage() {
   $("#tabs").hidden = !auth();
-  view.innerHTML = `<section class="login" style="padding-top:6vh"><div class="logo" style="font-size:30px">🍸 CBL <b>Bartender</b></div><h1 style="font-size:32px">Get the app</h1>
-    <p class="muted">Install the Bartender on your phone or computer. It opens full-screen with its own icon.</p>
+  const title = { android: "Get the Android app", ios: "Add to your iPhone", windows: "Install on your PC", mac: "Install on your Mac" }[DEV] || "Install the app";
+  view.innerHTML = `<section class="login" style="padding-top:2vh"><div class="hero" data-photo="/img/bartender/pour.jpg"><div class="badge"><span class="mark">CBL</span> Bartender</div></div><h1 style="font-size:32px">${title}</h1>
+    <p class="muted">It opens full-screen with its own icon, using the same wallet as the Bartender in Telegram.</p>
     <div class="install" id="inst"></div>
-    <div style="text-align:left;margin-top:22px" class="small muted"><p><b>Android:</b> tap Install app above, or download the APK if it's shown.</p><p><b>PC / Mac (Chrome or Edge):</b> click Install app above, or the install icon in the address bar.</p><p><b>iPhone / iPad (Safari):</b> tap Share → Add to Home Screen.</p></div>
-    <button class="btn main" onclick="location.hash='';start()" style="margin-top:12px">Open the Bartender</button></section>`;
+    <button class="btn ghost" onclick="location.hash='';start()" style="margin-top:18px">Open the Bartender in the browser</button></section>`;
   installUI();
-  if (!$("#ib") && !/iphone|ipad|ipod/i.test(navigator.userAgent)) $("#inst").insertAdjacentHTML("afterbegin", '<p class="small muted" style="width:100%">If no Install button shows, use your browser menu → Install app / Add to Home screen.</p>');
 }
 
 /* ---------- tabs ---------- */
@@ -394,6 +406,11 @@ async function settingsSheet() {
       sellP: nums(g("sp").value), presets: Object.fromEntries(Object.keys(CH).map((c) => [c, nums(g("p" + c).value)])) };
     busy(ev.submitter, async () => { const r = await api("settings", p); if (S.home) S.home.settings = r.settings; toast("Settings saved"); close(); if (S.tab === "trade" && S.tok) tokenView(S.tok.ca, S.tok.c); }); };
 }
+
+/* Photos load only if the file exists; otherwise the gradient stays. */
+const PH = {};
+function photos() { view.querySelectorAll("[data-photo]").forEach((el) => { const u = el.dataset.photo; const set = () => (el.style.backgroundImage = `url(${u})`); if (PH[u] === true) return set(); if (PH[u] === false) return; const i = new Image(); i.onload = () => { PH[u] = true; set(); }; i.onerror = () => (PH[u] = false); i.src = u; }); }
+new MutationObserver(photos).observe(view, { childList: true });
 
 /* ---------- start ---------- */
 async function start() {

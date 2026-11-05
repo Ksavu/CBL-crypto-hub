@@ -1,6 +1,6 @@
 // CBL Bartender service worker: makes the app installable and opens instantly.
 // The app shell is cached; API calls and prices always go to the network (never cached).
-const CACHE = "cbl-bartender-v1", SHELL = ["/bartender", "/manifest.webmanifest", "/icons/cbl-192.png", "/icons/cbl-512.png"];
+const CACHE = "cbl-bartender-v2", SHELL = ["/bartender", "/manifest.webmanifest", "/icons/bartender-192.png", "/icons/bartender-512.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", (e) => {
