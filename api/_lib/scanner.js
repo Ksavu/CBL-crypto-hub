@@ -136,7 +136,6 @@ async function runScan(caIn, selIn, opts) {
         sellTax: sim && Number.isFinite(parseFloat(sim.sellTax)) ? parseFloat(sim.sellTax) : hasGp && Number.isFinite(parseFloat(gp.sell_tax)) ? parseFloat(gp.sell_tax) * 100 : null,
         owner: hasGp && gp.owner_address ? String(gp.owner_address).toLowerCase() : ex && ex.ownerKnown ? ex.owner : null };
   const links = extractLinks(pair);
-  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep });
   // Launchpad origin: deployer contract (EVM), else DEX ids + vanity address endings (pump, bonk, LoL, 4444, b07...).
   const lpHit = (kind === "evm" && EF.launchpadByCreator(chain, ex && ex.creator)) || null;
   const lpGuess = LP.launchpadOf(chain, ca, pairs.map((p) => p.dexId).concat(pair && pair.curve ? ["pumpfun"] : []), [].concat(...pairs.map((p) => p.labels || [])));
@@ -145,9 +144,12 @@ async function runScan(caIn, selIn, opts) {
     const hi = await LP.higherOf([ca]).catch(() => new Set()); if (hi.has(ca)) launchpad = "higher.fun";
   }
   let onCurve = pair ? !!pair.curve || (lpGuess && lpGuess.g === false) : !!launchpad;
+  // Meteora DBC: DexScreener tags the curve pool "DBC"; after graduation a DAMM pool appears. Only a DBC pool = still on the curve.
+  if (lpGuess && lpGuess.k === "dbc") { const isDbc = (p) => (p.labels || []).some((l) => /dbc/i.test(l)); onCurve = pairs.some(isDbc) && !pairs.some((p) => !isDbc(p) && /meteora|raydium|orca|pump/i.test(p.dexId || "")); }
   if (launchpad === "higher.fun" || launchpad === "LaunchLab") { // Raydium LaunchLab pool status: 0 = still on the bonding curve
     const P = await LP.launchlabPools([ca]).catch(() => ({})); if (P[ca]) onCurve = P[ca].status === 0;
   }
+  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad });
   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
   let dev = null;
   if (launchpad && ex && ex.creationTx && chain === "robinhood") {

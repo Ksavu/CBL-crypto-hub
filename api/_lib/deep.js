@@ -81,7 +81,7 @@ async function deepSol(mint, budgetMs = 25000) {
     if (ranked.length && supply) {
       const topO = ranked.slice(0, 20).map((x) => x[0]);
       const oa = await rpc("getMultipleAccounts", [topO, { encoding: "base64", dataSlice: { offset: 0, length: 0 } }]);
-      holders = topO.map((o, i) => { const v = oa.value && oa.value[i]; return { owner: o, pct: bal[o] / supply * 100, kind: (!v ? !onCurve(o) : v.owner !== SYS) ? "program" : "wallet" }; });
+      holders = topO.map((o, i) => { const v = oa.value && oa.value[i]; return { owner: o, pct: bal[o] / supply * 100, kind: (!onCurve(o) || (v && v.owner !== SYS)) ? "program" : "wallet" }; }); // off-curve = PDA (pool/curve authority) even if it holds SOL
     }
     D.holders = holders;
     const real = holders.filter((h) => h.kind === "wallet");
@@ -149,7 +149,17 @@ async function deepSol(mint, budgetMs = 25000) {
         if (s0 === null) s0 = t.slot;
         if (t.slot - s0 <= 30 && !(tr.toUserAccount in first)) first[tr.toUserAccount] = t.slot - s0;
       }
-      const all = Object.keys(first);
+      // any address that hands the token to many different wallets is a pool / bonding-curve vault, not a buyer
+      const outTo = {}; moves.forEach(([f, t]) => { (outTo[f] = outTo[f] || new Set()).add(t); });
+      Object.keys(outTo).forEach((f) => { if (outTo[f].size >= 8 && f !== D.deployer) { pools.add(f); delete first[f]; } });
+      const all = Object.keys(first).filter((o) => !pools.has(o) && onCurve(o));
+      // re-label holders found to be pools/vaults and recompute the wallet stats
+      if (holders.some((h) => h.kind === "wallet" && pools.has(h.owner))) {
+        holders.forEach((h) => { if (pools.has(h.owner)) h.kind = "program"; });
+        const rw = holders.filter((h) => h.kind === "wallet");
+        D.top10Wallets = rw.slice(0, 10).reduce((a, h) => a + h.pct, 0); D.topWallet = rw[0] || null;
+        D.poolPct = holders.filter((h) => h.kind === "program").reduce((a, h) => a + h.pct, 0);
+      }
       const same = all.filter((o) => first[o] <= 1);
       const bundled = same.length >= 2 ? same : [];
       const snipe = all.filter((o) => !bundled.includes(o) && first[o] <= 10);
