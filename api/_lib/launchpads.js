@@ -5,7 +5,7 @@
 // Returns { n: name, k: short key, g: graduated (true/false, null = unknown) } or null.
 const LP_DEX = { pumpfun: ["Pump.fun", "pump"], pumpswap: ["Pump.fun", "pump"], moonshot: ["Moonshot", "moon"], fourmeme: ["Four.meme", "four"], four_meme: ["Four.meme", "four"],
   virtuals: ["Virtuals", "virt"], zora: ["Zora", "zora"], apestore: ["Ape.store", "ape"], flaunch: ["Flaunch", "flaunch"], boop: ["Boop", "boop"], heaven: ["Heaven", "heaven"],
-  believe: ["Believe", "believe"], launchlab: ["LaunchLab", "launchlab"], bonkfun: ["LetsBonk", "bonk"], letsbonk: ["LetsBonk", "bonk"] };
+  believe: ["Believe", "believe"], meteoradbc: ["Meteora DBC", "dbc"], launchlab: ["LaunchLab", "launchlab"], bonkfun: ["LetsBonk", "bonk"], letsbonk: ["LetsBonk", "bonk"] };
 function launchpadOf(chain, ca, dexes, labels) {
   const a = String(ca), d = dexes.map((x) => String(x || "").toLowerCase()), lb = labels.map((x) => String(x || "").toLowerCase());
   const curve = (ids) => d.some((x) => ids.includes(x)), grad = (ids) => d.some((x) => !ids.includes(x)); // trades elsewhere = graduated
@@ -15,6 +15,7 @@ function launchpadOf(chain, ca, dexes, labels) {
     if (/pump$/.test(a) || curve(["pumpfun", "pumpswap"])) return { n: "Pump.fun", k: "pump", g: !d.includes("pumpfun") || grad(["pumpfun"]) };
     if (/bonk$/.test(a) || curve(["bonkfun", "letsbonk"])) return { n: "LetsBonk", k: "bonk", g: grad(["raydium", "bonkfun", "letsbonk"]) || null };
     if (curve(["moonshot"])) return { n: "Moonshot", k: "moon", g: grad(["moonshot"]) };
+    if (curve(["meteoradbc"])) return { n: "Meteora DBC", k: "dbc", g: grad(["meteoradbc"]) || null };
     if (lb.includes("launchlab")) return { n: "LaunchLab", k: "launchlab", g: null };
     if (lb.includes("dbc")) return { n: "Meteora DBC", k: "dbc", g: null };
   }

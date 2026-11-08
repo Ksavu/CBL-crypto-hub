@@ -145,7 +145,7 @@ async function runScan(caIn, selIn, opts) {
   }
   let onCurve = pair ? !!pair.curve || (lpGuess && lpGuess.g === false) : !!launchpad;
   // Meteora DBC: DexScreener tags the curve pool "DBC"; after graduation a DAMM pool appears. Only a DBC pool = still on the curve.
-  if (lpGuess && lpGuess.k === "dbc") { const isDbc = (p) => (p.labels || []).some((l) => /dbc/i.test(l)); onCurve = pairs.some(isDbc) && !pairs.some((p) => !isDbc(p) && /meteora|raydium|orca|pump/i.test(p.dexId || "")); }
+  if (lpGuess && lpGuess.k === "dbc") { const isDbc = (p) => /dbc/i.test(p.dexId || "") || (p.labels || []).some((l) => /dbc/i.test(l)); onCurve = pairs.some(isDbc) && !pairs.some((p) => !isDbc(p) && /meteora|raydium|orca|pump/i.test(p.dexId || "")); }
   if (launchpad === "higher.fun" || launchpad === "LaunchLab") { // Raydium LaunchLab pool status: 0 = still on the bonding curve
     const P = await LP.launchlabPools([ca]).catch(() => ({})); if (P[ca]) onCurve = P[ca].status === 0;
   }

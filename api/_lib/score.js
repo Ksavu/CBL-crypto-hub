@@ -19,7 +19,7 @@ function analyze(i) {
     if (gp && Object.keys(gp).length) solGoPlus(gp, add, !!i.deep);
     if (rc && rc.risks) {
       rc.risks.slice(0, 8).forEach((r) =>
-        add(r.level === "danger" ? "high" : r.level === "warn" ? "medium" : "info", r.name, r.description));
+        add(i.onCurve && /liquidity/i.test(r.name) ? "info" : r.level === "danger" ? "high" : r.level === "warn" ? "medium" : "info", r.name, r.description)); // curve = no normal LP yet
       const lbl = ((pair && pair.labels) || []).join(" "), dex = (pair && pair.dexId) || "";
       const bc = i.onCurve || (pair && (pair.curve || (/pump/i.test(dex) && !(pair.liquidity && pair.liquidity.usd)) || /dbc|launchlab|bonding|curve/i.test(lbl) || /launchlab|dbc|moonshot|boop/i.test(dex)));
       const pad = i.onCurve && i.launchpad ? i.launchpad : /dbc/i.test(lbl + dex) ? "Meteora DBC" : /launchlab/i.test(lbl + dex) ? "Raydium LaunchLab" : /pump/i.test(dex) || (pair && pair.curve) ? "pump.fun" : "launchpad";
@@ -30,7 +30,7 @@ function analyze(i) {
     }
   }
   if (i.deep) deepChecks(i.deep, add);
-  if (pair) marketChecks(pair, add);
+  if (pair) marketChecks(i.onCurve ? Object.assign({}, pair, { curve: true }) : pair, add);
   if (pair && i.links && !Object.keys(i.links).length) add("info", "No website or socials listed", "Official links are missing on DexScreener. Check the project yourself.");
 
   // Launchpad token: trading runs through a bonding-curve contract. Flag it, but keep the thin-pool penalties.
@@ -49,6 +49,7 @@ function analyze(i) {
   score = Math.max(0, Math.min(100, score));
   if (critical) score = Math.min(score, 20);
   else if (limited) score = Math.min(score, 85);
+  if (i.onCurve) score = Math.min(score, 70); // still on a bonding curve: too early to call it low risk
 
   const sources = i.sources || {};
   const okCount = ["goplus", "honeypot", "rugcheck"].filter((k) => sources[k]).length;
@@ -173,7 +174,7 @@ function marketChecks(p, add) {
   if (!p.curve && typeof liq === "number" && liq < 1000) add("medium", "Under $1,000 of liquidity", "Almost nothing to trade against. Any buy or sell moves the price heavily and exits may be impossible.");
   if (p.pairCreatedAt) {
     const days = (Date.now() - p.pairCreatedAt) / 864e5;
-    if (days < 1) add("high", "Pair is less than 24 hours old");
+    if (days < 1) add(p.curve ? "medium" : "high", p.curve ? "Launched less than 24 hours ago" : "Pair is less than 24 hours old");
     else if (days < 7) add("low", `New pair (${Math.round(days)} days old)`);
   }
   const fdv = p.fdv || p.marketCap;
