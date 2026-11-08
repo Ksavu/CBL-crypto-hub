@@ -145,7 +145,13 @@ async function runScan(caIn, selIn, opts) {
   }
   let onCurve = pair ? !!pair.curve || (lpGuess && lpGuess.g === false) : !!launchpad;
   // Meteora DBC: DexScreener tags the curve pool "DBC"; after graduation a DAMM pool appears. Only a DBC pool = still on the curve.
-  if (lpGuess && lpGuess.k === "dbc") { const isDbc = (p) => /dbc/i.test(p.dexId || "") || (p.labels || []).some((l) => /dbc/i.test(l)); onCurve = pairs.some(isDbc) && !pairs.some((p) => !isDbc(p) && /meteora|raydium|orca|pump/i.test(p.dexId || "")); }
+  let dbc = null;
+  if (lpGuess && lpGuess.k === "dbc") {
+    const isDbc = (p) => /dbc/i.test(p.dexId || "") || (p.labels || []).some((l) => /dbc/i.test(l));
+    onCurve = pairs.some(isDbc) && !pairs.some((p) => !isDbc(p) && /meteora|raydium|orca|pump/i.test(p.dexId || ""));
+    const dp = pairs.find(isDbc);
+    if (dp && dp.pairAddress) { dbc = await LP.dbcState(dp.pairAddress, ca).catch(() => null); if (dbc) { onCurve = !dbc.migrated; if (pair && pair.curveProgress == null && typeof dbc.progress === "number") pair.curveProgress = dbc.progress; } }
+  }
   if (launchpad === "higher.fun" || launchpad === "LaunchLab") { // Raydium LaunchLab pool status: 0 = still on the bonding curve
     const P = await LP.launchlabPools([ca]).catch(() => ({})); if (P[ca]) onCurve = P[ca].status === 0;
   }
@@ -166,7 +172,7 @@ async function runScan(caIn, selIn, opts) {
     market: pair ? { price: pair.priceUsd, liquidity: liq(pair), fdv: pair.fdv, marketCap: pair.marketCap,
              volume24h: pair.volume && pair.volume.h24, change24h: pair.priceChange && pair.priceChange.h24,
              pairCreatedAt: pair.pairCreatedAt || (deep && deep.launchTs ? deep.launchTs * 1000 : null), dex: pair.dexId, url: pair.url,
-             curve: pair.curve || false, curveProgress: typeof pair.curveProgress === "number" ? Math.round(pair.curveProgress) : null, curveSol: pair.curveSol || null } : null,
+             curve: pair.curve || false, curveProgress: typeof pair.curveProgress === "number" ? Math.round(pair.curveProgress) : dbc && typeof dbc.progress === "number" ? Math.round(dbc.progress) : null, curveSol: pair.curveSol || null } : null,
     links, flags, dex: dexInfo, deep: deep ? { supply: deep.supply || null, deployerAmt: deep.deployerAmt != null ? deep.deployerAmt : null, deployer: deep.deployer || null, deployerPct: deep.deployerPct, traced: deep.traced, debug: deep.debug || null, holders: deep.holderCount, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, insiders: deep.insiders || null, notes: deep.notes } : null,
     launchpad, onCurve, creator: (lpHit ? dev : (deep && deep.deployer) || (ex && ex.creator)) || (gp && typeof gp.creator_address === "string" && /^0x[a-fA-F0-9]{40}$/.test(gp.creator_address) ? gp.creator_address.toLowerCase() : null)
       || (kind === "sol" && gp && Array.isArray(gp.creators) && gp.creators[0] && gp.creators[0].address) || null,

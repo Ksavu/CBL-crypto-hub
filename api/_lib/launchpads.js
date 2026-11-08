@@ -90,6 +90,26 @@ async function launchlabPools(mints) {
   }
   return out;
 }
+// Meteora Dynamic Bonding Curve: progress = SOL in the curve / the config's migration threshold (layout from the official SDK IDL).
+const DBC = "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN";
+async function dbcState(pool, mint) {
+  const D = require("./devstats");
+  const r = await srpc("getMultipleAccounts", [[pool], { encoding: "base64" }]), acc = r && r.value && r.value[0];
+  if (!acc || acc.owner !== DBC) return null;
+  const b = Buffer.from(acc.data[0], "base64"); if (b.length < 312) return null;
+  if (D.b58enc(b.subarray(136, 168)) !== mint) return null; // self-check: base_mint
+  const config = D.b58enc(b.subarray(72, 104)), quote = b.readBigUInt64LE(240), migrated = b[305] === 1;
+  const c = await srpc("getMultipleAccounts", [[config], { encoding: "base64" }]), ca = c && c.value && c.value[0];
+  let progress = migrated ? 100 : null;
+  if (!migrated && ca && ca.owner === DBC) {
+    const cb = Buffer.from(ca.data[0], "base64");
+    if (cb.length >= 272 && D.b58enc(cb.subarray(8, 40)) === WSOL) { // self-check: quote mint is SOL
+      const th = cb.readBigUInt64LE(264);
+      if (th > 0n) progress = Math.min(100, Number(quote * 10000n / th) / 100);
+    }
+  }
+  return { pool, migrated, progress, quoteSol: Number(quote) / 1e9 };
+}
 /** Which of these Solana mints were launched on higher.fun. Returns a Set. */
 async function higherOf(mints) {
   const found = new Set(); mints = [...new Set(mints.filter((m) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(m)))].slice(0, 300);
@@ -106,4 +126,4 @@ async function higherOf(mints) {
 }
 const HIGHER = { n: "higher.fun", k: "higher" };
 
-module.exports = { HIGHER, higherOf, launchlabPools, launchpadOf, launchpadByCreator, PAD_INFO, BY_CREATOR, LP_DEX, PAD_URL, padUrl };
+module.exports = { dbcState, HIGHER, higherOf, launchlabPools, launchpadOf, launchpadByCreator, PAD_INFO, BY_CREATOR, LP_DEX, PAD_URL, padUrl };

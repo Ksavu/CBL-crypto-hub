@@ -31,7 +31,8 @@ function card(r, site, opt) {
   L.push(`<b>${esc(r.token.name)}</b>${r.token.symbol ? ` (${esc(r.token.symbol)})` : ""} · ${chainName(r.chain)}`);
   L.push(`${dot} <b>${r.score === null ? "n/a" : r.score + "/100"}</b> · ${esc(r.verdict)}`);
   if (opt.call) L.push(callLine(opt.call, r));
-  if (r.launchpad) L.push(`🚀 Launched on <b>${esc(r.launchpad)}</b>${r.onCurve ? ` · on the bonding curve${r.market && typeof r.market.curveProgress === "number" ? " (" + r.market.curveProgress + "% to migration)" : ""}` : " · graduated 🎓"}`);
+  const ageH = r.market && r.market.pairCreatedAt ? (Date.now() - r.market.pairCreatedAt) / 36e5 : null, ageS = ageH == null ? "" : " · 🌱" + (ageH < 1 ? Math.max(1, Math.round(ageH * 60)) + "m" : ageH < 48 ? Math.round(ageH) + "h" : Math.round(ageH / 24) + "d");
+  if (r.launchpad) L.push(`🚀 <b>${esc(r.launchpad)}</b>${r.onCurve ? (r.market && typeof r.market.curveProgress === "number" ? ` @ <b>${r.market.curveProgress}%</b> to migration` : " · on the bonding curve") : " · graduated 🎓"}${ageS}`);
   if (r.market) {
     const m = r.market, ch = typeof m.change24h === "number" ? ` (${m.change24h >= 0 ? "+" : ""}${m.change24h}% 24h)` : "";
     L.push("", m.curve ? `💧 Bonding curve ${usd(m.liquidity)}${typeof m.curveProgress === "number" ? ` (${m.curveProgress}% to migration)` : ""}   💰 MC ${usd(m.marketCap || m.fdv)}` : `💧 Liquidity ${usd(m.liquidity)}   💰 MC ${usd(m.marketCap || m.fdv)}`,
