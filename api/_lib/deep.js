@@ -209,12 +209,20 @@ async function deepSol(mint, budgetMs = 25000) {
           const r = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: part.map((x) => x[1]) }).catch(() => []);
           const bySig = {}; (Array.isArray(r) ? r : []).forEach((t) => { bySig[t.signature] = t; });
           part.forEach(([o, s]) => { if (funder[o]) return; const t = bySig[s]; if (!t) return;
-            const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === o && x.fromUserAccount !== o && x.amount > 0); if (nt) { funder[o] = nt.fromUserAccount; fsig[o] = s; } });
+            const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === o && x.fromUserAccount !== o && x.amount >= 50000000); /* real funding (0.05+ SOL), not rent or platform dust */ if (nt) { funder[o] = nt.fromUserAccount; fsig[o] = s; } });
         }
         const cnt = {}; bundledAll.filter((o) => funder[o]).forEach((o) => { cnt[funder[o]] = (cnt[funder[o]] || 0) + 1; });
         const all3 = {}; Object.keys(funder).forEach((o) => { if (bal[o] > 0) all3[funder[o]] = (all3[funder[o]] || 0) + 1; });
         // a source that funded 10+ of the checked holders is an exchange hot wallet, not an insider
         const shared = new Set([...Object.keys(cnt).filter((f) => cnt[f] >= 2), ...Object.keys(all3).filter((f) => all3[f] >= 2)].filter((f) => (all3[f] || 0) < 10 && f !== mint && !pools.has(f)));
+        // exchanges, bots and bridges fund thousands of wallets: a funder with 1000+ transactions is a service, not an insider
+        const fl = [...shared].filter((f) => f !== D.deployer).slice(0, 12);
+        await Promise.all(fl.map(async (f) => {
+          try { const r = await rpc("getSignaturesForAddress", [f, { limit: 1000 }]); if (!Array.isArray(r) || r.length >= 1000) shared.delete(f); }
+          catch (e) { shared.delete(f); }
+        }));
+        [...shared].filter((f) => !fl.includes(f) && f !== D.deployer).forEach((f) => shared.delete(f));
+        if (D.deployer) Object.keys(funder).forEach((o) => { if (funder[o] === D.deployer) shared.add(D.deployer); }); // funded by the dev = insider
         D.sharedFunders = shared.size;
         // same funder as another holder = insider (like Phanes "Insiders"); reported separately, not counted as bundlers
         Object.keys(funder).forEach((o) => { if (shared.has(funder[o]) && !bundledAll.includes(o) && bal[o] > 0) { insiders.push(o); mark(o, "funded by " + short(funder[o]) + " (same as other holders)", fsig[o]); } });
