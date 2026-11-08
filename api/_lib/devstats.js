@@ -338,4 +338,26 @@ async function solEnrich(list) {
   });
 }
 
-module.exports = { devJob, solCreated, solOriginCached, solEnrich, solCreator, isMint, solOrigin, evmOrigin, athFor, labelOf, pda, onCurve, b58dec, b58enc, PUMP };
+/** Short dev track record for the scan card: launches, graduated, died on curve, best known ATH. Fast: cached history + one RPC batch. */
+async function devSummary(addr, skipMint, deadline) {
+  const c = await solCreated(addr, deadline).catch(() => null);
+  if (!c) return null;
+  const list = c.tokens.filter((t) => t.id !== skipMint).slice(0, 100).map((t) => ({ id: t.id, ts: t.ts, chain: "solana" }));
+  const out = { launches: list.length, done: !!c.done, graduated: null, died: null, bestAth: null, bestSym: null };
+  if (!list.length) return out;
+  const wait = (p) => Promise.race([p, new Promise((r) => setTimeout(r, Math.max(500, (deadline || Date.now() + 3000) - Date.now())))]);
+  await wait(solEnrich(list).catch(() => {}));
+  const pump = list.filter((t) => t.pump);
+  if (pump.length) {
+    out.graduated = pump.filter((t) => t.graduated).length;
+    out.died = pump.filter((t) => !t.graduated && t.ts && now() - t.ts > 86400).length;
+  }
+  if (db.on()) { // ATHs already worked out by earlier dev reports
+    const ids = list.map((t) => `"ath:${t.id}"`).join(",");
+    const rows = await wait(db.select("radar_cache", `id=in.(${encodeURIComponent(ids)})&select=id,data`).catch(() => [])) || [];
+    rows.forEach((r) => { const a = r.data && r.data.ath; if (a && a > (out.bestAth || 0)) { out.bestAth = a; const t = list.find((k) => k.id === r.id.slice(4)); out.bestSym = t && t.sym || null; } });
+  }
+  return out;
+}
+
+module.exports = { devSummary, devJob, solCreated, solOriginCached, solEnrich, solCreator, isMint, solOrigin, evmOrigin, athFor, labelOf, pda, onCurve, b58dec, b58enc, PUMP };

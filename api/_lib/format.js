@@ -68,6 +68,13 @@ function card(r, site, opt) {
       const p = (n) => (typeof n === "number" ? n.toFixed(1) + "%" : "n/a");
       L.push("", `🧬 Deployer ${d.traced ? p(d.deployerPct) : "n/a"} · Top 10 wallets ${p(d.top10)}${d.holders ? " · " + d.holders + " holders" : ""}`);
       const g = (x) => `${x.stillHolding} holding of ${x.wallets} · ${p(x.heldPct)} of supply${typeof x.boughtPct === "number" ? " · bought " + p(x.boughtPct) : ""}`;
+      const h = r.devHistory, dm = r.devMints;
+      if (h && r.creator) {
+        const k = (n) => (n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? "$" + Math.round(n / 1e3) + "K" : "$" + Math.round(n));
+        L.push(`👨‍💻 <a href="https://solscan.io/account/${r.creator}">Dev</a>: ` + (!h.launches && h.done ? "first launch" :
+          [`${h.launches}${h.done ? "" : "+"} other launches`, h.graduated != null ? `${h.graduated} graduated` : null, h.died ? `${h.died} died on curve` : null,
+           h.bestAth ? `best ATH ${k(h.bestAth)}${h.bestSym ? " (" + esc(h.bestSym) + ")" : ""}` : null].filter(Boolean).join(" · ")));
+      } else if (typeof dm === "number" && dm > 1) L.push(`👨‍💻 Dev launched ${dm} tokens`);
       if (d.traced) {
         L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
         if (d.insiders) L.push(`🕵️ Insiders: ${g(d.insiders)}`);

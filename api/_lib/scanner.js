@@ -173,9 +173,33 @@ async function runScan(caIn, selIn, opts) {
     score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };
   if (kind === "sol" && !out.creator) { const c = await require("./devstats").solCreator(ca, null, true).catch(() => null); if (c) out.creator = c.creator; } // pump.fun dev from the bonding-curve account
+  if (kind === "sol" && !(opts && opts.noDeep)) await solExtras(ca, out).catch(() => {});
   cache.set(key, { t: now, v: out });
   if (cache.size > 500) cache.delete(cache.keys().next().value);
   return out;
+}
+
+// Jupiter token data (curve progress for any launchpad, dev mint count) + dev track record, in ~4.5 s.
+async function solExtras(ca, out) {
+  const stop = Date.now() + 4500;
+  const jup = j(`https://lite-api.jup.ag/tokens/v2/search?query=${ca}`, 3500).then((a) => (Array.isArray(a) ? a.find((t) => t && t.id === ca) : null)).catch(() => null);
+  const dev = out.creator ? require("./devstats").devSummary(out.creator, ca, stop).catch(() => null) : null;
+  const [jt, dh] = await Promise.all([jup, dev]);
+  if (jt) {
+    const bc = Number(jt.bondingCurve);
+    if (Number.isFinite(bc) && bc > 0 && bc < 100 && !jt.graduatedPool) {
+      out.onCurve = true;
+      if (out.market && out.market.curveProgress == null) out.market.curveProgress = Math.round(bc);
+      if (!out.launchpad && jt.launchpad) out.launchpad = String(jt.launchpad).slice(0, 30);
+    }
+    if (jt.audit && Number.isFinite(Number(jt.audit.devMints))) out.devMints = Number(jt.audit.devMints);
+  }
+  if (dh) {
+    out.devHistory = dh;
+    const n = dh.launches || 0, g = dh.graduated || 0;
+    if (n >= 10 && dh.graduated != null && g / n < 0.1)
+      out.reasons.push({ sev: "medium", title: `Serial launcher: dev made ${n}${dh.done ? "" : "+"} tokens, ${g} graduated`, detail: "Most of this dev's tokens never left the bonding curve." });
+  }
 }
 
 module.exports = { runScan, detect, OK_CHAINS, EVM };
