@@ -68,7 +68,13 @@ function card(r, site, opt) {
       const p = (n) => (typeof n === "number" ? n.toFixed(1) + "%" : "n/a");
       L.push("", `🧬 Deployer ${d.traced ? p(d.deployerPct) : "n/a"} · Top 10 wallets ${p(d.top10)}${d.holders ? " · " + d.holders + " holders" : ""}`);
       const g = (x) => `${x.stillHolding} holding of ${x.wallets} · ${p(x.heldPct)} of supply${typeof x.boughtPct === "number" ? " · bought " + p(x.boughtPct) : ""}`;
-      if (d.traced) L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
+      if (d.traced) {
+        L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
+        if (d.insiders) L.push(`🕵️ Insiders: ${g(d.insiders)}`);
+        // proof: biggest flagged wallets with the transaction that flagged them
+        const pr = [].concat(...[["📦", d.bundlers], ["🎯", d.snipers], ["🕵️", d.insiders]].map(([e, x]) => ((x && x.proof) || []).slice(0, 2).map((p) => Object.assign({ e }, p)))).slice(0, 5);
+        if (pr.length) L.push("🔎 Proof: " + pr.map((p) => `${p.e} <a href="https://solscan.io/account/${p.w}">${p.w.slice(0, 4)}…${p.w.slice(-4)}</a> ${p.pct ? p.pct + "% " : ""}<a href="https://solscan.io/tx/${p.tx}">tx</a>`).join(" · "));
+      }
       else L.push("🎯 Snipers / 📦 Bundlers: n/a (launch too old to trace)");
     }
   }

@@ -140,14 +140,15 @@ async function deepSol(mint, budgetMs = 25000) {
       }
       list.sort((a, b) => a.slot - b.slot);
       const pools = new Set(holders.filter((h) => h.kind === "program").map((h) => h.owner));
-      const first = {}; const moves = [];
+      const first = {}; const moves = []; const why = {}; // why[wallet] = { r: reason, tx: signature } — shown as proof links
+      const mark = (o, r, tx) => { if (!why[o] && tx) why[o] = { r, tx }; };
       let s0 = null;
       for (const t of list) for (const tr of t.tokenTransfers || []) {
         if (tr.mint !== mint || !tr.toUserAccount || !(tr.tokenAmount > 0)) continue;
-        if (tr.fromUserAccount && tr.fromUserAccount !== tr.toUserAccount) moves.push([tr.fromUserAccount, tr.toUserAccount]);
+        if (tr.fromUserAccount && tr.fromUserAccount !== tr.toUserAccount) moves.push([tr.fromUserAccount, tr.toUserAccount, t.signature]);
         if (tr.toUserAccount === D.deployer || pools.has(tr.toUserAccount)) continue;
         if (s0 === null) s0 = t.slot;
-        if (t.slot - s0 <= 30 && !(tr.toUserAccount in first)) first[tr.toUserAccount] = t.slot - s0;
+        if (t.slot - s0 <= 30 && !(tr.toUserAccount in first)) { first[tr.toUserAccount] = t.slot - s0; mark(tr.toUserAccount, t.slot - s0 <= 1 ? "bought in the launch block" : `bought ${t.slot - s0} blocks after launch`, t.signature); }
       }
       // any address that hands the token to many different wallets is a pool / bonding-curve vault, not a buyer
       const outTo = {}; moves.forEach(([f, t]) => { (outTo[f] = outTo[f] || new Set()).add(t); });
@@ -166,7 +167,7 @@ async function deepSol(mint, budgetMs = 25000) {
       // follow the tokens: wallets that received them from an early buyer belong to the same group
       const spread = (seeds) => {
         const set = new Set(seeds);
-        for (let pass = 0; pass < 3; pass++) for (const [f, t] of moves) if (set.has(f) && !set.has(t) && !pools.has(t) && t !== D.deployer) set.add(t);
+        for (let pass = 0; pass < 3; pass++) for (const [f, t, sg] of moves) if (set.has(f) && !set.has(t) && !pools.has(t) && t !== D.deployer) { set.add(t); mark(t, "received tokens from " + short(f), sg); }
         return [...set];
       };
       const bundledAll = spread(bundled);
@@ -185,13 +186,15 @@ async function deepSol(mint, budgetMs = 25000) {
         }));
       } catch (e) { bad("slotstep", e); }
       const bySlot = {}; Object.keys(slotOf).forEach((o) => (bySlot[slotOf[o]] = bySlot[slotOf[o]] || []).push(o));
-      const grouped = Object.values(bySlot).filter((g) => g.length >= 3).flat();
       const cs = oldest.slot || 0;
+      // 3+ current holders whose first buy landed in the same block — only a bundle if it happened right at launch (later same-block buys are normal trading)
+      const grouped = Object.entries(bySlot).filter(([sl, g]) => g.length >= 3 && cs && Number(sl) - cs <= 5).map(([, g]) => g).flat();
+      grouped.forEach((o) => mark(o, "same block as other holders at launch", sigFirst[o]));
       const earlyHold = Object.keys(slotOf).filter((o) => cs && slotOf[o] - cs <= 3 && !grouped.includes(o));
       bundledAll.push(...grouped.filter((o) => !bundledAll.includes(o)));
       earlyHold.forEach((o) => { if (!bundledAll.includes(o) && !snipeAll.includes(o)) snipeAll.push(o); });
       // same-funder check: wallets first funded by the same source as the core bundle
-      const funder = {};
+      const funder = {}, fsig = {}, insiders = [];
       try {
         const cand = [...new Set([...bundledAll, ...Object.keys(bal).filter((o) => bal[o] > 0 && !pools.has(o) && o !== D.deployer).sort((a, b) => bal[b] - bal[a])])]
           .filter((o) => !pools.has(o) && o !== D.deployer).slice(0, 45);
@@ -206,13 +209,15 @@ async function deepSol(mint, budgetMs = 25000) {
           const r = await post("https://api.helius.xyz/v0/transactions?api-key=" + key, { transactions: part.map((x) => x[1]) }).catch(() => []);
           const bySig = {}; (Array.isArray(r) ? r : []).forEach((t) => { bySig[t.signature] = t; });
           part.forEach(([o, s]) => { if (funder[o]) return; const t = bySig[s]; if (!t) return;
-            const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === o && x.fromUserAccount !== o && x.amount > 0); if (nt) funder[o] = nt.fromUserAccount; });
+            const nt = (t.nativeTransfers || []).find((x) => x.toUserAccount === o && x.fromUserAccount !== o && x.amount > 0); if (nt) { funder[o] = nt.fromUserAccount; fsig[o] = s; } });
         }
         const cnt = {}; bundledAll.filter((o) => funder[o]).forEach((o) => { cnt[funder[o]] = (cnt[funder[o]] || 0) + 1; });
         const all3 = {}; Object.keys(funder).forEach((o) => { if (bal[o] > 0) all3[funder[o]] = (all3[funder[o]] || 0) + 1; });
-        const shared = new Set([...Object.keys(cnt).filter((f) => cnt[f] >= 2), ...Object.keys(all3).filter((f) => all3[f] >= 3)]);
+        // a source that funded 10+ of the checked holders is an exchange hot wallet, not an insider
+        const shared = new Set([...Object.keys(cnt).filter((f) => cnt[f] >= 2), ...Object.keys(all3).filter((f) => all3[f] >= 2)].filter((f) => (all3[f] || 0) < 10 && f !== mint && !pools.has(f)));
         D.sharedFunders = shared.size;
-        Object.keys(funder).forEach((o) => { if (shared.has(funder[o]) && !bundledAll.includes(o)) { bundledAll.push(o); const k = snipeAll.indexOf(o); if (k >= 0) snipeAll.splice(k, 1); } });
+        // same funder as another holder = insider (like Phanes "Insiders"); reported separately, not counted as bundlers
+        Object.keys(funder).forEach((o) => { if (shared.has(funder[o]) && !bundledAll.includes(o) && bal[o] > 0) { insiders.push(o); mark(o, "funded by " + short(funder[o]) + " (same as other holders)", fsig[o]); } });
       } catch (e) { bad("funderstep", e); }
       // did the wallet get its tokens through a Jito bundle (tip paid to a Jito tip account)?
       const jito = {};
@@ -235,10 +240,12 @@ async function deepSol(mint, budgetMs = 25000) {
       };
       const grp = async (ws) => {
         const amts = []; for (const o of ws.slice(0, complete ? 200 : 8)) amts.push(await held(o));
-        return { wallets: ws.length, heldPct: supply ? amts.reduce((a, b) => a + b, 0) / supply * 100 : 0, stillHolding: amts.filter((x) => x > 0).length };
+        const proof = ws.filter((o) => why[o]).sort((a, b) => (bal[b] || 0) - (bal[a] || 0)).slice(0, 5).map((o) => ({ w: o, why: why[o].r, tx: why[o].tx, pct: supply && bal[o] ? +(bal[o] / supply * 100).toFixed(2) : 0 }));
+        return { wallets: ws.length, heldPct: supply ? amts.reduce((a, b) => a + b, 0) / supply * 100 : 0, stillHolding: amts.filter((x) => x > 0).length, proof };
       };
       D.bundlers = bundledAll.length ? await grp(bundledAll) : null;
       D.snipers = snipeAll.length ? await grp(snipeAll) : null;
+      D.insiders = insiders.length ? await grp(insiders) : null;
     } catch (e) { D.notes.push("Early buyer check unavailable"); D.earlyFailed = true; }
   } catch (e) {
     D.notes.push("Deep scan incomplete");
@@ -268,6 +275,7 @@ function deepChecks(D, add) {
       `Together they hold ${f(g.heldPct)} of supply`);
   };
   grp(D.bundlers, "bundle wallets still hold tokens (bought in the launch block or received from those buyers)");
+  if (D.insiders) add((D.insiders.heldPct || 0) >= 10 ? "medium" : "info", `${D.insiders.stillHolding} insider wallets (same funding source) hold ${f(D.insiders.heldPct)}`, "Different wallets funded from the same address. Could be one person, or friends of the dev.");
   grp(D.snipers, "sniper wallets still hold tokens (bought in the first seconds or received from those buyers)");
   (D.notes || []).forEach((n) => add("info", n));
 }
