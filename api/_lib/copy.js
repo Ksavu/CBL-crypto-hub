@@ -49,7 +49,7 @@ const hookUrl = () => SITE() + "/api/cron?job=copyhook";
 async function syncHook() {
   const key = env("HELIUS_API_KEY"), secret = env("CRON_SECRET"); if (!key || !secret) return { skipped: "HELIUS_API_KEY / CRON_SECRET missing" };
   const rows = (await db.select("bot_copy", "chain=eq.solana&active=eq.true&select=target")) || [];
-  const addrs = [...new Set(rows.map((r) => r.target))];
+  const addrs = [...new Set([...rows.map((r) => r.target), ...(await require("./buybot").solMints().catch(() => []))])]; // copy-trade wallets + buy-bot token mints
   const base = "https://api.helius.xyz/v0/webhooks", q = "?api-key=" + key;
   const all = await X.jfetch(base + q, {}, 8000);
   const mine = all.ok && Array.isArray(all.d) ? all.d.find((w) => w.webhookURL === hookUrl()) : null;
@@ -128,16 +128,18 @@ async function handle(chain, target, events, notify, deadline) {
 }
 
 /** Helius webhook body: array of enhanced transactions. */
-async function onHook(body, notify, deadline) {
+async function onHook(body, notify, deadline, tg) {
   const txs = Array.isArray(body) ? body : [];
   if (!txs.length) return { txs: 0 };
+  let posted = 0;
+  if (tg) for (const t of txs) posted += await require("./buybot").onSolTx(t, tg).catch(() => 0); // group buy-bot posts
   const rows = (await db.select("bot_copy", "chain=eq.solana&active=eq.true&select=target")) || [];
   const watched = new Set(rows.map((r) => r.target)); let copied = 0;
   for (const t of txs) {
     const who = new Set([t.feePayer, ...(t.accountData || []).map((a) => a.account)].filter((a) => watched.has(a)));
     for (const a of who) copied += await handle("solana", a, W.solParse(t, a), notify, deadline);
   }
-  return { txs: txs.length, copied };
+  return { txs: txs.length, copied, posted };
 }
 
 /** Cron backup: poll every watched wallet (all chains) for trades since the last check. */

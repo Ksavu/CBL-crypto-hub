@@ -292,6 +292,23 @@ async function onMessage(msg) {
       const u = msg.reply_to_message && msg.reply_to_message.from && !msg.reply_to_message.from.is_bot ? msg.reply_to_message.from : msg.from;
       return void (await reply(msg, callsMsg(await Calls.userCalls(msg.chat.id, u.id), u.username ? "@" + u.username : u.first_name || "you")));
     }
+    if (name === "buybot") { // group buy-bot: post every buy of the group's token
+      if (msg.chat.type === "private" || !db.on()) return void (await reply(msg, "🟢 <b>CBL Buy Bot</b>\nAdd me to your token's group, make me admin, then send there:\n<code>/buybot &lt;token address&gt;</code>"));
+      const BB = require("./_lib/buybot"), m = await tg("getChatMember", { chat_id: msg.chat.id, user_id: msg.from.id });
+      const g = await BB.get(msg.chat.id).catch(() => null), sub = (args[0] || "").toLowerCase();
+      if (!sub) return void (await reply(msg, g ? `🟢 <b>Buy bot</b> ${g.active ? "on" : "off"} · <b>${esc(g.sym || "")}</b> (${esc(g.chain)})\n<code>${esc(g.token)}</code>\nMin buy: $${g.min_usd} · ${esc(g.emoji)} per $${g.step_usd}${g.media ? " · media set" : ""}\n\n<code>/buybot &lt;address&gt;</code> · change token\n<code>/buybot min 50</code> · only buys over $50\n<code>/buybot emoji 🚀</code> · <code>/buybot step 20</code> · one emoji per $20\n<code>/buybot media &lt;image/gif url&gt;</code> · <code>/buybot media off</code>\n<code>/buybot off</code> / <code>on</code>` : "🟢 Send <code>/buybot &lt;token address&gt;</code> to post every buy here."));
+      if (!m || !m.ok || !["creator", "administrator"].includes(m.result.status)) return void (await reply(msg, "Only group admins can change the buy bot."));
+      try {
+        if (detect(args[0])) { const r = await BB.set(msg.chat.id, args[0]); return void (await reply(msg, `✅ Buy bot on for <b>${esc(r.sym)}</b> (${esc(r.chain)}). Every buy over $${g ? g.min_usd : 10} will be posted here${r.chain === "solana" ? " instantly" : " (checked every 5 minutes)"}.\nSettings: <code>/buybot</code>`)); }
+        if (!g) return void (await reply(msg, "Set a token first: <code>/buybot &lt;token address&gt;</code>"));
+        if (sub === "off" || sub === "on") { await BB.patch(msg.chat.id, { active: sub === "on" }); return void (await reply(msg, sub === "on" ? "✅ Buy bot on." : "⏸ Buy bot off.")); }
+        if (sub === "min" && Number(args[1]) >= 0) { await BB.patch(msg.chat.id, { min_usd: Math.round(Number(args[1])) }); return void (await reply(msg, `✅ Posting buys over $${Math.round(Number(args[1]))}.`)); }
+        if (sub === "step" && Number(args[1]) >= 1) { await BB.patch(msg.chat.id, { step_usd: Math.round(Number(args[1])) }); return void (await reply(msg, `✅ One emoji per $${Math.round(Number(args[1]))}.`)); }
+        if (sub === "emoji" && args[1]) { await BB.patch(msg.chat.id, { emoji: String(args[1]).slice(0, 8) }); return void (await reply(msg, `✅ Emoji: ${esc(String(args[1]).slice(0, 8))}`)); }
+        if (sub === "media") { const u = args[1] || ""; if (u !== "off" && !/^https:\/\/\S+$/i.test(u)) return void (await reply(msg, "Send an https link to an image or gif, or <code>/buybot media off</code>.")); await BB.patch(msg.chat.id, { media: u === "off" ? null : u }); return void (await reply(msg, u === "off" ? "✅ Media removed." : "✅ Media set.")); }
+        return void (await reply(msg, "Unknown option. Send <code>/buybot</code> for help."));
+      } catch (e) { return void (await reply(msg, "⚠️ " + esc(e.message))); }
+    }
     if (name === "xalerts") {
       if (msg.chat.type === "private" || !db.on()) return void (await reply(msg, "Use this in a group."));
       const m = await tg("getChatMember", { chat_id: msg.chat.id, user_id: msg.from.id });

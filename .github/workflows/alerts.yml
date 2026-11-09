@@ -36,6 +36,10 @@ jobs:
           echo "Bonding curves HTTP status: $vcode"
           cat vbody.txt || true
           echo
+          bcode=$(curl -sS -m 70 -o bbody.txt -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" "https://cryptobarlounge.space/api/cron?job=buybot" || true)
+          echo "Group buy-bot HTTP status: $bcode"
+          cat bbody.txt || true
+          echo
           tcode=$(curl -sS -m 40 -o tbody.txt -w "%{http_code}" -H "Authorization: Bearer $CRON_SECRET" "https://cryptobarlounge.space/api/cron?job=trending" || true)
           echo "CBL Trending post HTTP status: $tcode"
           cat tbody.txt || true

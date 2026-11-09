@@ -169,3 +169,9 @@ They are labelled ⬆️ higher.fun by their `…high` address ending and by hig
 - Bartender → 👥 Copy trade → ➕ Follow a wallet. Max 5 wallets per user.
 - Solana is instant: the bot registers a Helius webhook (needs `HELIUS_API_KEY` and `CRON_SECRET`, both already set) pointing to `/api/cron?job=copyhook`. It updates itself when users follow / unfollow.
 - BNB / Base / Robinhood and a Solana backup are checked every 5 minutes by the orders job. Trades older than 10 minutes are never copied.
+
+## Group buy-bot
+- Run `buybot.sql` in Supabase once.
+- In a project group (bot added as admin): `/buybot <token address>`; options `/buybot min 50`, `step 20`, `emoji 🚀`, `media <url>`, `off` / `on`.
+- Solana buys come through the Helius webhook (instant); all chains are also checked every 5 minutes (`/api/cron?job=buybot`, GitHub Actions).
+- Busy Solana tokens send many webhook calls to Vercel; watch your Vercel usage if many big tokens use the buy bot.
