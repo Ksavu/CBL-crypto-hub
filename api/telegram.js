@@ -225,6 +225,27 @@ async function onMessage(msg) {
       if (!w) return void (await reply(msg, "Usage: <code>/wallet &lt;wallet&gt; [chain]</code>"));
       return void (await doWallet(msg, w, args.map((a) => CHAIN[a.toLowerCase()]).find(Boolean)));
     }
+    if (name === "alert" || name === "alerts" || name === "unalert") { // price / market-cap alerts by DM
+      if (!db.on()) return void (await reply(msg, "Alerts need the database."));
+      const O = require("./_lib/orders"), dmNote = msg.chat.type !== "private" ? `\n\n<i>Alerts arrive in DM: open @${esc(BOT_USER())} and press Start once.</i>` : "";
+      try {
+        if (name === "alerts") {
+          const l = await O.alerts(msg.from.id);
+          if (!l.length) return void (await reply(msg, "🔔 No alerts. Set one: <code>/alert &lt;address&gt; 2x</code>"));
+          return void (await reply(msg, "🔔 <b>Your alerts</b>\n" + l.map((o, i) => `${i + 1}. ${esc(o.params.sym || shortA(o.token))} · ${esc(o.params.label)} ${o.params.dir === "up" ? "📈" : "📉"} · id ${o.id}`).join("\n") + "\n\nRemove: <code>/unalert &lt;id&gt;</code>"));
+        }
+        if (name === "unalert") {
+          if (!/^\d+$/.test(args[0] || "")) return void (await reply(msg, "Usage: <code>/unalert &lt;id&gt;</code> (ids are in /alerts)"));
+          await db.patch("bot_orders", `tg_id=eq.${msg.from.id}&kind=eq.alert&id=eq.${args[0]}`, { active: false });
+          return void (await reply(msg, "✅ Alert removed."));
+        }
+        const ca = args[0], spec = args.slice(1).join(" ");
+        if (!ca || !detect(ca) || !spec) return void (await reply(msg, "🔔 <b>Price alerts</b>\n<code>/alert &lt;address&gt; 2x</code> · price doubles\n<code>/alert &lt;address&gt; +50%</code> / <code>-30%</code>\n<code>/alert &lt;address&gt; mc 1m</code> · market cap hits $1M\n<code>/alert &lt;address&gt; $0.01</code> · price target\n\n/alerts · list · /unalert &lt;id&gt; · remove"));
+        const r = await O.addAlert(msg.from.id, ca, spec);
+        const f = (n) => (r.metric === "mc" ? "$" + (n >= 1e6 ? (n / 1e6).toFixed(2) + "M" : Math.round(n / 1e3) + "K") : "$" + Number(n).toPrecision(4));
+        return void (await reply(msg, `🔔 Alert set: <b>${esc(r.sym || "token")}</b> ${esc(r.label)} ${r.dir === "up" ? "📈" : "📉"}\n${r.metric === "mc" ? "Market cap" : "Price"} now ${f(r.now)} → alert at ${f(r.target)}. Checked every 5 minutes.${dmNote}`));
+      } catch (e) { return void (await reply(msg, "⚠️ " + esc(e.message))); }
+    }
     if (name === "refpaid" || name === "refclaims") { // referral payouts queued for manual payment (admins)
       if (!require("./_lib/trendpost").isAdmin(msg.from.id)) return;
       try {

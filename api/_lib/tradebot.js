@@ -54,7 +54,7 @@ function sortList(list, st) {
 const HOME_KB = [
   [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📥 Fund", callback_data: "Td" }],
   [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
-  [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 TP / SL orders", callback_data: "To" }],
+  [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 Orders (TP/SL/limit)", callback_data: "To" }],
   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
   [{ text: "🤝 Referrals", callback_data: "TR" }, { text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
 ];
@@ -136,16 +136,18 @@ async function panelMsg(uid, c, ca, head) {
 
 async function ordersMsg(uid, c, ca) {
   const rows = await O.list(uid, c ? T.CH[c].key : null, ca);
-  const L = [`<b>🎯 Take profit / stop loss</b>${ca ? " · " + esc(shortA(ca)) : ""}`, ""], kb = [];
+  const L = [`<b>🎯 Orders</b> (take profit · stop loss · limit buy)${ca ? " · " + esc(shortA(ca)) : ""}`, ""], kb = [];
   if (!rows.length) L.push(ca ? "No orders for this token yet." : "No active orders. Open a token (📊 Positions) and tap 🎯 Take profit or 🛑 Stop loss.");
   rows.forEach((o, i) => {
     const cc = T.CODE[o.chain], tp = o.kind === "take_profit";
+    if (o.kind === "limit_buy") { L.push(`${i + 1}. 🟢 Limit buy ${o.params.amount} ${nat(cc)} at -${o.params.pct}%
+   ${esc(shortA(o.token))} · ${T.CH[cc].name} · triggers at ${o.params.trig.toPrecision(4)} ${nat(cc)} (set at ${o.params.ref.toPrecision(4)})`); kb.push([{ text: `❌ Cancel ${i + 1}`, callback_data: `Tr${o.id}` }]); return; }
     L.push(`${i + 1}. ${tp ? "🎯 Take profit" : "🛑 Stop loss"} ${tp ? "+" : "-"}${o.params.pct}% → sell ${o.params.sell}%
    ${esc(shortA(o.token))} · ${T.CH[cc].name} · triggers at ${o.params.trig.toPrecision(4)} ${nat(cc)} (entry ${o.params.ref.toPrecision(4)})`);
     kb.push([{ text: `❌ Cancel ${i + 1}`, callback_data: `Tr${o.id}` }]);
   });
   L.push("", "<i>Prices are checked every 5 minutes. On fast-moving tokens the sell can fill above or below the target.</i>");
-  if (ca) kb.push([{ text: "🎯 Add take profit", callback_data: `Tt${c}:${ca}` }, { text: "🛑 Add stop loss", callback_data: `Tj${c}:${ca}` }], [{ text: "⬅️ Token", callback_data: `Tv${c}:${ca}` }]);
+  if (ca) kb.push([{ text: "🎯 Add take profit", callback_data: `Tt${c}:${ca}` }, { text: "🛑 Add stop loss", callback_data: `Tj${c}:${ca}` }], [{ text: "🟢 Add limit buy", callback_data: `Tl${c}:${ca}` }, { text: "⬅️ Token", callback_data: `Tv${c}:${ca}` }]);
   kb.push([{ text: "⬅️ Menu", callback_data: "Tm" }]);
   return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
 }
@@ -438,10 +440,11 @@ function make(tg) {
     if (d === "Ti") { await ack("Collecting…"); try { const r = await B.collect(uid); await send(chat, `🧲 Moved ${fmt(r.total, "s")} SOL back to W1.`); } catch (e) { await send(chat, errText(e)); } await edit(chat, mid, await walletMsg(await T.getRow(uid))); return true; }
     if (d === "To") { await ack(); await edit(chat, mid, await ordersMsg(uid)); return true; }
     if (k === "r" && /^\d+$/.test(d.slice(2))) { await O.cancel(uid, d.slice(2)); await ack("Order cancelled"); await edit(chat, mid, await ordersMsg(uid)); return true; }
-    const om = /^T([otj])([sber]):(.+)$/.exec(d);
+    const om = /^T([otjl])([sber]):(.+)$/.exec(d);
     if (om) {
       const [, oa, oc, oca] = om; await ack();
       if (oa === "o") { await edit(chat, mid, await ordersMsg(uid, oc, oca)); return true; }
+      if (oa === "l") { await prompt(chat, `🟢 <b>Limit buy</b>\nToken: <code>${oca}</code> · ${T.CH[oc].name}\nReply with the drop % and how much ${nat(oc)} to spend, e.g. <code>30 0.5</code> = when the price is 30% lower than now, buy with 0.5 ${nat(oc)}.`, "lb:" + oc, "30 0.5"); return true; }
       if (oa === "t") { await prompt(chat, `🎯 <b>Take profit</b>\nToken: <code>${oca}</code> · ${T.CH[oc].name}\nReply with the gain % and how much to sell, e.g. <code>100 50</code> = when it's up 100% from your entry, sell 50%.`, "tp:" + oc, "100 50"); return true; }
       await prompt(chat, `🛑 <b>Stop loss</b>\nToken: <code>${oca}</code> · ${T.CH[oc].name}\nReply with the loss % (and optionally how much to sell), e.g. <code>30</code> = when it's down 30% from your entry, sell everything.`, "sl:" + oc, "30"); return true;
     }
@@ -467,7 +470,7 @@ function make(tg) {
   /** Replies to the bot's ✏️ prompts. Returns true when handled. Find-token replies return { ca, chain } to scan. */
   async function replyPrompt(msg) {
     const r = msg.reply_to_message; if (!r || !r.from || !r.from.is_bot || msg.chat.type !== "private") return false;
-    const tag = /#(buy|sell|withdraw|set|find|tp|sl|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
+    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
     const [, kind, a1, a2] = tag, uid = msg.from.id, chat = msg.chat.id, txt = (msg.text || "").trim();
     if (kind === "find") {
@@ -500,6 +503,16 @@ function make(tg) {
       await send(chat, "That doesn't look right. Open ⚙️ Settings and try again."); return true;
     }
     const c = a1;
+    if (kind === "lb") {
+      const ca = ((r.text || "").match(CA_RE) || [])[0]; if (!ca || !T.CH[c]) return true;
+      const [pct, amt] = txt.replace(/[%-]/g, "").split(/[\s,\/]+/);
+      if (!(num(pct) > 0) || !amt) { await send(chat, `Reply like <code>30 0.5</code> (drop %, ${nat(c)} to spend).`); return true; }
+      try {
+        const o = await O.addLimit(uid, c, ca, num(pct), amt);
+        await send(chat, { text: `✅ 🟢 Limit buy set: spend <b>${o.amount} ${nat(c)}</b> when the price drops ${o.pct}% (${o.ref.toPrecision(4)} → ${o.trig.toPrecision(4)} ${nat(c)}).\nKeep enough ${nat(c)} in your wallet. Checked every 5 minutes.`, reply_markup: { inline_keyboard: [[{ text: "📋 Orders", callback_data: `To${c}:${ca}` }, { text: "⬅️ Token", callback_data: `Tv${c}:${ca}` }]] } });
+      } catch (e) { await send(chat, errText(e)); }
+      return true;
+    }
     if (kind === "tp" || kind === "sl") {
       const ca = ((r.text || "").match(CA_RE) || [])[0]; if (!ca || !T.CH[c]) return true;
       const nums = txt.replace(/[%+-]/g, "").split(/[\s,\/]+/).map(num);
