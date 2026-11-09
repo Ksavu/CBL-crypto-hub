@@ -56,7 +56,7 @@ const HOME_KB = [
   [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 TP / SL orders", callback_data: "To" }],
   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
-  [{ text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
+  [{ text: "🤝 Referrals", callback_data: "TR" }, { text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
 ];
 async function menuMsg(row) {
   const st = T.settings(row);
@@ -304,7 +304,30 @@ function make(tg) {
   }
 
   /** /start tr_<c>_<ca> and /start trade deep links. */
+  async function refMsg(uid) {
+    const R = require("./refs"), s = await R.stats(uid), bot = String(process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
+    const link = `https://t.me/${bot}?start=ref_${uid}`, coins = ["s", "b", "e", "r"];
+    const L = [`🤝 <b>Referrals</b>`, ``, `Invite friends and earn <b>${s.share}%</b> of their trading fees, forever. Earnings build up here; tap Claim to send them to your Bartender wallet.`, ``,
+      `🔗 Your link:\n<code>${link}</code>`, ``, `👥 Invited: <b>${s.invited}</b> · their trades: <b>${s.trades}</b>`, ``, `<b>Earnings</b> (available / total)`];
+    coins.forEach((c) => { if (s.earned[c] > 0n) L.push(`• ${T.CH[c].name}: <b>${fmt(s.avail[c], c)}</b> / ${fmt(s.earned[c], c)} ${T.CH[c].nat}`); });
+    if (!coins.some((c) => s.earned[c] > 0n)) L.push("• Nothing yet. Share your link to start earning.");
+    const claimBtns = coins.filter((c) => s.avail[c] >= T.toUnits(R.MIN[c], T.CH[c].dec)).map((c) => ({ text: `💰 Claim ${fmt(s.avail[c], c)} ${T.CH[c].nat}${c === "e" ? " (Base)" : c === "r" ? " (Robinhood)" : ""}`, callback_data: "TRc" + c }));
+    const kb = claimBtns.map((b) => [b]);
+    kb.push([{ text: "📤 Share link", url: `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent("🍸 Trade any token in Telegram with CBL Bartender (Solana, BNB, Base, Robinhood):")}` }]);
+    kb.push([{ text: "🔄 Refresh", callback_data: "TR" }, { text: "⬅️ Menu", callback_data: "Tm" }]);
+    L.push("", `<i>Min claim: ${coins.map((c) => R.MIN[c] + " " + (c === "e" ? "ETH(Base)" : c === "r" ? "ETH(RH)" : T.CH[c].nat)).join(" · ")}</i>`);
+    return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
+  }
+  const notifyAdmins = async (text) => { for (const a of String(process.env.ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean)) await send(a, text).catch(() => {}); };
+
   async function start(arg, msg) {
+    const rf = /^ref_(\d{3,15})$/.exec(arg || "");
+    if (rf) {
+      const ok = await require("./refs").attach(msg.from.id, rf[1]).catch(() => false);
+      const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
+      if (await T.getRow(msg.from.id)) await openMenu(msg.chat.id, msg.from.id); else await send(msg.chat.id, Object.assign({}, introMsg(), ok ? { text: "🤝 You were invited by a friend.\n\n" + introMsg().text } : {}));
+      return true;
+    }
     if (arg === "trade") { const nr = notReady(); if (nr) await send(msg.chat.id, nr); else await openMenu(msg.chat.id, msg.from.id); return true; }
     const m = /^tr_([sber])_(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(arg || "");
     if (!m) return false;
@@ -356,6 +379,19 @@ function make(tg) {
     if (k === "p") { await ack("Loading positions…"); await edit(chat, mid, await positionsMsg(uid)); return true; }
     if (k === "d") { await ack(); await send(chat, depositMsg(row)); return true; }
     if (k === "A") { await ack(); await edit(chat, mid, await walletMsg(row)); return true; }
+    if (k === "R") {
+      if (d[2] === "c") {
+        await ack("Claiming…");
+        try {
+          const r = await require("./refs").claim(uid, d[3], notifyAdmins);
+          await send(chat, r.tx ? `✅ Claimed <b>${fmt(r.amt, r.c)} ${T.CH[r.c].nat}</b> to your Bartender wallet.\n<a href="${T.CH[r.c].exp}${r.tx}">View transaction</a>`
+            : `🕒 Claim of <b>${fmt(r.amt, r.c)} ${T.CH[r.c].nat}</b> received (#${r.queued}). It will be paid to your Bartender wallet shortly.`);
+        } catch (e) { await send(chat, errText(e)); }
+        await edit(chat, mid, await refMsg(uid)).catch(() => {});
+        return true;
+      }
+      await ack(); await edit(chat, mid, await refMsg(uid)); return true;
+    }
     if (k === "H") { await ack(); await send(chat, { text: HELP.replace("{fee}", T.feeBps() / 100), reply_markup: { inline_keyboard: [[{ text: "⬅️ Menu", callback_data: "Tm" }]] } }); return true; }
     if (k === "B") { await ack(); await prompt(chat, "🟢 <b>Buy a token</b>\nReply with a token address, a ticker (e.g. <code>$PEPE</code>) or a pump.fun / DEX Screener / Birdeye link.", "find", "token address, $TICKER or link"); return true; }
     if (k === "s") { await ack(); await edit(chat, mid, settingsMsg(row)); return true; }

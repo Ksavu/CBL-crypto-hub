@@ -225,6 +225,16 @@ async function onMessage(msg) {
       if (!w) return void (await reply(msg, "Usage: <code>/wallet &lt;wallet&gt; [chain]</code>"));
       return void (await doWallet(msg, w, args.map((a) => CHAIN[a.toLowerCase()]).find(Boolean)));
     }
+    if (name === "refpaid" || name === "refclaims") { // referral payouts queued for manual payment (admins)
+      if (!require("./_lib/trendpost").isAdmin(msg.from.id)) return;
+      try {
+        if (name === "refclaims") { const l = (await db.select("bot_ref_claims", "status=eq.pending&select=*&order=id.asc&limit=20")) || []; return void (await reply(msg, l.length ? "💰 <b>Pending referral claims</b>\n" + l.map((c) => `#${c.id} · user <code>${c.tg_id}</code> · ${c.amount_raw} raw · ${c.chain}`).join("\n") : "No pending claims.")); }
+        if (!args[0]) return void (await reply(msg, "Usage: <code>/refpaid &lt;id&gt; &lt;tx&gt;</code>"));
+        const cl = await require("./_lib/refs").markPaid(args[0], args[1]);
+        await tg("sendMessage", { chat_id: cl.tg_id, parse_mode: "HTML", text: `✅ Your referral claim #${cl.id} was paid to your Bartender wallet.${args[1] ? "\nTx: <code>" + esc(args[1]) + "</code>" : ""}` });
+        return void (await reply(msg, `✅ Claim #${cl.id} marked paid.`));
+      } catch (e) { return void (await reply(msg, "⚠️ " + esc(e.message))); }
+    }
     if (["boost", "unboost", "boosts", "trendpost"].includes(name)) { // CBL Trending paid spots (admins only, set ADMIN_IDS)
       const TP = require("./_lib/trendpost");
       if (!TP.isAdmin(msg.from.id)) return void (await reply(msg, "🔥 Want your token in <b>CBL Trending</b>? " + (process.env.TRENDING_CONTACT ? "Contact " + esc(process.env.TRENDING_CONTACT) : "Contact the CBL team.")));

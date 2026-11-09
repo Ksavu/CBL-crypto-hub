@@ -153,3 +153,13 @@ The Telegram bot stays as it is; its home screen just has a 🌐 link to the web
 ## higher.fun (Solana)
 higher.fun coins run on Raydium LaunchLab, so CBL Swap, the Bartender and the scanner already trade/scan them (Jupiter routes LaunchLab).
 They are labelled ⬆️ higher.fun by their `…high` address ending and by higher.fun's LaunchLab platform config `7mT6fb3m6W2886ymKsShBBcnX3TYb9ZsnkDJtACsVt8V` (built in; extra ids can go in `HIGHER_PLATFORM_ID`). Check any coin with `/api/scan?padinfo=<address>`.
+
+## CBL Trending channel
+- `TRENDING_CHANNEL` = `@yourchannel` (bot is admin: post, edit, pin) · `ADMIN_IDS` = your Telegram id(s) · `TRENDING_CONTACT` = `@yourhandle`
+- Admin commands: `/boost <ca> [hours] [chain]`, `/unboost <ca>`, `/boosts`, `/trendpost` (preview)
+
+## Bartender referrals
+- Run `refs.sql` in Supabase once.
+- Inviters earn `REF_SHARE_PCT` (default 25) % of their invitees' trading fees; they claim in 🤝 Referrals.
+- Automatic payouts (optional): `REF_PAYOUT_SOL_KEY` (base58 key of a small SOL hot wallet), `REF_PAYOUT_EVM_KEY` (0x key, needs BNB/ETH on Base/ETH on Robinhood). Keep a small float there only.
+- Without payout keys, claims are queued and admins get a DM: pay it, then `/refpaid <id> <tx>`. `/refclaims` lists pending ones.

@@ -372,5 +372,5 @@ async function tokenView(uid, c, ca) {
 }
 
 // internals shared with bundle.js
-module.exports._ = { srpc, solTokens, solBal, solDecimals, jfetch, lock, unlock, record, feeTo, fail, toUnits, SOL_MINT, clean };
+module.exports._ = { prov, waitTx, srpc, solTokens, solBal, solDecimals, jfetch, lock, unlock, record, feeTo, fail, toUnits, SOL_MINT, clean };
 Object.assign(module.exports, { DEFAULTS, on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf, ponsInfo });
