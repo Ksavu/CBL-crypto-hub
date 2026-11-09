@@ -163,3 +163,9 @@ They are labelled ⬆️ higher.fun by their `…high` address ending and by hig
 - Inviters earn `REF_SHARE_PCT` (default 25) % of their invitees' trading fees; they claim in 🤝 Referrals.
 - Automatic payouts (optional): `REF_PAYOUT_SOL_KEY` (base58 key of a small SOL hot wallet), `REF_PAYOUT_EVM_KEY` (0x key, needs BNB/ETH on Base/ETH on Robinhood). Keep a small float there only.
 - Without payout keys, claims are queued and admins get a DM: pay it, then `/refpaid <id> <tx>`. `/refclaims` lists pending ones.
+
+## Copy trading
+- Run `copy.sql` in Supabase once.
+- Bartender → 👥 Copy trade → ➕ Follow a wallet. Max 5 wallets per user.
+- Solana is instant: the bot registers a Helius webhook (needs `HELIUS_API_KEY` and `CRON_SECRET`, both already set) pointing to `/api/cron?job=copyhook`. It updates itself when users follow / unfollow.
+- BNB / Base / Robinhood and a Solana backup are checked every 5 minutes by the orders job. Trades older than 10 minutes are never copied.

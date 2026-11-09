@@ -16,6 +16,7 @@ module.exports = {
   on,
   select: (table, query) => q("GET", table + "?" + query),
   insert: (table, rows, ignoreDup) => q("POST", table + (ignoreDup ? "?on_conflict=" + ignoreDup : ""), rows, ignoreDup ? "resolution=ignore-duplicates,return=minimal" : "return=minimal"),
+  insertNew: (table, rows, conflict) => q("POST", table + "?on_conflict=" + conflict, rows, "resolution=ignore-duplicates,return=representation"), // [] when it already existed
   insertRet: (table, rows) => q("POST", table, rows, "return=representation"),
   upsert: (table, rows, conflict) => q("POST", table + "?on_conflict=" + conflict, rows, "resolution=merge-duplicates,return=minimal"),
   patch: (table, query, body) => q("PATCH", table + "?" + query, body, "return=minimal"),

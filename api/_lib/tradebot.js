@@ -2,6 +2,7 @@
 //   Commands (DM only): /trade /positions /withdraw /export /settings, plus /buy <ca> <amount> and /sell <ca> <percent>
 //   Paste a token address, a ticker ($PEPE) or a pump.fun / DEX Screener / Birdeye / GMGN link to trade it.
 //   Callback data starts with "T" (Telegram limit 64 bytes: action + chain code + index + address fits).
+const db = require("./db");
 const T = require("./trade");
 const O = require("./orders");
 const B = require("./bundle");
@@ -56,6 +57,7 @@ const HOME_KB = [
   [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 Orders (TP/SL/limit)", callback_data: "To" }],
   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
+  [{ text: "👥 Copy trade", callback_data: "TC" }, { text: "🔔 Alerts", callback_data: "TL" }],
   [{ text: "🤝 Referrals", callback_data: "TR" }, { text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
 ];
 async function menuMsg(row) {
@@ -320,6 +322,33 @@ function make(tg) {
     L.push("", `<i>Min claim: ${coins.map((c) => R.MIN[c] + " " + (c === "e" ? "ETH(Base)" : c === "r" ? "ETH(RH)" : T.CH[c].nat)).join(" · ")}</i>`);
     return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
   }
+  async function copyMsg(uid) {
+    const C = require("./copy"), rows = await C.list(uid);
+    const L = ["👥 <b>Copy trading</b>", "", "Follow a wallet. When it buys, you buy the same token with your fixed amount. When it sells, you sell the same share. Solana copies are instant, BNB / Base / Robinhood within 5 minutes.", ""];
+    const kb = [];
+    if (!rows.length) L.push("You don't follow anyone yet.");
+    rows.forEach((r, i) => {
+      const c = T.CODE[r.chain];
+      L.push(`${i + 1}. ${r.active ? "🟢" : "⏸"} <b>${esc(r.label || shortA(r.target))}</b> · ${T.CH[c].name}\n   <code>${r.target}</code>\n   ${r.amount} ${nat(c)} per buy · sells ${r.sells ? "✅" : "❌"} · 🛡 safe mode ${r.safe ? "on" : "off"} · max ${r.max_day}/day`);
+      kb.push([{ text: `${i + 1}: ${r.active ? "⏸ Pause" : "▶️ Resume"}`, callback_data: `TCp${r.id}` }, { text: "✏️ Amount", callback_data: `TCa${r.id}` }, { text: "🗑", callback_data: `TCd${r.id}` }],
+        [{ text: `${i + 1}: Sells ${r.sells ? "✅" : "❌"}`, callback_data: `TCs${r.id}` }, { text: `🛡 Safe ${r.safe ? "✅" : "❌"}`, callback_data: `TCg${r.id}` }]);
+    });
+    const log = (await db.select("bot_copy_log", `tg_id=eq.${uid}&select=side,token,ok,note,created_at&order=id.desc&limit=5`).catch(() => [])) || [];
+    if (log.length) { L.push("", "<b>Last copies</b>"); log.forEach((x) => L.push(`${x.ok ? "✅" : x.ok === false ? "⚠️" : "⏳"} ${x.side} ${esc(shortA(x.token))}${x.ok === false && x.note ? " · " + esc(String(x.note).slice(0, 60)) : ""}`)); }
+    L.push("", "<i>🛡 Safe mode skips tokens with a CBL score under 50 or honeypots. Your Auto TP/SL settings apply to copied buys. Copying is risky: wallets you follow can dump on you.</i>");
+    if (rows.length < C.MAX_TARGETS) kb.push([{ text: "➕ Follow a wallet", callback_data: "TCn" }]);
+    kb.push([{ text: "🔄 Refresh", callback_data: "TC" }, { text: "⬅️ Menu", callback_data: "Tm" }]);
+    return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
+  }
+  async function alertsMsg(uid) {
+    const l = await O.alerts(uid);
+    const L = ["🔔 <b>Price alerts</b>", "", "Get a DM when a token hits your target. Send:", "<code>/alert &lt;address&gt; 2x</code> · <code>+50%</code> · <code>-30%</code> · <code>mc 1m</code> · <code>$0.01</code>", ""];
+    const kb = [];
+    if (!l.length) L.push("No alerts yet.");
+    l.forEach((o, i) => { L.push(`${i + 1}. ${esc(o.params.sym || shortA(o.token))} · ${esc(o.params.label)} ${o.params.dir === "up" ? "📈" : "📉"}`); kb.push([{ text: `❌ Remove ${i + 1}`, callback_data: `TLd${o.id}` }]); });
+    kb.push([{ text: "🔄 Refresh", callback_data: "TL" }, { text: "⬅️ Menu", callback_data: "Tm" }]);
+    return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
+  }
   const notifyAdmins = async (text) => { for (const a of String(process.env.ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean)) await send(a, text).catch(() => {}); };
 
   async function start(arg, msg) {
@@ -381,6 +410,26 @@ function make(tg) {
     if (k === "p") { await ack("Loading positions…"); await edit(chat, mid, await positionsMsg(uid)); return true; }
     if (k === "d") { await ack(); await send(chat, depositMsg(row)); return true; }
     if (k === "A") { await ack(); await edit(chat, mid, await walletMsg(row)); return true; }
+    if (k === "C") {
+      const C = require("./copy"), sub = d[2], id = d.slice(3);
+      try {
+        if (sub === "n") { await ack(); await prompt(chat, "👥 <b>Follow a wallet</b>\nReply with the wallet, the amount per buy and an optional name:\n<code>WALLET 0.1 whale</code> (Solana)\n<code>0xWALLET 0.01 base whale</code> (0x wallets: add bnb, base or robinhood)", "copy", "WALLET 0.1 name"); return true; }
+        if (sub === "a") { await ack(); await prompt(chat, `✏️ New amount per copied buy for copy #${id}? Reply with a number, e.g. <code>0.2</code>`, "copyamt", "0.2"); return true; }
+        const rows = await C.list(uid), r = rows.find((x) => String(x.id) === id);
+        if (sub && r) {
+          if (sub === "p") await C.update(uid, id, { active: !r.active });
+          if (sub === "s") await C.update(uid, id, { sells: !r.sells });
+          if (sub === "g") await C.update(uid, id, { safe: !r.safe });
+          if (sub === "d") await C.remove(uid, id);
+        }
+        await ack(); await edit(chat, mid, await copyMsg(uid));
+      } catch (e) { await ack(); await send(chat, errText(e)); }
+      return true;
+    }
+    if (k === "L") {
+      if (d[2] === "d") await db.patch("bot_orders", `tg_id=eq.${uid}&kind=eq.alert&id=eq.${Number(d.slice(3))}`, { active: false }).catch(() => {});
+      await ack(); await edit(chat, mid, await alertsMsg(uid)); return true;
+    }
     if (k === "R") {
       if (d[2] === "c") {
         await ack("Claiming…");
@@ -470,7 +519,7 @@ function make(tg) {
   /** Replies to the bot's ✏️ prompts. Returns true when handled. Find-token replies return { ca, chain } to scan. */
   async function replyPrompt(msg) {
     const r = msg.reply_to_message; if (!r || !r.from || !r.from.is_bot || msg.chat.type !== "private") return false;
-    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
+    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
     const [, kind, a1, a2] = tag, uid = msg.from.id, chat = msg.chat.id, txt = (msg.text || "").trim();
     if (kind === "find") {
@@ -503,6 +552,21 @@ function make(tg) {
       await send(chat, "That doesn't look right. Open ⚙️ Settings and try again."); return true;
     }
     const c = a1;
+    if (kind === "copy") {
+      const [w, amt, a3, a4] = txt.split(/\s+/), evm = /^0x/i.test(w || "");
+      try {
+        const r = await require("./copy").add(uid, w, amt, evm ? a3 : null, evm ? a4 : a3);
+        await send(chat, `✅ Following <code>${r.target}</code> on ${T.CH[r.c].name}: ${r.amount} ${nat(r.c)} per buy.\nKeep enough ${nat(r.c)} in your Bartender wallet.`);
+        await send(chat, await copyMsg(uid));
+      } catch (e) { await send(chat, errText(e)); }
+      return true;
+    }
+    if (kind === "copyamt") {
+      const id = ((r.text || "").match(/copy #(\d+)/) || [])[1];
+      if (!id || !/^\d*\.?\d+$/.test(txt) || !(Number(txt) > 0)) { await send(chat, "Reply with a number, e.g. <code>0.2</code>"); return true; }
+      await require("./copy").update(uid, id, { amount: txt }); await send(chat, `✅ Copy #${id}: ${txt} per buy.`); await send(chat, await copyMsg(uid));
+      return true;
+    }
     if (kind === "lb") {
       const ca = ((r.text || "").match(CA_RE) || [])[0]; if (!ca || !T.CH[c]) return true;
       const [pct, amt] = txt.replace(/[%-]/g, "").split(/[\s,\/]+/);

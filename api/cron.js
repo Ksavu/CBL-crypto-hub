@@ -58,6 +58,14 @@ module.exports = async (req, res) => {
   if (!db.on() || !process.env.TELEGRAM_BOT_TOKEN) return res.status(500).json({ ok: false, error: "Not configured" });
   const t0 = Date.now(), site = (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
   const job = new URL(req.url, "http://x").searchParams.get("job");
+  const tgNotify = (uid, html, c, ca, url) => fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ chat_id: uid, text: html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: [c
+      ? [{ text: "📊 Token", callback_data: `Tv${c}:${ca}` }, { text: "🎯 Orders", callback_data: "To" }]
+      : [{ text: "📈 Chart", url: url || `https://dexscreener.com/search?q=${ca}` }]] } }) }).catch(() => {});
+  if (job === "copyhook") { // Helius webhook → copy trading (Solana, instant)
+    const r = await require("./_lib/copy").onHook(req.body, tgNotify, t0 + 50000).catch((e) => ({ error: String(e.message).slice(0, 100) }));
+    return res.status(200).json({ ok: true, job: "copyhook", ...r });
+  }
   if (job === "wallets") return res.status(200).json(await walletJob(t0, site));
   if (job === "calls") {
     const out = { sent: 0 };
@@ -77,14 +85,11 @@ module.exports = async (req, res) => {
     return res.status(200).json({ ok: true, job: "calls", ...out, ms: Date.now() - t0 });
   }
   if (job === "orders") { // trading bot take profit / stop loss
-    const notify = (uid, html, c, ca, url) => fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: uid, text: html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: [c
-        ? [{ text: "📊 Token", callback_data: `Tv${c}:${ca}` }, { text: "🎯 Orders", callback_data: "To" }]
-        : [{ text: "📈 Chart", url: url || `https://dexscreener.com/search?q=${ca}` }]] } }) }).catch(() => {});
-    const O = require("./_lib/orders");
+    const notify = tgNotify, O = require("./_lib/orders");
     const a = await O.alertJob(t0 + 15000, notify).catch((e) => ({ alertError: String(e.message).slice(0, 100) })); // price alerts: everyone, trading on or off
-    const r = await O.job(t0 + 52000, notify).catch((e) => ({ error: String(e.message).slice(0, 100) }));
-    return res.status(200).json({ ok: true, job: "orders", ...a, ...r });
+    const r = await O.job(t0 + 35000, notify).catch((e) => ({ error: String(e.message).slice(0, 100) }));
+    const cp = require("./_lib/vault").on() ? await require("./_lib/copy").pollJob(t0 + 52000, notify).catch((e) => ({ copyError: String(e.message).slice(0, 100) })) : {}; // copy trading backup check + EVM chains
+    return res.status(200).json({ ok: true, job: "orders", ...a, ...r, ...cp });
   }
   if (job === "devs") { const r = await require("./_lib/devstats").devJob(t0 + 50000).catch((e) => ({ error: String(e.message).slice(0, 100) })); return res.status(200).json({ ok: true, job: "devs", ...r }); }
   if (job === "curves") { const r = await require("./_lib/curves").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "curves", ...r.stats }); }

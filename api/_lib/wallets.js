@@ -169,6 +169,15 @@ async function solEvents(addr, cur) {
   for (const t of list) {
     const ts = Number(t.timestamp), h = t.signature;
     if (!(ts > cut || (ts === cut && !seen.has(h))) || t.transactionError) continue;
+    solParse(t, addr).forEach((x) => out.push(x));
+  }
+  return out;
+}
+/** Buy / sell / transfer / create events of `addr` in one Helius enhanced transaction (also what Helius webhooks send). */
+function solParse(t, addr) {
+  const out = [], ts = Number(t.timestamp), h = t.signature;
+  if (t.transactionError) return out;
+  {
     const toks = {}; let sol = 0;
     for (const ad of t.accountData || []) {
       if (ad.account === addr) sol += Number(ad.nativeBalanceChange || 0) / 1e9;
@@ -490,4 +499,4 @@ async function activity(addrIn, days = 7, chainHint, deadline) {
   return { address, family: fam, chains: fam === "evm" ? chains : [fam], events: events.reverse() };
 }
 
-module.exports = { devReport, createdSolana, createdEvm, createdXrpl, statusOf, familyOf, normAddr, poll, addTrack, removeTrack, listTracks, activity, tokenInfo, classify, evmEvents, solEvents, xrplEvents, terraEvents, evmChains, MAX_TRACK, NATIVE };
+module.exports = { solParse, devReport, createdSolana, createdEvm, createdXrpl, statusOf, familyOf, normAddr, poll, addTrack, removeTrack, listTracks, activity, tokenInfo, classify, evmEvents, solEvents, xrplEvents, terraEvents, evmChains, MAX_TRACK, NATIVE };
