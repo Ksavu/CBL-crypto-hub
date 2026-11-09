@@ -225,6 +225,22 @@ async function onMessage(msg) {
       if (!w) return void (await reply(msg, "Usage: <code>/wallet &lt;wallet&gt; [chain]</code>"));
       return void (await doWallet(msg, w, args.map((a) => CHAIN[a.toLowerCase()]).find(Boolean)));
     }
+    if (["boost", "unboost", "boosts", "trendpost"].includes(name)) { // CBL Trending paid spots (admins only, set ADMIN_IDS)
+      const TP = require("./_lib/trendpost");
+      if (!TP.isAdmin(msg.from.id)) return void (await reply(msg, "🔥 Want your token in <b>CBL Trending</b>? " + (process.env.TRENDING_CONTACT ? "Contact " + esc(process.env.TRENDING_CONTACT) : "Contact the CBL team.")));
+      try {
+        if (name === "boosts") { const l = await TP.boosts(); return void (await reply(msg, l.length ? "🔥 <b>Active boosts</b>\n" + l.map((b) => `• <code>${esc(b.ca)}</code> ${b.sym ? "$" + esc(b.sym) : ""} · ${Math.max(1, Math.round((b.until - Date.now()) / 36e5))}h left`).join("\n") : "No active boosts.")); }
+        if (name === "unboost") { if (!args[0]) return void (await reply(msg, "Usage: <code>/unboost &lt;address&gt;</code>")); await TP.removeBoost(args[0]); return void (await reply(msg, "✅ Removed. The channel post updates within 5 minutes.")); }
+        if (name === "trendpost") { const m = await TP.build(SITE()); return void (await reply(msg, m.text, { reply_markup: m.reply_markup })); } // preview
+        const ca = args[0], hours = Math.min(720, Math.max(1, Number(args[1]) || 24));
+        if (!ca || !detect(ca)) return void (await reply(msg, "Usage: <code>/boost &lt;address&gt; [hours] [chain]</code>\nExample: <code>/boost 4eCe…tWTL 24</code>"));
+        let chain = CHAIN[(args[2] || "").toLowerCase()] || null, sym = null;
+        const r = await runScan(ca, chain || "auto", { noDeep: true }).catch(() => null);
+        if (r) { chain = chain || r.chain; sym = r.token && r.token.symbol; }
+        await TP.addBoost(ca, hours, chain, sym);
+        return void (await reply(msg, `🔥 Boosted ${sym ? "$" + esc(sym) : esc(ca)} for ${hours}h. It shows on top of CBL Trending within 5 minutes.`));
+      } catch (e) { return void (await reply(msg, "⚠️ " + esc(e.message))); }
+    }
     if (name === "radar" || name === "trending") {
       if (limited(msg.from.id)) return void (await reply(msg, "⏳ Slow down a little. Try again in a minute."));
       const a0 = (args[0] || "").toLowerCase(), mode = /^(bond|pump|launch)/.test(a0) ? "curve" : ["safe", "trending", "new", "gainers", "curve"].find((m) => a0.startsWith(m.slice(0, 3))) || (name === "trending" ? "trending" : "safe");

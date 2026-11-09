@@ -160,6 +160,7 @@ const HELP = [
   "/calls [reply to someone] – your (or their) calls",
   "/xalerts on|off – X milestone alerts in this group (admins)",
   "",
+  "/boost &lt;address&gt; [hours] – put a token on top of CBL Trending (admins)",
   "/help",
   "",
   "In groups I also scan any contract address posted in chat.",
