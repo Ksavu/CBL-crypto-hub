@@ -155,12 +155,22 @@ async function runScan(caIn, selIn, opts) {
   if (launchpad === "higher.fun" || launchpad === "LaunchLab") { // Raydium LaunchLab pool status: 0 = still on the bonding curve
     const P = await LP.launchlabPools([ca]).catch(() => ({})); if (P[ca]) onCurve = P[ca].status === 0;
   }
+  // Explorers/GoPlus don't always tag curve and vault contracts. Check the biggest holders on-chain (eth_getCode): code = contract, not a wallet.
+  if (kind === "evm" && CODE_RPC[chain]) {
+    const tops = [...new Set([...((gp && gp.holders) || []).slice(0, 6).map((x) => String(x.address || "").toLowerCase()), ...((ex && ex.topList) || []).slice(0, 6).map((x) => x.a)])].filter((x) => /^0x[0-9a-f]{40}$/.test(x));
+    const isC = await contractsOf(chain, tops).catch(() => new Set());
+    if (isC.size) {
+      if (gp && gp.holders) gp.holders.forEach((x) => { if (isC.has(String(x.address || "").toLowerCase())) x.is_contract = "1"; });
+      if (ex && ex.topList) { ex.topList = ex.topList.filter((x) => !isC.has(x.a)); const r = ex.topList.map((x) => x.p); ex.top1 = r.length ? r[0] : null; ex.top5 = r.slice(0, 5).reduce((x, y) => x + y, 0); ex.top10 = r.slice(0, 10).reduce((x, y) => x + y, 0); }
+    }
+  }
   // Pons (Robinhood): the bonding-curve contract holds the unsold supply — it's not a whale wallet.
   let pons = null, dev = null;
   if (chain === "robinhood" && kind === "evm") {
     pons = await Promise.race([require("./trade").ponsInfo(low), new Promise((ok) => setTimeout(() => ok(null), 5000))]).catch(() => null);
     if (pons) {
       launchpad = "Pons"; onCurve = !pons.graduated; if (!dev) dev = pons.deployer;
+      if (gp && gp.holders) gp.holders.forEach((x) => { if ([pons.curve, pons.factory].includes(String(x.address || "").toLowerCase())) x.is_contract = "1"; });
       if (ex && ex.topList) {
         const skip = new Set([pons.curve, pons.factory]), rest = ex.topList.filter((x) => !skip.has(x.a)).map((x) => x.p);
         ex.top1 = rest.length ? rest[0] : null; ex.top5 = rest.slice(0, 5).reduce((x, y) => x + y, 0); ex.top10 = rest.slice(0, 10).reduce((x, y) => x + y, 0);
@@ -200,6 +210,17 @@ async function runScan(caIn, selIn, opts) {
   return out;
 }
 
+const CODE_RPC = { robinhood: "https://rpc.mainnet.chain.robinhood.com", ethereum: "https://ethereum-rpc.publicnode.com", bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com" };
+async function contractsOf(chain, addrs) {
+  const out = new Set(); if (!addrs.length) return out;
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 3500);
+  try {
+    const r = await fetch(CODE_RPC[chain], { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify(addrs.map((a, i) => ({ jsonrpc: "2.0", id: i, method: "eth_getCode", params: [a, "latest"] }))) });
+    const j = await r.json();
+    (Array.isArray(j) ? j : []).forEach((x) => { if (x && typeof x.result === "string" && x.result.length > 2) out.add(addrs[x.id]); });
+  } finally { clearTimeout(t); }
+  return out;
+}
 // Jupiter token data (curve progress for any launchpad, dev mint count) + dev track record, in ~4.5 s.
 async function solExtras(ca, out) {
   const stop = Date.now() + 4500;
