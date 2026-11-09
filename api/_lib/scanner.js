@@ -155,13 +155,27 @@ async function runScan(caIn, selIn, opts) {
   if (launchpad === "higher.fun" || launchpad === "LaunchLab") { // Raydium LaunchLab pool status: 0 = still on the bonding curve
     const P = await LP.launchlabPools([ca]).catch(() => ({})); if (P[ca]) onCurve = P[ca].status === 0;
   }
+  // Pons (Robinhood): the bonding-curve contract holds the unsold supply — it's not a whale wallet.
+  let pons = null, dev = null;
+  if (chain === "robinhood" && kind === "evm") {
+    pons = await Promise.race([require("./trade").ponsInfo(low), new Promise((ok) => setTimeout(() => ok(null), 5000))]).catch(() => null);
+    if (pons) {
+      launchpad = "Pons"; onCurve = !pons.graduated; if (!dev) dev = pons.deployer;
+      if (ex && ex.topList) {
+        const skip = new Set([pons.curve, pons.factory]), rest = ex.topList.filter((x) => !skip.has(x.a)).map((x) => x.p);
+        ex.top1 = rest.length ? rest[0] : null; ex.top5 = rest.slice(0, 5).reduce((x, y) => x + y, 0); ex.top10 = rest.slice(0, 10).reduce((x, y) => x + y, 0);
+        const cp = ex.topList.find((x) => x.a === pons.curve); if (cp) ex.curvePct = cp.p;
+      }
+      if (pair && pair.curveProgress == null && typeof pons.progress === "number") pair.curveProgress = pons.progress;
+    }
+  }
   const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad });
   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
-  let dev = null;
   if (launchpad && ex && ex.creationTx && chain === "robinhood") {
     const tx = await j(`https://robinhoodchain.blockscout.com/api/v2/transactions/${ex.creationTx}`, 3500).catch(() => null);
-    dev = tx && tx.from && /^0x[a-fA-F0-9]{40}$/.test(tx.from.hash || "") ? tx.from.hash.toLowerCase() : null;
+    dev = tx && tx.from && /^0x[a-fA-F0-9]{40}$/.test(tx.from.hash || "") ? tx.from.hash.toLowerCase() : dev;
   }
+  if (pons && ex && typeof ex.curvePct === "number") a.reasons.push({ sev: "info", title: `Bonding curve contract holds ${ex.curvePct.toFixed(1)}%`, detail: "Unsold supply waiting on the Pons curve. Not a wallet, so it's left out of the holder checks." });
   if (launchpad) a.reasons.unshift({ sev: "info", title: `Launched on ${launchpad}${onCurve ? " · still on the bonding curve" : ""}`, detail: EF.PAD_INFO[launchpad] || "" });
   const tok = pair ? (pair.baseToken.address.toLowerCase() === low ? pair.baseToken : pair.quoteToken) : {};
   const out = {
@@ -174,7 +188,8 @@ async function runScan(caIn, selIn, opts) {
              pairCreatedAt: pair.pairCreatedAt || (deep && deep.launchTs ? deep.launchTs * 1000 : null), dex: pair.dexId, url: pair.url,
              curve: pair.curve || false, curveProgress: typeof pair.curveProgress === "number" ? Math.round(pair.curveProgress) : dbc && typeof dbc.progress === "number" ? Math.round(dbc.progress) : null, curveSol: pair.curveSol || null } : null,
     links, flags, dex: dexInfo, deep: deep ? { supply: deep.supply || null, deployerAmt: deep.deployerAmt != null ? deep.deployerAmt : null, deployer: deep.deployer || null, deployerPct: deep.deployerPct, traced: deep.traced, debug: deep.debug || null, holders: deep.holderCount, top10: deep.top10Wallets, bundlers: deep.bundlers || null, snipers: deep.snipers || null, insiders: deep.insiders || null, notes: deep.notes } : null,
-    launchpad, onCurve, creator: (lpHit ? dev : (deep && deep.deployer) || (ex && ex.creator)) || (gp && typeof gp.creator_address === "string" && /^0x[a-fA-F0-9]{40}$/.test(gp.creator_address) ? gp.creator_address.toLowerCase() : null)
+    padProgress: pons && typeof pons.progress === "number" ? Math.round(pons.progress) : dbc && typeof dbc.progress === "number" ? Math.round(dbc.progress) : null,
+    launchpad, onCurve, creator: ((lpHit || pons) && dev ? dev : (deep && deep.deployer) || (ex && ex.creator)) || (gp && typeof gp.creator_address === "string" && /^0x[a-fA-F0-9]{40}$/.test(gp.creator_address) ? gp.creator_address.toLowerCase() : null)
       || (kind === "sol" && gp && Array.isArray(gp.creators) && gp.creators[0] && gp.creators[0].address) || null,
     score: a.score, verdict: a.verdict, confidence: a.confidence, reasons: a.reasons, sources,
   };

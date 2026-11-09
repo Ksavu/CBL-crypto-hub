@@ -41,9 +41,9 @@ async function explorerEvm(chain, addr, pairAddr) {
       const p = (v / supply) * 100;
       if (out.creator && a === out.creator) out.creatorPct = p;
       if (a === pa || DEAD.test(a) || (it.address && it.address.is_contract)) continue;
-      pct.push(p);
+      pct.push(p); (out.topList = out.topList || []).push({ a, p });
     }
-    pct.sort((x, y) => y - x);
+    pct.sort((x, y) => y - x); if (out.topList) out.topList.sort((x, y) => y.p - x.p);
     if (pct.length) { out.top1 = pct[0]; out.top5 = pct.slice(0, 5).reduce((x, y) => x + y, 0); out.top10 = pct.slice(0, 10).reduce((x, y) => x + y, 0); }
     if (out.creator && out.creatorPct === null && items.length >= 50) out.creatorPct = 0;
   }

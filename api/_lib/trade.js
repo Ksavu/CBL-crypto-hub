@@ -164,6 +164,23 @@ async function curveOf(c, ca) {
   } catch (e) {}
   return null;
 }
+/** Pons launch info for the scanner: curve contract, dev, progress to graduation. null if not a Pons token. */
+async function ponsInfo(ca) {
+  const e = V.ethers(), C = (a, abi) => new e.Contract(a, abi, prov("r"));
+  const facs = [PONS_FACTORY, "0x3711cea4feade896c913c68f01eda97cb06d1a42", "0xe33e9e479df8802cb0866d5d05258bec4cf62948", "0xa5aab3f0c6eeadf30ef1d3eb997108e976351feb"];
+  for (const f of facs) {
+    try {
+      const L = await C(f, PFABI).getLaunchedToken(ca);
+      if (!L || !L.exists || L.curve === ZERO) continue;
+      const cu = C(L.curve, PCABI);
+      const [q, grad] = await Promise.all([cu.quoteReserve().catch(() => null), cu.graduated().catch(() => Number(L.phase) === 2)]);
+      const th = BigInt(L.graduationThreshold || 0n);
+      const progress = grad ? 100 : q != null && th > 0n ? Math.min(100, Number(BigInt(q) * 10000n / th) / 100) : null;
+      return { factory: f.toLowerCase(), curve: String(L.curve).toLowerCase(), deployer: String(L.deployer).toLowerCase(), graduated: !!grad, progress, quoteEth: q != null ? Number(q) / 1e18 : null };
+    } catch (err) { /* not from this factory */ }
+  }
+  return null;
+}
 async function ponsState(c, cu, me) {
   const C = new (V.ethers().Contract)(cu, PCABI, prov(c));
   const r = await Promise.all([C.quoteReserve(), C.tokenReserve(), C.reservedTokens(), C.feeBps(), C.creatorTaxBps(), C.currentSnipeTaxBps(me).catch(() => 0n)]);
@@ -356,4 +373,4 @@ async function tokenView(uid, c, ca) {
 
 // internals shared with bundle.js
 module.exports._ = { srpc, solTokens, solBal, solDecimals, jfetch, lock, unlock, record, feeTo, fail, toUnits, SOL_MINT, clean };
-Object.assign(module.exports, { DEFAULTS, on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf });
+Object.assign(module.exports, { DEFAULTS, on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf, ponsInfo });
