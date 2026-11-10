@@ -10,7 +10,7 @@ Trading (Bartender), CBL Swap and the bridge are not wired yet.
 | Chain ID | `99901` |
 | Gas | HYPE (bridged 1:1 from HyperEVM) |
 | Public RPC | `https://rpc.elysium.kinetiq.xyz` |
-| Explorer | `https://elysium.kinetiq.xyz/explorer` (tx pages: `/transaction/<hash>`) |
+| Explorer | `https://elysium.kinetiq.xyz` (Blockscout: `/tx/`, `/address/`, `/token/`) |
 | DexScreener / GeckoTerminal id | `elysium` |
 | WHYPE | `0xbA876237B0F021A6c6D852d6c26E107997cC5E81` |
 
@@ -33,8 +33,8 @@ Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
 
 - `ELYSIUM_RPC`: private RPC (Alchemy `https://elysium-mainnet.g.alchemy.com/v2/<key>`, Quicknode, Chainstack).
   The public RPC is shared by everyone, so set this before real traffic.
-- `ELYSIUM_EXPLORER_API`: Blockscout API v2 base, e.g. `https://<host>/api/v2`. Kinetiq documents the explorer
-  page but not its API host; the built-in default is Conduit's usual host name and is unconfirmed.
+- `ELYSIUM_EXPLORER_API`: Blockscout API v2 base, e.g. `https://<host>/api/v2`, tried before the built-in
+  `https://elysium.kinetiq.xyz/api/v2`. A host is only used if it knows mainnet WHYPE as a contract.
 - `ELYSIUM_LOG_RANGE`: block span per `eth_getLogs` call (default `2000`). Raise it if your RPC allows more:
   with 100 ms blocks, 2000 blocks is only ~3 minutes, so the sniper/bundle trace reaches further back with a bigger span.
 
@@ -47,5 +47,5 @@ or when the contract exists on Elysium and not on Robinhood Chain.
 
 - GoPlus and honeypot.is don't cover chain 99901, so there is no sell-tax / honeypot simulation yet
   (the card says "Limited coverage on this chain").
-- Launchpad detection only knows the pads DexScreener lists as their own DEX (BOXA, Kleos). Add factory
+- Launchpad detection only knows the pads DexScreener lists as their own DEX (BOXA, Kleos, Montra). Add factory
   contracts to `BY_CREATOR.elysium` in `api/_lib/launchpads.js` to tag more.

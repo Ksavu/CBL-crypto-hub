@@ -5,7 +5,7 @@ const CHAINS = {
   polygon: [137, "Polygon", "https://polygonscan.com/address/"], arbitrum: [42161, "Arbitrum", "https://arbiscan.io/address/"], optimism: [10, "Optimism", "https://optimistic.etherscan.io/address/"],
   avalanche: [43114, "Avalanche", "https://snowtrace.io/address/"],
   robinhood: [4663, "Robinhood Chain", "https://robinhoodchain.blockscout.com/address/"],
-  elysium: [99901, "Elysium", "https://elysium.kinetiq.xyz/explorer/address/"],
+  elysium: [99901, "Elysium", "https://elysium.kinetiq.xyz/address/"],
   linea: [59144, "Linea", "https://lineascan.build/address/"], scroll: [534352, "Scroll", "https://scrollscan.com/address/"], zksync: [324, "zkSync Era", "https://explorer.zksync.io/address/"],
   blast: [81457, "Blast", "https://blastscan.io/address/"], mantle: [5000, "Mantle", "https://mantlescan.xyz/address/"], gnosis: [100, "Gnosis", "https://gnosisscan.io/address/"],
   celo: [42220, "Celo", "https://celoscan.io/address/"], fantom: [250, "Fantom", "https://ftmscan.com/address/"], sonic: [146, "Sonic", "https://sonicscan.org/address/"],
