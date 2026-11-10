@@ -1,7 +1,7 @@
 // Telegram message formatting (HTML parse mode).
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", solana: "Solana", xrpl: "XRP Ledger", terraclassic: "Terra Classic" };
-const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
+const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", elysium: "Elysium", solana: "Solana", xrpl: "XRP Ledger", terraclassic: "Terra Classic" };
+const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", elysium: "https://elysium.kinetiq.xyz/explorer/address/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
 const { CHAINS } = require("./source");
 const chainName = (c) => (c && (NAMES[c] || (CHAINS[c] && CHAINS[c][1]))) || c;
 // Telegram callback_data is max 64 bytes; Terra contracts are 64 chars, so "terra1" travels as "~".
@@ -132,7 +132,7 @@ const HELP = [
   "<b>CBL Scanner</b> 🔍",
   "Paste a token contract address and I'll check it for common red flags.",
   "",
-  "Works on <b>Solana, XRP Ledger, Terra Classic</b> and EVM chains: <b>Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos and Robinhood Chain</b>.",
+  "Works on <b>Solana, XRP Ledger, Terra Classic</b> and EVM chains: <b>Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos, Robinhood Chain and Elysium</b>.",
   "",
   "<b>Commands</b>",
   "/scan &lt;address&gt; [eth|bsc|base|arb|poly|op|avax|linea|blast|zksync|scroll|mantle|sonic|uni|cro|rh|sol|xrpl|lunc]",
@@ -172,7 +172,7 @@ const HELP = [
 
 
 // ---------- wallet tracker ----------
-const TXURL = { solana: "https://solscan.io/tx/", xrpl: "https://xrpscan.com/tx/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/tx/" };
+const TXURL = { elysium: "https://elysium.kinetiq.xyz/explorer/transaction/", solana: "https://solscan.io/tx/", xrpl: "https://xrpscan.com/tx/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/tx/" };
 const ADDRURL = { solana: "https://solscan.io/account/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
 const txUrl = (c, h) => (TXURL[c] || (CHAINS[c] ? CHAINS[c][2].replace(/\/(address|account)\/$/, "/tx/") : "")) + h;
 const addrUrl = (c, a) => (ADDRURL[c] || (CHAINS[c] ? CHAINS[c][2] : "")) + a;

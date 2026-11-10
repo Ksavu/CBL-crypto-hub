@@ -26,6 +26,10 @@ function launchpadOf(chain, ca, dexes, labels) {
     if (hit(/robin/)) return { n: "RobinFun", k: "robin", g: grad(d.filter((x) => /robin/.test(x))) };
     for (const [re, n, k] of [[/klik/, "Klik", "klik"], [/printr/, "Printr", "printr"], [/dyor/, "DYOR.fun", "dyor"], [/realfun/, "RealFun", "realfun"], [/apestore/, "Ape.store", "ape"]]) if (hit(re)) return { n, k, g: null };
   }
+  if (chain === "elysium") { // launchpads DexScreener lists as their own DEX on Elysium; most others launch straight into Uniswap v4 pools
+    const hit = (re) => d.some((x) => re.test(x));
+    for (const [re, n, k] of [[/boxa/, "BOXA", "boxa"], [/kleos/, "Kleos", "kleos"]]) if (hit(re)) return { n, k, g: grad(d.filter((x) => re.test(x))) || null };
+  }
   if (chain === "bsc" && (/4444$/i.test(a) || curve(["fourmeme", "four_meme"]))) return { n: "Four.meme", k: "four", g: grad(["fourmeme", "four_meme"]) };
   if (chain === "base") {
     if (/b07$/i.test(a)) return { n: "Clanker", k: "clanker", g: null };
@@ -44,8 +48,11 @@ const BY_CREATOR = {
     "0x5fcc1df0dc020cf454e742e9a8ae2554c37a452c": "Hood.fun", "0xc6a2941b962fb667786d7f4b97f7f965d6f0a4f8": "Hood.fun",
     "0xd861cb5dc71a0171e8f0f6586cadb069f3a35e4d": "RobinFun",
   },
+  elysium: {}, // add launchpad factory contracts here (lower case) once confirmed on the explorer
 };
 const PAD_INFO = {
+  BOXA: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
+  Kleos: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
   Pons: "Robinhood Chain launchpad: tokens trade on their own bonding curve until 4.2 ETH, then move to a locked Uniswap v4 pool.",
   "Hood.fun": "Robinhood Chain fair-launch platform: bonding curve first, then a Uniswap v3-style pool after graduation.",
   RobinFun: "Robinhood Chain launchpad with a bonding curve that graduates to an AMM pool.",

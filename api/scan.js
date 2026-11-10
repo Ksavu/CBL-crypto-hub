@@ -1,4 +1,4 @@
-// Vercel serverless function: GET /api/scan?ca=<address>&chain=auto|ethereum|bsc|base|solana
+// Vercel serverless function: GET /api/scan?ca=<address>&chain=auto|ethereum|bsc|base|elysium|solana
 //                              GET /api/scan?wallet=<address>[&chain=base]  -> developer report (tokens created + recent trades)
 const { runScan } = require("./_lib/scanner");
 const WT = require("./_lib/wallets");
@@ -29,6 +29,12 @@ module.exports = async (req, res) => {
     const LPS = require("./_lib/launchpads"), pools = await LPS.launchlabPools([pi]).catch((e) => ({ error: e.message }));
     const hi = await LPS.higherOf([pi]).catch(() => new Set());
     return res.status(200).json({ ok: true, mint: pi, launchlab: pools[pi] || null, higher: hi.has(pi), platformIdsSet: String(process.env.HIGHER_PLATFORM_ID || "") || null });
+  }
+  // Elysium health check (RPC chain id, explorer API, DexScreener and GeckoTerminal coverage): /api/scan?chaindiag=elysium
+  if (url.searchParams.get("chaindiag") === "elysium") {
+    h.n += 5; res.setHeader("Cache-Control", "no-store");
+    try { return res.status(200).json({ ok: true, ...(await require("./_lib/elysium").diag()) }); }
+    catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
   }
   if (url.searchParams.get("curvesdiag")) {
     h.n += 10; res.setHeader("Cache-Control", "no-store");

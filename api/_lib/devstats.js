@@ -148,7 +148,7 @@ async function evmOrigin(esCall, chain, addr) {
 }
 
 // ---------- all-time-high market cap of bonded tokens (GeckoTerminal daily candles, cached) ----------
-const GT_NET = { solana: "solana", bsc: "bsc", base: "base", ethereum: "eth", robinhood: "robinhood" };
+const GT_NET = { solana: "solana", bsc: "bsc", base: "base", ethereum: "eth", robinhood: "robinhood", elysium: "elysium" };
 async function athFor(list, deadline, maxNew = 10) {
   const want = list.filter((t) => t.pool && GT_NET[t.chain]);
   if (!want.length) return { checked: 0, total: 0 };

@@ -1,12 +1,12 @@
 // Fallbacks for EVM tokens DexScreener doesn't know yet (new launches, tokens still on a launchpad bonding curve):
-//   find(ca, chain?) -> { chain, pair } using GeckoTerminal search, then a Robinhood Chain contract check.
+//   find(ca, chain?) -> { chain, pair } using GeckoTerminal search, then a contract check on Robinhood Chain, Elysium, BNB Chain, Base, Ethereum.
 //   launchpadByCreator(chain, creator) -> launchpad name when the token was deployed by a known launchpad contract.
 const GT_NET = { eth: "ethereum", bsc: "bsc", base: "base", arbitrum: "arbitrum", polygon_pos: "polygon", optimism: "optimism", avax: "avalanche",
-  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cro: "cronos" };
+  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cro: "cronos", elysium: "elysium" };
 const netToChain = (n) => GT_NET[n] || (/robinhood/i.test(n) ? "robinhood" : null);
 const RH_RPC = "https://rpc.mainnet.chain.robinhood.com";
 // Chains probed with eth_getCode when no tracker knows the token (newest-launch chains first).
-const CODE_RPC = { robinhood: RH_RPC, bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com", ethereum: "https://ethereum-rpc.publicnode.com" };
+const CODE_RPC = { robinhood: RH_RPC, get elysium() { return require("./elysium").rpc(); }, bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com", ethereum: "https://ethereum-rpc.publicnode.com" };
 
 async function jget(u, ms = 5000, opt) {
   const c = new AbortController(), t = setTimeout(() => c.abort(), ms);

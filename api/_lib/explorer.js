@@ -1,7 +1,18 @@
-// On-chain fallback for EVM chains where GoPlus has no coverage (e.g. Robinhood Chain): Blockscout API + RPC.
+// On-chain fallback for EVM chains where GoPlus has no coverage (e.g. Robinhood Chain, Elysium): Blockscout API + RPC.
+const ELY = require("./elysium");
 const CFG = {
   robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 50, bwin: 20, fan: 20000, chunk: 20000 },
+  // Elysium: ~100 ms blocks, so the windows are wider in blocks (sniper window ~10 s, same-moment bundle ~3 s).
+  // The Blockscout API host and the RPC come from ./elysium (env overrides); logMax = the RPC's eth_getLogs block span.
+  elysium: { api: null, rpc: ELY.PUBLIC_RPC, win: 100, bwin: 30, fan: 20000, chunk: 2000, logMax: 2000, dynamic: true },
 };
+// Per-call settings. Elysium's explorer API is resolved at run time and may be missing: everything then runs on the RPC alone.
+async function conf(chain) {
+  const c = CFG[chain]; if (!c) return null;
+  if (!c.dynamic) return c;
+  const n = ELY.logRange();
+  return Object.assign({}, c, { api: await ELY.blockscoutApi().catch(() => null), rpc: ELY.rpc(), chunk: n, logMax: n });
+}
 const DEAD = /^0x(0{40}|0{39}1|[0d]*dead[0-9a-f]*)$/i;
 const NET = [];
 const get = async (u, opt = {}) => {
@@ -10,19 +21,39 @@ const get = async (u, opt = {}) => {
   try { const r = await fetch(u, Object.assign({}, opt, { signal: c.signal, headers: h })); if (!r.ok) { NET.push(new URL(u).host + " HTTP " + r.status); return null; } return await r.json(); }
   catch (e) { NET.push(new URL(u).host + " " + String((e && e.cause && e.cause.code) || (e && e.message) || e).slice(0, 60)); return null; } finally { clearTimeout(t); }
 };
+const bs = (cfg, path) => (cfg.api ? get(cfg.api + path) : Promise.resolve(null));
+// ABI-encoded string (or bytes32) returned by name()/symbol()
+function abiStr(h) {
+  if (typeof h !== "string" || h.length < 4) return null;
+  try {
+    const b = Buffer.from(h.slice(2), "hex"); let out;
+    if (b.length >= 96 && Number(BigInt("0x" + b.subarray(0, 32).toString("hex"))) === 32) { const n = Number(BigInt("0x" + b.subarray(32, 64).toString("hex"))); out = b.subarray(64, 64 + Math.min(n, 128)); }
+    else out = b.subarray(0, 32);
+    const t = out.toString("utf8").replace(/\u0000+$/g, "").replace(/[^\x20-\x7e\u00a0-\uffff]/g, "").trim();
+    return t ? t.slice(0, 64) : null;
+  } catch (e) { return null; }
+}
 const rpc = (cfg, to, data) => get(cfg.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) }).then((r) => r && r.result);
 
 async function explorerEvm(chain, addr, pairAddr) {
-  const cfg = CFG[chain]; if (!cfg) return null;
+  const cfg = await conf(chain); if (!cfg) return null;
   NET.length = 0;
   const [tok, ad, hold, own] = await Promise.all([
-    get(`${cfg.api}/tokens/${addr}`), get(`${cfg.api}/addresses/${addr}`), get(`${cfg.api}/tokens/${addr}/holders`),
+    bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), bs(cfg, `/tokens/${addr}/holders`),
     rpc(cfg, addr, "0x8da5cb5b"),
   ]);
-  if (!tok && !ad && !hold && !own) return null;
+  // No explorer answer (down, or its API host isn't configured): name, symbol and supply straight from the token contract.
+  let chainTok = null;
+  if (!tok) {
+    const [nm, sy, ts] = await Promise.all([rpc(cfg, addr, "0x06fdde03"), rpc(cfg, addr, "0x95d89b41"), rpc(cfg, addr, "0x18160ddd")]);
+    const sup = typeof ts === "string" && ts.length > 2 ? parseInt(ts, 16) : 0;
+    if (sup > 0 || abiStr(sy)) chainTok = { name: abiStr(nm), symbol: abiStr(sy), supply: sup > 0 ? sup : null };
+  }
+  if (!tok && !ad && !hold && !own && !chainTok) return null;
   const out = { holders: null, verified: null, proxy: null, creator: null, creationTx: null, creatorPct: null, top1: null, top5: null, top10: null, owner: undefined, ownerKnown: false };
   if (tok && tok.holders_count != null) out.holders = parseInt(tok.holders_count, 10) || null;
   if (tok) { out.name = tok.name || null; out.symbol = tok.symbol || null; }
+  else if (chainTok) { out.name = chainTok.name; out.symbol = chainTok.symbol; out.rpcOnly = true; }
   if (ad) {
     if (typeof ad.is_verified === "boolean") out.verified = ad.is_verified;
     out.proxy = !!(ad.proxy_type || (ad.implementations && ad.implementations.length));
@@ -30,7 +61,7 @@ async function explorerEvm(chain, addr, pairAddr) {
     out.creationTx = ad.creation_transaction_hash || ad.creation_tx_hash || null;
   }
   if (typeof own === "string" && /^0x[0-9a-f]{64}$/i.test(own)) { out.ownerKnown = true; out.owner = "0x" + own.slice(26).toLowerCase(); }
-  const supply = tok && parseFloat(tok.total_supply);
+  const supply = tok ? parseFloat(tok.total_supply) : chainTok && chainTok.supply;
   out.supplyRaw = supply > 0 ? supply : null;
   const items = (hold && hold.items) || [];
   if (supply > 0 && items.length) {
@@ -57,12 +88,12 @@ const rpcCall = (cfg, method, params) => get(cfg.rpc, { method: "POST", headers:
 const logs = (cfg, token, pair, from, to) => rpcCall(cfg, "eth_getLogs", [{ address: token, topics: [TRANSFER, pad(pair)], fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) }]);
 
 async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budgetMs = 9000) {
-  const cfg = CFG[chain]; if (!cfg) return null;
+  const cfg = await conf(chain); if (!cfg) return null;
   const dbg = { supply: supply || null, creationTx: creationTx || null }, fail = (why) => ({ traced: false, dbg: Object.assign(dbg, { why }) });
   const t0 = Date.now(), left = () => budgetMs - (Date.now() - t0);
-  const origin = cfg.api.replace(/\/api\/v2$/, "");
+  const origin = cfg.api ? cfg.api.replace(/\/api\/v2$/, "") : null;
   let start = 0;
-  if (creationTx) { const tx = await get(`${cfg.api}/transactions/${creationTx}`); start = parseInt((tx && (tx.block_number != null ? tx.block_number : tx.block)) || 0, 10); }
+  if (creationTx) { const tx = await bs(cfg, `/transactions/${creationTx}`); start = parseInt((tx && (tx.block_number != null ? tx.block_number : tx.block)) || 0, 10); }
   if (!(start > 0)) {
     // deployment block straight from the node: first block where the token has code
     const hn = parseInt(await rpcCall(cfg, "eth_blockNumber", []), 16);
@@ -73,7 +104,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
       if (ok && lo > 1) { start = lo; dbg.startFrom = "code"; }
     }
   }
-  if (!(start > 0) && pairCreatedMs) {
+  if (!(start > 0) && pairCreatedMs && origin) {
     const bt = await get(`${origin}/api?module=block&action=getblocknobytime&timestamp=${Math.floor(pairCreatedMs / 1000) - 120}&closest=after`);
     start = parseInt((bt && bt.result && (bt.result.blockNumber || bt.result)) || 0, 10);
   }
@@ -113,10 +144,11 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   if (!src) return fail("no distributor found in the first blocks");
   // 2. everything the distributor ever sent. Real "launch" = first burst of new buyers (a token can sit idle or have a few early buyers before trading starts)
   const sends = [];
-  let sz = 100000;
+  const cap = cfg.logMax || 100000; // some RPCs only answer eth_getLogs over a short block span
+  let sz = Math.min(100000, cap);
   for (let b = start; b <= head && left() > 2500;) {
     let L = await tl(b, Math.min(head, b + sz - 1), src);
-    if (L === null && sz > 10000) { sz = 20000; L = await tl(b, Math.min(head, b + sz - 1), src); }
+    if (L === null && sz > 10000) { sz = Math.min(20000, cap); L = await tl(b, Math.min(head, b + sz - 1), src); }
     if (L === null) break;
     L.forEach((l) => sends.push(dec(l)));
     b += sz; dbg.sendChunks = (dbg.sendChunks || 0) + 1;

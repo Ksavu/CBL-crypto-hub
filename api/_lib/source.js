@@ -5,6 +5,7 @@ const CHAINS = {
   polygon: [137, "Polygon", "https://polygonscan.com/address/"], arbitrum: [42161, "Arbitrum", "https://arbiscan.io/address/"], optimism: [10, "Optimism", "https://optimistic.etherscan.io/address/"],
   avalanche: [43114, "Avalanche", "https://snowtrace.io/address/"],
   robinhood: [4663, "Robinhood Chain", "https://robinhoodchain.blockscout.com/address/"],
+  elysium: [99901, "Elysium", "https://elysium.kinetiq.xyz/explorer/address/"],
   linea: [59144, "Linea", "https://lineascan.build/address/"], scroll: [534352, "Scroll", "https://scrollscan.com/address/"], zksync: [324, "zkSync Era", "https://explorer.zksync.io/address/"],
   blast: [81457, "Blast", "https://blastscan.io/address/"], mantle: [5000, "Mantle", "https://mantlescan.xyz/address/"], gnosis: [100, "Gnosis", "https://gnosisscan.io/address/"],
   celo: [42220, "Celo", "https://celoscan.io/address/"], fantom: [250, "Fantom", "https://ftmscan.com/address/"], sonic: [146, "Sonic", "https://sonicscan.org/address/"],
@@ -48,8 +49,9 @@ async function etherscan(chain, addr) {
   return { name: r.ContractName || "", compiler: r.CompilerVersion || "", source: join(files), from: "Etherscan" };
 }
 async function blockscout(chain, addr) {
-  if (!BLOCKSCOUT[chain]) return null;
-  const j = await jget(`${BLOCKSCOUT[chain]}/smart-contracts/${addr}`);
+  const api = chain === "elysium" ? await require("./elysium").blockscoutApi().catch(() => null) : BLOCKSCOUT[chain];
+  if (!api) return null;
+  const j = await jget(`${api}/smart-contracts/${addr}`);
   if (!j || !j.source_code) return null;
   const files = [{ path: j.file_path || "Main.sol", content: j.source_code }].concat((j.additional_sources || []).map((a) => ({ path: a.file_path, content: a.source_code })));
   return { name: j.name || "", compiler: j.compiler_version || "", source: join(files), from: "Blockscout" };

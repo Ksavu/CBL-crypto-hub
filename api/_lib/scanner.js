@@ -6,10 +6,11 @@ const { fillSol } = require("./solmarket");
 const { getOrders, dexPaid } = require("./dexpaid");
 const EF = require("./evmfind");
 const LP = require("./launchpads");
+const ELY = require("./elysium");
 
 // DexScreener chain id -> EVM chain id (GoPlus / honeypot.is)
 const EVM = { ethereum: 1, bsc: 56, base: 8453, arbitrum: 42161, polygon: 137, optimism: 10, avalanche: 43114, linea: 59144, blast: 81457,
-  zksync: 324, scroll: 534352, mantle: 5000, sonic: 146, unichain: 130, cronos: 25, robinhood: 4663 };
+  zksync: 324, scroll: 534352, mantle: 5000, sonic: 146, unichain: 130, cronos: 25, robinhood: 4663, elysium: 99901 };
 const OK_CHAINS = [...Object.keys(EVM), "solana"];
 const cache = new Map(); // best-effort, per warm instance
 
@@ -181,7 +182,7 @@ async function runScan(caIn, selIn, opts) {
   }
   const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad });
   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
-  if (launchpad && ex && ex.creationTx && chain === "robinhood") {
+  if (launchpad && ex && ex.creationTx && chain === "robinhood") { // (Elysium: add here once its launchpad factories are in launchpads.BY_CREATOR)
     const tx = await j(`https://robinhoodchain.blockscout.com/api/v2/transactions/${ex.creationTx}`, 3500).catch(() => null);
     dev = tx && tx.from && /^0x[a-fA-F0-9]{40}$/.test(tx.from.hash || "") ? tx.from.hash.toLowerCase() : dev;
   }
@@ -210,7 +211,7 @@ async function runScan(caIn, selIn, opts) {
   return out;
 }
 
-const CODE_RPC = { robinhood: "https://rpc.mainnet.chain.robinhood.com", ethereum: "https://ethereum-rpc.publicnode.com", bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com" };
+const CODE_RPC = { robinhood: "https://rpc.mainnet.chain.robinhood.com", get elysium() { return ELY.rpc(); }, ethereum: "https://ethereum-rpc.publicnode.com", bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com" };
 async function contractsOf(chain, addrs) {
   const out = new Set(); if (!addrs.length) return out;
   const c = new AbortController(), t = setTimeout(() => c.abort(), 3500);

@@ -10,7 +10,7 @@ const db = require("./db");
 const { runScan, OK_CHAINS } = require("./scanner");
 
 const GT_NET = { eth: "ethereum", bsc: "bsc", base: "base", solana: "solana", arbitrum: "arbitrum", polygon_pos: "polygon", optimism: "optimism", avax: "avalanche",
-  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cro: "cronos" };
+  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cro: "cronos", elysium: "elysium" };
 const SUPPORTED = new Set(OK_CHAINS);
 const SCORE_TTL = 30 * 60e3, MAX_ROWS = 150, FEED_ID = "feed";
 
@@ -75,6 +75,7 @@ async function candidates(rhNet) {
     gt("networks/trending_pools?page=1", "trending"), gt("networks/trending_pools?page=2", "trending"),
     gt("networks/new_pools?page=1", "new"), gt("networks/solana/new_pools?page=1", "new"), gt("networks/base/new_pools?page=1", "new"), gt("networks/bsc/new_pools?page=1", "new"),
     ...(rhNet && rhNet.id ? [gt(`networks/${rhNet.id}/trending_pools?page=1`, "trending"), gt(`networks/${rhNet.id}/new_pools?page=1`, "new")] : []),
+    gt("networks/elysium/trending_pools?page=1", "trending"), gt("networks/elysium/new_pools?page=1", "new"),
     gt("networks/solana/trending_pools?page=1", "trending"), gt("networks/base/trending_pools?page=1", "trending"), gt("networks/bsc/trending_pools?page=1", "trending"), gt("networks/eth/trending_pools?page=1", "trending"),
   ].map((p) => p.catch(() => {})));
   return [...C.values()];

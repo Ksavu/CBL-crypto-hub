@@ -10,7 +10,7 @@ const TRACK_DAYS = 14, MILESTONES = [2, 3, 5, 10, 20, 50, 100, 250, 500, 1000];
 const norm = (ca) => (/^(0x|terra1)/i.test(ca) ? String(ca).toLowerCase() : String(ca));
 const num = (x) => { const n = Number(x); return Number.isFinite(n) && n > 0 ? n : null; };
 const DS_CHAIN = { ethereum: "ethereum", bsc: "bsc", base: "base", arbitrum: "arbitrum", polygon: "polygon", optimism: "optimism", avalanche: "avalanche", linea: "linea",
-  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", solana: "solana" };
+  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", elysium: "elysium", solana: "solana" };
 
 /** Save the first call of a token in a group (no-op if someone called it before). Returns the first call row. */
 async function record(chat, user, r, msgId) {

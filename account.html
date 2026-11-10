@@ -90,7 +90,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
 <div class="callout"><b>Community chat</b> is live on the <a href="/#chat" style="color:#6330c5">home page</a>. <b>Rewards</b> are coming soon.</div></div>
 </main><footer>CBL Crypto Hub · <a href="mailto:hello@cryptobarlounge.space">hello@cryptobarlounge.space</a> · Token data is informational, not investment advice.</footer><script src="/config.js"></script><script src="/cbl-auth.js"></script><script>
 const $=(s)=>document.querySelector(s);let supa=null,user=null;
-const CH={solana:"Solana",ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood",arbitrum:"Arbitrum",polygon:"Polygon",xrpl:"XRP Ledger",terraclassic:"Terra Classic"};
+const CH={solana:"Solana",ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood",elysium:"Elysium",arbitrum:"Arbitrum",polygon:"Polygon",xrpl:"XRP Ledger",terraclassic:"Terra Classic"};
 const esc=(t)=>String(t==null?"":t).replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const say=(s,k)=>{const el=$('#authstatus');el.textContent=s;el.className='status'+(k?' '+k:'')};
 function busy(b,on,txt){if(!b)return;if(on){b.dataset.t=b.dataset.t||b.textContent;b.textContent=txt||b.textContent;b.classList.add('busy');b.disabled=true}else{if(b.dataset.t)b.textContent=b.dataset.t;b.classList.remove('busy');b.disabled=false}}

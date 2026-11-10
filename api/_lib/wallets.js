@@ -51,13 +51,14 @@ async function jpost(u, body, ms = 8000) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- EVM ----------
-const NATIVE = { ethereum: "ETH", base: "ETH", arbitrum: "ETH", optimism: "ETH", linea: "ETH", blast: "ETH", zksync: "ETH", scroll: "ETH", unichain: "ETH", robinhood: "ETH",
+const NATIVE = { ethereum: "ETH", base: "ETH", arbitrum: "ETH", optimism: "ETH", linea: "ETH", blast: "ETH", zksync: "ETH", scroll: "ETH", unichain: "ETH", robinhood: "ETH", elysium: "HYPE",
   bsc: "BNB", polygon: "POL", avalanche: "AVAX", mantle: "MNT", sonic: "S", cronos: "CRO" };
-const BASE_SYM = /^(W?ETH|WEETH|W?BNB|W?POL|W?MATIC|W?AVAX|W?MNT|W?S|W?CRO|USDC(\.E)?|USDBC|USDT0?|USDT\.E|DAI|BUSD|FDUSD|USDE|USD1|CRVUSD|FRXUSD|PYUSD|RLUSD)$/i;
+const BASE_SYM = /^(W?ETH|WEETH|W?HYPE|W?BNB|W?POL|W?MATIC|W?AVAX|W?MNT|W?S|W?CRO|USDC(\.E)?|USDBC|USDT0?|USDT\.E|DAI|BUSD|FDUSD|USDE|USD1|CRVUSD|FRXUSD|PYUSD|RLUSD)$/i;
 const BLOCKSCOUT = { ethereum: "eth.blockscout.com", base: "base.blockscout.com", optimism: "optimism.blockscout.com", arbitrum: "arbitrum.blockscout.com",
   polygon: "polygon.blockscout.com", scroll: "scroll.blockscout.com", zksync: "zksync.blockscout.com", robinhood: "robinhoodchain.blockscout.com" };
-function evmEndpoints(chain) {
+function evmEndpoints(chain, elyHost) {
   const L = [], key = clean(process.env.ETHERSCAN_API_KEY);
+  if (chain === "elysium") return elyHost ? [`https://${elyHost}/api?`] : []; // its own Blockscout only (host resolved in ./elysium)
   if (key && EVM[chain] && chain !== "robinhood") L.push(`https://api.etherscan.io/v2/api?chainid=${EVM[chain]}&apikey=${key}&`);
   if (BLOCKSCOUT[chain]) L.push(`https://${BLOCKSCOUT[chain]}/api?`);
   if (chain === "avalanche") L.push("https://api.routescan.io/v2/network/mainnet/evm/43114/etherscan/api?");
@@ -66,7 +67,8 @@ function evmEndpoints(chain) {
 const skipEp = new Map(); // endpoint -> until (ms): e.g. a chain the free Etherscan plan doesn't cover
 // Etherscan-compatible call. Returns an array (possibly empty) or null when no provider answered.
 async function esCall(chain, params) {
-  for (const base of evmEndpoints(chain)) {
+  const elyHost = chain === "elysium" ? await require("./elysium").blockscoutHost().catch(() => null) : null;
+  for (const base of evmEndpoints(chain, elyHost)) {
     const host = base.split("?")[0] + "|" + chain;
     if ((skipEp.get(host) || 0) > Date.now()) continue;
     for (let k = 0; k < 2; k++) {
@@ -295,7 +297,7 @@ async function terraEvents(addr, cur) {
 
 // ---------- developer history: every token this wallet created, and how each one is doing ----------
 const DS_CHAIN = { ethereum: "ethereum", bsc: "bsc", base: "base", arbitrum: "arbitrum", polygon: "polygon", optimism: "optimism", avalanche: "avalanche", linea: "linea",
-  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", solana: "solana" };
+  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", elysium: "elysium", solana: "solana" };
 async function createdSolana(addr, deadline) {
   const out = new Map(), key = clean(process.env.HELIUS_API_KEY);
   const helAll = async () => {

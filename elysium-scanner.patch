@@ -1,0 +1,603 @@
+diff --git a/ELYSIUM_SETUP.md b/ELYSIUM_SETUP.md
+new file mode 100644
+index 0000000..97e30b6
+--- /dev/null
++++ b/ELYSIUM_SETUP.md
+@@ -0,0 +1,51 @@
++# Elysium (Kinetiq's Hyperliquid L2)
++
++Elysium is in the scanner (site + CBLScannerBot), the Token Radar, the contract audit and the wallet tracker.
++Trading (Bartender), CBL Swap and the bridge are not wired yet.
++
++## Network
++
++| | |
++|---|---|
++| Chain ID | `99901` |
++| Gas | HYPE (bridged 1:1 from HyperEVM) |
++| Public RPC | `https://rpc.elysium.kinetiq.xyz` |
++| Explorer | `https://elysium.kinetiq.xyz/explorer` (tx pages: `/transaction/<hash>`) |
++| DexScreener / GeckoTerminal id | `elysium` |
++| WHYPE | `0xbA876237B0F021A6c6D852d6c26E107997cC5E81` |
++
++Source: https://elysium.kinetiq.xyz/docs/connecting-to-elysium
++
++This is **not** the older Vulcan Forged "Elysium" (chain 1338/1339, LAVA). `viem/chains` still exports that one as
++`elysiumTestnet`, so define chain 99901 by hand wherever viem/wagmi is used.
++
++## After deploying
++
++Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
++
++- `rpc.ok` must be `true` (chain id 99901).
++- `dexscreener.elysiumPairs` and `geckoterminal.pools` should be above 0.
++- `blockscout[].ok`: if none is `true`, set `ELYSIUM_EXPLORER_API` (below). Scans still work without it
++  (market data, owner, supply, snipers/bundlers from the RPC), but holder counts, top holders, the deployer,
++  verified-source checks, audits and the wallet tracker need the explorer API.
++
++## Vercel env (all optional)
++
++- `ELYSIUM_RPC`: private RPC (Alchemy `https://elysium-mainnet.g.alchemy.com/v2/<key>`, Quicknode, Chainstack).
++  The public RPC is shared by everyone, so set this before real traffic.
++- `ELYSIUM_EXPLORER_API`: Blockscout API v2 base, e.g. `https://<host>/api/v2`. Kinetiq documents the explorer
++  page but not its API host; the built-in default is Conduit's usual host name and is unconfirmed.
++- `ELYSIUM_LOG_RANGE`: block span per `eth_getLogs` call (default `2000`). Raise it if your RPC allows more:
++  with 100 ms blocks, 2000 blocks is only ~3 minutes, so the sniper/bundle trace reaches further back with a bigger span.
++
++## Bot
++
++`/scan <0x…> elysium` (or `ely`). Auto-detect also works once DexScreener or GeckoTerminal lists the token,
++or when the contract exists on Elysium and not on Robinhood Chain.
++
++## Known gaps
++
++- GoPlus and honeypot.is don't cover chain 99901, so there is no sell-tax / honeypot simulation yet
++  (the card says "Limited coverage on this chain").
++- Launchpad detection only knows the pads DexScreener lists as their own DEX (BOXA, Kleos). Add factory
++  contracts to `BY_CREATOR.elysium` in `api/_lib/launchpads.js` to tag more.
+diff --git a/account.html b/account.html
+index 3901e47..e5d3c28 100644
+--- a/account.html
++++ b/account.html
+@@ -90,7 +90,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
+ <div class="callout"><b>Community chat</b> is live on the <a href="/#chat" style="color:#6330c5">home page</a>. <b>Rewards</b> are coming soon.</div></div>
+ </main><footer>CBL Crypto Hub · <a href="mailto:hello@cryptobarlounge.space">hello@cryptobarlounge.space</a> · Token data is informational, not investment advice.</footer><script src="/config.js"></script><script src="/cbl-auth.js"></script><script>
+ const $=(s)=>document.querySelector(s);let supa=null,user=null;
+-const CH={solana:"Solana",ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood",arbitrum:"Arbitrum",polygon:"Polygon",xrpl:"XRP Ledger",terraclassic:"Terra Classic"};
++const CH={solana:"Solana",ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",robinhood:"Robinhood",elysium:"Elysium",arbitrum:"Arbitrum",polygon:"Polygon",xrpl:"XRP Ledger",terraclassic:"Terra Classic"};
+ const esc=(t)=>String(t==null?"":t).replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+ const say=(s,k)=>{const el=$('#authstatus');el.textContent=s;el.className='status'+(k?' '+k:'')};
+ function busy(b,on,txt){if(!b)return;if(on){b.dataset.t=b.dataset.t||b.textContent;b.textContent=txt||b.textContent;b.classList.add('busy');b.disabled=true}else{if(b.dataset.t)b.textContent=b.dataset.t;b.classList.remove('busy');b.disabled=false}}
+diff --git a/api/_lib/calls.js b/api/_lib/calls.js
+index bf52d78..1153199 100644
+--- a/api/_lib/calls.js
++++ b/api/_lib/calls.js
+@@ -10,7 +10,7 @@ const TRACK_DAYS = 14, MILESTONES = [2, 3, 5, 10, 20, 50, 100, 250, 500, 1000];
+ const norm = (ca) => (/^(0x|terra1)/i.test(ca) ? String(ca).toLowerCase() : String(ca));
+ const num = (x) => { const n = Number(x); return Number.isFinite(n) && n > 0 ? n : null; };
+ const DS_CHAIN = { ethereum: "ethereum", bsc: "bsc", base: "base", arbitrum: "arbitrum", polygon: "polygon", optimism: "optimism", avalanche: "avalanche", linea: "linea",
+-  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", solana: "solana" };
++  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", elysium: "elysium", solana: "solana" };
+ 
+ /** Save the first call of a token in a group (no-op if someone called it before). Returns the first call row. */
+ async function record(chat, user, r, msgId) {
+diff --git a/api/_lib/devstats.js b/api/_lib/devstats.js
+index 7a2a77f..1a6d683 100644
+--- a/api/_lib/devstats.js
++++ b/api/_lib/devstats.js
+@@ -148,7 +148,7 @@ async function evmOrigin(esCall, chain, addr) {
+ }
+ 
+ // ---------- all-time-high market cap of bonded tokens (GeckoTerminal daily candles, cached) ----------
+-const GT_NET = { solana: "solana", bsc: "bsc", base: "base", ethereum: "eth", robinhood: "robinhood" };
++const GT_NET = { solana: "solana", bsc: "bsc", base: "base", ethereum: "eth", robinhood: "robinhood", elysium: "elysium" };
+ async function athFor(list, deadline, maxNew = 10) {
+   const want = list.filter((t) => t.pool && GT_NET[t.chain]);
+   if (!want.length) return { checked: 0, total: 0 };
+diff --git a/api/_lib/elysium.js b/api/_lib/elysium.js
+new file mode 100644
+index 0000000..e3be2d7
+--- /dev/null
++++ b/api/_lib/elysium.js
+@@ -0,0 +1,64 @@
++// Elysium: Kinetiq's Hyperliquid L2 (Arbitrum Orbit, settles to HyperEVM, gas = HYPE). Mainnet since 2026-11-09.
++// Official values: https://elysium.kinetiq.xyz/docs/connecting-to-elysium
++//   chain id 99901 · public RPC https://rpc.elysium.kinetiq.xyz · explorer https://elysium.kinetiq.xyz/explorer
++// Not the older Vulcan Forged "Elysium" (chain ids 1338/1339, LAVA) that viem/chainlist still list under this name.
++//
++// Env (all optional):
++//   ELYSIUM_RPC           private RPC (Alchemy/Quicknode/Chainstack). The public one is shared and rate limited.
++//   ELYSIUM_EXPLORER_API  Blockscout API v2 base, e.g. https://host/api/v2. Kinetiq documents the explorer page but
++//                         not its API host, so the default below is Conduit's usual naming and may need this override.
++//                         Check what answers with /api/scan?chaindiag=elysium.
++//   ELYSIUM_LOG_RANGE     max block span per eth_getLogs call on your RPC (default 2000, the public RPC's cap on testnet).
++const env = (k) => String(process.env[k] || "").trim();
++const ID = 99901, KEY = "elysium", NAME = "Elysium", NATIVE = "HYPE";
++const PUBLIC_RPC = "https://rpc.elysium.kinetiq.xyz";
++const rpc = () => env("ELYSIUM_RPC") || PUBLIC_RPC;
++const EXPLORER = "https://elysium.kinetiq.xyz/explorer";
++const ADDR_URL = EXPLORER + "/address/", TX_URL = EXPLORER + "/transaction/"; // Kinetiq's explorer serves /transaction/<hash>, not /tx/
++const WHYPE = "0xba876237b0f021a6c6d852d6c26e107997cc5e81"; // wrapped HYPE (Uniswap's WETH9 for chain 99901)
++const API_GUESS = ["https://explorer-elysium-mainnet.t.conduit.xyz/api/v2"];
++const apis = () => [env("ELYSIUM_EXPLORER_API").replace(/\/+$/, "")].concat(API_GUESS).filter((x, i, a) => /^https:\/\//.test(x) && a.indexOf(x) === i);
++const logRange = () => { const n = parseInt(env("ELYSIUM_LOG_RANGE"), 10); return n >= 100 && n <= 1000000 ? n : 2000; };
++
++async function jget(u, ms, opt) {
++  const c = new AbortController(), t = setTimeout(() => c.abort(), ms || 4000);
++  try {
++    const r = await fetch(u, Object.assign({ signal: c.signal, headers: { accept: "application/json", "content-type": "application/json", "user-agent": "Mozilla/5.0 (compatible; CBLScanner/1.0; +https://cryptobarlounge.space)" } }, opt || {}));
++    return { status: r.status, json: r.ok ? await r.json().catch(() => null) : null };
++  } catch (e) { return { status: 0, error: String((e && e.cause && e.cause.code) || (e && e.message) || e).slice(0, 80), json: null }; } finally { clearTimeout(t); }
++}
++
++// Which Blockscout API answers? Checked once per warm instance (a miss is retried after 5 minutes).
++let live = { t: 0, api: null };
++async function blockscoutApi() {
++  if (live.api || Date.now() - live.t < 5 * 60e3) return live.api;
++  const L = apis(), hits = await Promise.all(L.map((a) => jget(a + "/stats", 2500).then((r) => !!(r.json && typeof r.json === "object" && ("total_blocks" in r.json || "total_addresses" in r.json)))));
++  live = { t: Date.now(), api: L[hits.indexOf(true)] || null };
++  return live.api;
++}
++/** Host of the Etherscan-style API (<host>/api?module=...) on the same Blockscout, or null. */
++const blockscoutHost = async () => { const a = await blockscoutApi(); return a ? a.replace(/^https:\/\//, "").replace(/\/api\/v2$/, "") : null; };
++
++/** One-click health check after deploy: /api/scan?chaindiag=elysium */
++async function diag() {
++  const call = (method, params) => jget(rpc(), 5000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || [] }) });
++  const [cid, head, code, ds, gt, ...bs] = await Promise.all([
++    call("eth_chainId"), call("eth_blockNumber"), call("eth_getCode", [WHYPE, "latest"]),
++    jget("https://api.dexscreener.com/latest/dex/tokens/" + WHYPE, 6000), jget("https://api.geckoterminal.com/api/v2/networks/elysium/trending_pools?page=1", 6000),
++    ...apis().map((a) => jget(a + "/stats", 4000)),
++  ]);
++  const chainId = cid.json && cid.json.result ? parseInt(cid.json.result, 16) : null;
++  const dsPairs = ((ds.json && ds.json.pairs) || []).filter((p) => p.chainId === KEY);
++  return {
++    chain: KEY, expectChainId: ID,
++    rpc: { url: env("ELYSIUM_RPC") ? "ELYSIUM_RPC (private)" : PUBLIC_RPC, status: cid.status, error: cid.error, chainId, ok: chainId === ID, head: head.json && head.json.result ? parseInt(head.json.result, 16) : null,
++      whypeHasCode: !!(code.json && typeof code.json.result === "string" && code.json.result.length > 2) },
++    dexscreener: { status: ds.status, elysiumPairs: dsPairs.length, dexIds: [...new Set(dsPairs.map((p) => p.dexId))].slice(0, 12) },
++    geckoterminal: { status: gt.status, pools: ((gt.json && gt.json.data) || []).length, dexes: [...new Set(((gt.json && gt.json.data) || []).map((p) => p.relationships && p.relationships.dex && p.relationships.dex.data && p.relationships.dex.data.id))].slice(0, 12) },
++    blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: !!(bs[i].json && ("total_blocks" in bs[i].json || "total_addresses" in bs[i].json)) })),
++    logRange: logRange(),
++    hint: "rpc.ok must be true. If no blockscout entry is ok, set ELYSIUM_EXPLORER_API to the explorer's /api/v2 base: scans still work without it (market + on-chain basics), but holders, deployer and the wallet tracker need it.",
++  };
++}
++
++module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, diag };
+diff --git a/api/_lib/evmfind.js b/api/_lib/evmfind.js
+index 12aa728..4cdb84a 100644
+--- a/api/_lib/evmfind.js
++++ b/api/_lib/evmfind.js
+@@ -1,12 +1,12 @@
+ // Fallbacks for EVM tokens DexScreener doesn't know yet (new launches, tokens still on a launchpad bonding curve):
+-//   find(ca, chain?) -> { chain, pair } using GeckoTerminal search, then a Robinhood Chain contract check.
++//   find(ca, chain?) -> { chain, pair } using GeckoTerminal search, then a contract check on Robinhood Chain, Elysium, BNB Chain, Base, Ethereum.
+ //   launchpadByCreator(chain, creator) -> launchpad name when the token was deployed by a known launchpad contract.
+ const GT_NET = { eth: "ethereum", bsc: "bsc", base: "base", arbitrum: "arbitrum", polygon_pos: "polygon", optimism: "optimism", avax: "avalanche",
+-  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cro: "cronos" };
++  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cro: "cronos", elysium: "elysium" };
+ const netToChain = (n) => GT_NET[n] || (/robinhood/i.test(n) ? "robinhood" : null);
+ const RH_RPC = "https://rpc.mainnet.chain.robinhood.com";
+ // Chains probed with eth_getCode when no tracker knows the token (newest-launch chains first).
+-const CODE_RPC = { robinhood: RH_RPC, bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com", ethereum: "https://ethereum-rpc.publicnode.com" };
++const CODE_RPC = { robinhood: RH_RPC, get elysium() { return require("./elysium").rpc(); }, bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com", ethereum: "https://ethereum-rpc.publicnode.com" };
+ 
+ async function jget(u, ms = 5000, opt) {
+   const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+diff --git a/api/_lib/explorer.js b/api/_lib/explorer.js
+index 5b356fc..04d0769 100644
+--- a/api/_lib/explorer.js
++++ b/api/_lib/explorer.js
+@@ -1,7 +1,18 @@
+-// On-chain fallback for EVM chains where GoPlus has no coverage (e.g. Robinhood Chain): Blockscout API + RPC.
++// On-chain fallback for EVM chains where GoPlus has no coverage (e.g. Robinhood Chain, Elysium): Blockscout API + RPC.
++const ELY = require("./elysium");
+ const CFG = {
+   robinhood: { api: "https://robinhoodchain.blockscout.com/api/v2", rpc: "https://rpc.mainnet.chain.robinhood.com", win: 50, bwin: 20, fan: 20000, chunk: 20000 },
++  // Elysium: ~100 ms blocks, so the windows are wider in blocks (sniper window ~10 s, same-moment bundle ~3 s).
++  // The Blockscout API host and the RPC come from ./elysium (env overrides); logMax = the RPC's eth_getLogs block span.
++  elysium: { api: null, rpc: ELY.PUBLIC_RPC, win: 100, bwin: 30, fan: 20000, chunk: 2000, logMax: 2000, dynamic: true },
+ };
++// Per-call settings. Elysium's explorer API is resolved at run time and may be missing: everything then runs on the RPC alone.
++async function conf(chain) {
++  const c = CFG[chain]; if (!c) return null;
++  if (!c.dynamic) return c;
++  const n = ELY.logRange();
++  return Object.assign({}, c, { api: await ELY.blockscoutApi().catch(() => null), rpc: ELY.rpc(), chunk: n, logMax: n });
++}
+ const DEAD = /^0x(0{40}|0{39}1|[0d]*dead[0-9a-f]*)$/i;
+ const NET = [];
+ const get = async (u, opt = {}) => {
+@@ -10,19 +21,39 @@ const get = async (u, opt = {}) => {
+   try { const r = await fetch(u, Object.assign({}, opt, { signal: c.signal, headers: h })); if (!r.ok) { NET.push(new URL(u).host + " HTTP " + r.status); return null; } return await r.json(); }
+   catch (e) { NET.push(new URL(u).host + " " + String((e && e.cause && e.cause.code) || (e && e.message) || e).slice(0, 60)); return null; } finally { clearTimeout(t); }
+ };
++const bs = (cfg, path) => (cfg.api ? get(cfg.api + path) : Promise.resolve(null));
++// ABI-encoded string (or bytes32) returned by name()/symbol()
++function abiStr(h) {
++  if (typeof h !== "string" || h.length < 4) return null;
++  try {
++    const b = Buffer.from(h.slice(2), "hex"); let out;
++    if (b.length >= 96 && Number(BigInt("0x" + b.subarray(0, 32).toString("hex"))) === 32) { const n = Number(BigInt("0x" + b.subarray(32, 64).toString("hex"))); out = b.subarray(64, 64 + Math.min(n, 128)); }
++    else out = b.subarray(0, 32);
++    const t = out.toString("utf8").replace(/\u0000+$/g, "").replace(/[^\x20-\x7e\u00a0-\uffff]/g, "").trim();
++    return t ? t.slice(0, 64) : null;
++  } catch (e) { return null; }
++}
+ const rpc = (cfg, to, data) => get(cfg.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) }).then((r) => r && r.result);
+ 
+ async function explorerEvm(chain, addr, pairAddr) {
+-  const cfg = CFG[chain]; if (!cfg) return null;
++  const cfg = await conf(chain); if (!cfg) return null;
+   NET.length = 0;
+   const [tok, ad, hold, own] = await Promise.all([
+-    get(`${cfg.api}/tokens/${addr}`), get(`${cfg.api}/addresses/${addr}`), get(`${cfg.api}/tokens/${addr}/holders`),
++    bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), bs(cfg, `/tokens/${addr}/holders`),
+     rpc(cfg, addr, "0x8da5cb5b"),
+   ]);
+-  if (!tok && !ad && !hold && !own) return null;
++  // No explorer answer (down, or its API host isn't configured): name, symbol and supply straight from the token contract.
++  let chainTok = null;
++  if (!tok) {
++    const [nm, sy, ts] = await Promise.all([rpc(cfg, addr, "0x06fdde03"), rpc(cfg, addr, "0x95d89b41"), rpc(cfg, addr, "0x18160ddd")]);
++    const sup = typeof ts === "string" && ts.length > 2 ? parseInt(ts, 16) : 0;
++    if (sup > 0 || abiStr(sy)) chainTok = { name: abiStr(nm), symbol: abiStr(sy), supply: sup > 0 ? sup : null };
++  }
++  if (!tok && !ad && !hold && !own && !chainTok) return null;
+   const out = { holders: null, verified: null, proxy: null, creator: null, creationTx: null, creatorPct: null, top1: null, top5: null, top10: null, owner: undefined, ownerKnown: false };
+   if (tok && tok.holders_count != null) out.holders = parseInt(tok.holders_count, 10) || null;
+   if (tok) { out.name = tok.name || null; out.symbol = tok.symbol || null; }
++  else if (chainTok) { out.name = chainTok.name; out.symbol = chainTok.symbol; out.rpcOnly = true; }
+   if (ad) {
+     if (typeof ad.is_verified === "boolean") out.verified = ad.is_verified;
+     out.proxy = !!(ad.proxy_type || (ad.implementations && ad.implementations.length));
+@@ -30,7 +61,7 @@ async function explorerEvm(chain, addr, pairAddr) {
+     out.creationTx = ad.creation_transaction_hash || ad.creation_tx_hash || null;
+   }
+   if (typeof own === "string" && /^0x[0-9a-f]{64}$/i.test(own)) { out.ownerKnown = true; out.owner = "0x" + own.slice(26).toLowerCase(); }
+-  const supply = tok && parseFloat(tok.total_supply);
++  const supply = tok ? parseFloat(tok.total_supply) : chainTok && chainTok.supply;
+   out.supplyRaw = supply > 0 ? supply : null;
+   const items = (hold && hold.items) || [];
+   if (supply > 0 && items.length) {
+@@ -57,12 +88,12 @@ const rpcCall = (cfg, method, params) => get(cfg.rpc, { method: "POST", headers:
+ const logs = (cfg, token, pair, from, to) => rpcCall(cfg, "eth_getLogs", [{ address: token, topics: [TRANSFER, pad(pair)], fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) }]);
+ 
+ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budgetMs = 9000) {
+-  const cfg = CFG[chain]; if (!cfg) return null;
++  const cfg = await conf(chain); if (!cfg) return null;
+   const dbg = { supply: supply || null, creationTx: creationTx || null }, fail = (why) => ({ traced: false, dbg: Object.assign(dbg, { why }) });
+   const t0 = Date.now(), left = () => budgetMs - (Date.now() - t0);
+-  const origin = cfg.api.replace(/\/api\/v2$/, "");
++  const origin = cfg.api ? cfg.api.replace(/\/api\/v2$/, "") : null;
+   let start = 0;
+-  if (creationTx) { const tx = await get(`${cfg.api}/transactions/${creationTx}`); start = parseInt((tx && (tx.block_number != null ? tx.block_number : tx.block)) || 0, 10); }
++  if (creationTx) { const tx = await bs(cfg, `/transactions/${creationTx}`); start = parseInt((tx && (tx.block_number != null ? tx.block_number : tx.block)) || 0, 10); }
+   if (!(start > 0)) {
+     // deployment block straight from the node: first block where the token has code
+     const hn = parseInt(await rpcCall(cfg, "eth_blockNumber", []), 16);
+@@ -73,7 +104,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
+       if (ok && lo > 1) { start = lo; dbg.startFrom = "code"; }
+     }
+   }
+-  if (!(start > 0) && pairCreatedMs) {
++  if (!(start > 0) && pairCreatedMs && origin) {
+     const bt = await get(`${origin}/api?module=block&action=getblocknobytime&timestamp=${Math.floor(pairCreatedMs / 1000) - 120}&closest=after`);
+     start = parseInt((bt && bt.result && (bt.result.blockNumber || bt.result)) || 0, 10);
+   }
+@@ -113,10 +144,11 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
+   if (!src) return fail("no distributor found in the first blocks");
+   // 2. everything the distributor ever sent. Real "launch" = first burst of new buyers (a token can sit idle or have a few early buyers before trading starts)
+   const sends = [];
+-  let sz = 100000;
++  const cap = cfg.logMax || 100000; // some RPCs only answer eth_getLogs over a short block span
++  let sz = Math.min(100000, cap);
+   for (let b = start; b <= head && left() > 2500;) {
+     let L = await tl(b, Math.min(head, b + sz - 1), src);
+-    if (L === null && sz > 10000) { sz = 20000; L = await tl(b, Math.min(head, b + sz - 1), src); }
++    if (L === null && sz > 10000) { sz = Math.min(20000, cap); L = await tl(b, Math.min(head, b + sz - 1), src); }
+     if (L === null) break;
+     L.forEach((l) => sends.push(dec(l)));
+     b += sz; dbg.sendChunks = (dbg.sendChunks || 0) + 1;
+diff --git a/api/_lib/format.js b/api/_lib/format.js
+index 4014cca..319b3f7 100644
+--- a/api/_lib/format.js
++++ b/api/_lib/format.js
+@@ -1,7 +1,7 @@
+ // Telegram message formatting (HTML parse mode).
+ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+-const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", solana: "Solana", xrpl: "XRP Ledger", terraclassic: "Terra Classic" };
+-const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
++const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", elysium: "Elysium", solana: "Solana", xrpl: "XRP Ledger", terraclassic: "Terra Classic" };
++const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", elysium: "https://elysium.kinetiq.xyz/explorer/address/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
+ const { CHAINS } = require("./source");
+ const chainName = (c) => (c && (NAMES[c] || (CHAINS[c] && CHAINS[c][1]))) || c;
+ // Telegram callback_data is max 64 bytes; Terra contracts are 64 chars, so "terra1" travels as "~".
+@@ -132,7 +132,7 @@ const HELP = [
+   "<b>CBL Scanner</b> 🔍",
+   "Paste a token contract address and I'll check it for common red flags.",
+   "",
+-  "Works on <b>Solana, XRP Ledger, Terra Classic</b> and EVM chains: <b>Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos and Robinhood Chain</b>.",
++  "Works on <b>Solana, XRP Ledger, Terra Classic</b> and EVM chains: <b>Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos, Robinhood Chain and Elysium</b>.",
+   "",
+   "<b>Commands</b>",
+   "/scan &lt;address&gt; [eth|bsc|base|arb|poly|op|avax|linea|blast|zksync|scroll|mantle|sonic|uni|cro|rh|sol|xrpl|lunc]",
+@@ -172,7 +172,7 @@ const HELP = [
+ 
+ 
+ // ---------- wallet tracker ----------
+-const TXURL = { solana: "https://solscan.io/tx/", xrpl: "https://xrpscan.com/tx/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/tx/" };
++const TXURL = { elysium: "https://elysium.kinetiq.xyz/explorer/transaction/", solana: "https://solscan.io/tx/", xrpl: "https://xrpscan.com/tx/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/tx/" };
+ const ADDRURL = { solana: "https://solscan.io/account/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
+ const txUrl = (c, h) => (TXURL[c] || (CHAINS[c] ? CHAINS[c][2].replace(/\/(address|account)\/$/, "/tx/") : "")) + h;
+ const addrUrl = (c, a) => (ADDRURL[c] || (CHAINS[c] ? CHAINS[c][2] : "")) + a;
+diff --git a/api/_lib/launchpads.js b/api/_lib/launchpads.js
+index 66e4904..a81e2c2 100644
+--- a/api/_lib/launchpads.js
++++ b/api/_lib/launchpads.js
+@@ -26,6 +26,10 @@ function launchpadOf(chain, ca, dexes, labels) {
+     if (hit(/robin/)) return { n: "RobinFun", k: "robin", g: grad(d.filter((x) => /robin/.test(x))) };
+     for (const [re, n, k] of [[/klik/, "Klik", "klik"], [/printr/, "Printr", "printr"], [/dyor/, "DYOR.fun", "dyor"], [/realfun/, "RealFun", "realfun"], [/apestore/, "Ape.store", "ape"]]) if (hit(re)) return { n, k, g: null };
+   }
++  if (chain === "elysium") { // launchpads DexScreener lists as their own DEX on Elysium; most others launch straight into Uniswap v4 pools
++    const hit = (re) => d.some((x) => re.test(x));
++    for (const [re, n, k] of [[/boxa/, "BOXA", "boxa"], [/kleos/, "Kleos", "kleos"]]) if (hit(re)) return { n, k, g: grad(d.filter((x) => re.test(x))) || null };
++  }
+   if (chain === "bsc" && (/4444$/i.test(a) || curve(["fourmeme", "four_meme"]))) return { n: "Four.meme", k: "four", g: grad(["fourmeme", "four_meme"]) };
+   if (chain === "base") {
+     if (/b07$/i.test(a)) return { n: "Clanker", k: "clanker", g: null };
+@@ -44,8 +48,11 @@ const BY_CREATOR = {
+     "0x5fcc1df0dc020cf454e742e9a8ae2554c37a452c": "Hood.fun", "0xc6a2941b962fb667786d7f4b97f7f965d6f0a4f8": "Hood.fun",
+     "0xd861cb5dc71a0171e8f0f6586cadb069f3a35e4d": "RobinFun",
+   },
++  elysium: {}, // add launchpad factory contracts here (lower case) once confirmed on the explorer
+ };
+ const PAD_INFO = {
++  BOXA: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
++  Kleos: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
+   Pons: "Robinhood Chain launchpad: tokens trade on their own bonding curve until 4.2 ETH, then move to a locked Uniswap v4 pool.",
+   "Hood.fun": "Robinhood Chain fair-launch platform: bonding curve first, then a Uniswap v3-style pool after graduation.",
+   RobinFun: "Robinhood Chain launchpad with a bonding curve that graduates to an AMM pool.",
+diff --git a/api/_lib/radar.js b/api/_lib/radar.js
+index f21ec66..750246f 100644
+--- a/api/_lib/radar.js
++++ b/api/_lib/radar.js
+@@ -10,7 +10,7 @@ const db = require("./db");
+ const { runScan, OK_CHAINS } = require("./scanner");
+ 
+ const GT_NET = { eth: "ethereum", bsc: "bsc", base: "base", solana: "solana", arbitrum: "arbitrum", polygon_pos: "polygon", optimism: "optimism", avax: "avalanche",
+-  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cro: "cronos" };
++  linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cro: "cronos", elysium: "elysium" };
+ const SUPPORTED = new Set(OK_CHAINS);
+ const SCORE_TTL = 30 * 60e3, MAX_ROWS = 150, FEED_ID = "feed";
+ 
+@@ -75,6 +75,7 @@ async function candidates(rhNet) {
+     gt("networks/trending_pools?page=1", "trending"), gt("networks/trending_pools?page=2", "trending"),
+     gt("networks/new_pools?page=1", "new"), gt("networks/solana/new_pools?page=1", "new"), gt("networks/base/new_pools?page=1", "new"), gt("networks/bsc/new_pools?page=1", "new"),
+     ...(rhNet && rhNet.id ? [gt(`networks/${rhNet.id}/trending_pools?page=1`, "trending"), gt(`networks/${rhNet.id}/new_pools?page=1`, "new")] : []),
++    gt("networks/elysium/trending_pools?page=1", "trending"), gt("networks/elysium/new_pools?page=1", "new"),
+     gt("networks/solana/trending_pools?page=1", "trending"), gt("networks/base/trending_pools?page=1", "trending"), gt("networks/bsc/trending_pools?page=1", "trending"), gt("networks/eth/trending_pools?page=1", "trending"),
+   ].map((p) => p.catch(() => {})));
+   return [...C.values()];
+diff --git a/api/_lib/scanner.js b/api/_lib/scanner.js
+index 5358f2b..115e659 100644
+--- a/api/_lib/scanner.js
++++ b/api/_lib/scanner.js
+@@ -6,10 +6,11 @@ const { fillSol } = require("./solmarket");
+ const { getOrders, dexPaid } = require("./dexpaid");
+ const EF = require("./evmfind");
+ const LP = require("./launchpads");
++const ELY = require("./elysium");
+ 
+ // DexScreener chain id -> EVM chain id (GoPlus / honeypot.is)
+ const EVM = { ethereum: 1, bsc: 56, base: 8453, arbitrum: 42161, polygon: 137, optimism: 10, avalanche: 43114, linea: 59144, blast: 81457,
+-  zksync: 324, scroll: 534352, mantle: 5000, sonic: 146, unichain: 130, cronos: 25, robinhood: 4663 };
++  zksync: 324, scroll: 534352, mantle: 5000, sonic: 146, unichain: 130, cronos: 25, robinhood: 4663, elysium: 99901 };
+ const OK_CHAINS = [...Object.keys(EVM), "solana"];
+ const cache = new Map(); // best-effort, per warm instance
+ 
+@@ -181,7 +182,7 @@ async function runScan(caIn, selIn, opts) {
+   }
+   const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad });
+   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
+-  if (launchpad && ex && ex.creationTx && chain === "robinhood") {
++  if (launchpad && ex && ex.creationTx && chain === "robinhood") { // (Elysium: add here once its launchpad factories are in launchpads.BY_CREATOR)
+     const tx = await j(`https://robinhoodchain.blockscout.com/api/v2/transactions/${ex.creationTx}`, 3500).catch(() => null);
+     dev = tx && tx.from && /^0x[a-fA-F0-9]{40}$/.test(tx.from.hash || "") ? tx.from.hash.toLowerCase() : dev;
+   }
+@@ -210,7 +211,7 @@ async function runScan(caIn, selIn, opts) {
+   return out;
+ }
+ 
+-const CODE_RPC = { robinhood: "https://rpc.mainnet.chain.robinhood.com", ethereum: "https://ethereum-rpc.publicnode.com", bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com" };
++const CODE_RPC = { robinhood: "https://rpc.mainnet.chain.robinhood.com", get elysium() { return ELY.rpc(); }, ethereum: "https://ethereum-rpc.publicnode.com", bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com" };
+ async function contractsOf(chain, addrs) {
+   const out = new Set(); if (!addrs.length) return out;
+   const c = new AbortController(), t = setTimeout(() => c.abort(), 3500);
+diff --git a/api/_lib/source.js b/api/_lib/source.js
+index 802e3b8..5939aa8 100644
+--- a/api/_lib/source.js
++++ b/api/_lib/source.js
+@@ -5,6 +5,7 @@ const CHAINS = {
+   polygon: [137, "Polygon", "https://polygonscan.com/address/"], arbitrum: [42161, "Arbitrum", "https://arbiscan.io/address/"], optimism: [10, "Optimism", "https://optimistic.etherscan.io/address/"],
+   avalanche: [43114, "Avalanche", "https://snowtrace.io/address/"],
+   robinhood: [4663, "Robinhood Chain", "https://robinhoodchain.blockscout.com/address/"],
++  elysium: [99901, "Elysium", "https://elysium.kinetiq.xyz/explorer/address/"],
+   linea: [59144, "Linea", "https://lineascan.build/address/"], scroll: [534352, "Scroll", "https://scrollscan.com/address/"], zksync: [324, "zkSync Era", "https://explorer.zksync.io/address/"],
+   blast: [81457, "Blast", "https://blastscan.io/address/"], mantle: [5000, "Mantle", "https://mantlescan.xyz/address/"], gnosis: [100, "Gnosis", "https://gnosisscan.io/address/"],
+   celo: [42220, "Celo", "https://celoscan.io/address/"], fantom: [250, "Fantom", "https://ftmscan.com/address/"], sonic: [146, "Sonic", "https://sonicscan.org/address/"],
+@@ -48,8 +49,9 @@ async function etherscan(chain, addr) {
+   return { name: r.ContractName || "", compiler: r.CompilerVersion || "", source: join(files), from: "Etherscan" };
+ }
+ async function blockscout(chain, addr) {
+-  if (!BLOCKSCOUT[chain]) return null;
+-  const j = await jget(`${BLOCKSCOUT[chain]}/smart-contracts/${addr}`);
++  const api = chain === "elysium" ? await require("./elysium").blockscoutApi().catch(() => null) : BLOCKSCOUT[chain];
++  if (!api) return null;
++  const j = await jget(`${api}/smart-contracts/${addr}`);
+   if (!j || !j.source_code) return null;
+   const files = [{ path: j.file_path || "Main.sol", content: j.source_code }].concat((j.additional_sources || []).map((a) => ({ path: a.file_path, content: a.source_code })));
+   return { name: j.name || "", compiler: j.compiler_version || "", source: join(files), from: "Blockscout" };
+diff --git a/api/_lib/wallets.js b/api/_lib/wallets.js
+index 3132dc8..19e467f 100644
+--- a/api/_lib/wallets.js
++++ b/api/_lib/wallets.js
+@@ -51,13 +51,14 @@ async function jpost(u, body, ms = 8000) {
+ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+ 
+ // ---------- EVM ----------
+-const NATIVE = { ethereum: "ETH", base: "ETH", arbitrum: "ETH", optimism: "ETH", linea: "ETH", blast: "ETH", zksync: "ETH", scroll: "ETH", unichain: "ETH", robinhood: "ETH",
++const NATIVE = { ethereum: "ETH", base: "ETH", arbitrum: "ETH", optimism: "ETH", linea: "ETH", blast: "ETH", zksync: "ETH", scroll: "ETH", unichain: "ETH", robinhood: "ETH", elysium: "HYPE",
+   bsc: "BNB", polygon: "POL", avalanche: "AVAX", mantle: "MNT", sonic: "S", cronos: "CRO" };
+-const BASE_SYM = /^(W?ETH|WEETH|W?BNB|W?POL|W?MATIC|W?AVAX|W?MNT|W?S|W?CRO|USDC(\.E)?|USDBC|USDT0?|USDT\.E|DAI|BUSD|FDUSD|USDE|USD1|CRVUSD|FRXUSD|PYUSD|RLUSD)$/i;
++const BASE_SYM = /^(W?ETH|WEETH|W?HYPE|W?BNB|W?POL|W?MATIC|W?AVAX|W?MNT|W?S|W?CRO|USDC(\.E)?|USDBC|USDT0?|USDT\.E|DAI|BUSD|FDUSD|USDE|USD1|CRVUSD|FRXUSD|PYUSD|RLUSD)$/i;
+ const BLOCKSCOUT = { ethereum: "eth.blockscout.com", base: "base.blockscout.com", optimism: "optimism.blockscout.com", arbitrum: "arbitrum.blockscout.com",
+   polygon: "polygon.blockscout.com", scroll: "scroll.blockscout.com", zksync: "zksync.blockscout.com", robinhood: "robinhoodchain.blockscout.com" };
+-function evmEndpoints(chain) {
++function evmEndpoints(chain, elyHost) {
+   const L = [], key = clean(process.env.ETHERSCAN_API_KEY);
++  if (chain === "elysium") return elyHost ? [`https://${elyHost}/api?`] : []; // its own Blockscout only (host resolved in ./elysium)
+   if (key && EVM[chain] && chain !== "robinhood") L.push(`https://api.etherscan.io/v2/api?chainid=${EVM[chain]}&apikey=${key}&`);
+   if (BLOCKSCOUT[chain]) L.push(`https://${BLOCKSCOUT[chain]}/api?`);
+   if (chain === "avalanche") L.push("https://api.routescan.io/v2/network/mainnet/evm/43114/etherscan/api?");
+@@ -66,7 +67,8 @@ function evmEndpoints(chain) {
+ const skipEp = new Map(); // endpoint -> until (ms): e.g. a chain the free Etherscan plan doesn't cover
+ // Etherscan-compatible call. Returns an array (possibly empty) or null when no provider answered.
+ async function esCall(chain, params) {
+-  for (const base of evmEndpoints(chain)) {
++  const elyHost = chain === "elysium" ? await require("./elysium").blockscoutHost().catch(() => null) : null;
++  for (const base of evmEndpoints(chain, elyHost)) {
+     const host = base.split("?")[0] + "|" + chain;
+     if ((skipEp.get(host) || 0) > Date.now()) continue;
+     for (let k = 0; k < 2; k++) {
+@@ -295,7 +297,7 @@ async function terraEvents(addr, cur) {
+ 
+ // ---------- developer history: every token this wallet created, and how each one is doing ----------
+ const DS_CHAIN = { ethereum: "ethereum", bsc: "bsc", base: "base", arbitrum: "arbitrum", polygon: "polygon", optimism: "optimism", avalanche: "avalanche", linea: "linea",
+-  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", solana: "solana" };
++  blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", unichain: "unichain", cronos: "cronos", robinhood: "robinhood", elysium: "elysium", solana: "solana" };
+ async function createdSolana(addr, deadline) {
+   const out = new Map(), key = clean(process.env.HELIUS_API_KEY);
+   const helAll = async () => {
+diff --git a/api/scan.js b/api/scan.js
+index d7b8408..3e5610e 100644
+--- a/api/scan.js
++++ b/api/scan.js
+@@ -1,4 +1,4 @@
+-// Vercel serverless function: GET /api/scan?ca=<address>&chain=auto|ethereum|bsc|base|solana
++// Vercel serverless function: GET /api/scan?ca=<address>&chain=auto|ethereum|bsc|base|elysium|solana
+ //                              GET /api/scan?wallet=<address>[&chain=base]  -> developer report (tokens created + recent trades)
+ const { runScan } = require("./_lib/scanner");
+ const WT = require("./_lib/wallets");
+@@ -30,6 +30,12 @@ module.exports = async (req, res) => {
+     const hi = await LPS.higherOf([pi]).catch(() => new Set());
+     return res.status(200).json({ ok: true, mint: pi, launchlab: pools[pi] || null, higher: hi.has(pi), platformIdsSet: String(process.env.HIGHER_PLATFORM_ID || "") || null });
+   }
++  // Elysium health check (RPC chain id, explorer API, DexScreener and GeckoTerminal coverage): /api/scan?chaindiag=elysium
++  if (url.searchParams.get("chaindiag") === "elysium") {
++    h.n += 5; res.setHeader("Cache-Control", "no-store");
++    try { return res.status(200).json({ ok: true, ...(await require("./_lib/elysium").diag()) }); }
++    catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
++  }
+   if (url.searchParams.get("curvesdiag")) {
+     h.n += 10; res.setHeader("Cache-Control", "no-store");
+     try {
+diff --git a/api/telegram.js b/api/telegram.js
+index 7aa522c..6053edf 100644
+--- a/api/telegram.js
++++ b/api/telegram.js
+@@ -14,8 +14,8 @@ const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
+ const SITE = () => (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
+ const AUDIT_CHAIN = { poly: "polygon", matic: "polygon", polygon: "polygon", arb: "arbitrum", arbitrum: "arbitrum", op: "optimism", optimism: "optimism", avax: "avalanche", avalanche: "avalanche",
+   linea: "linea", scroll: "scroll", zksync: "zksync", blast: "blast", mantle: "mantle", gnosis: "gnosis", xdai: "gnosis", celo: "celo", ftm: "fantom", fantom: "fantom", sonic: "sonic", opbnb: "opbnb",
+-  cronos: "cronos", mode: "mode", uni: "unichain", unichain: "unichain", bera: "berachain", berachain: "berachain", abstract: "abstract", ink: "ink", taiko: "taiko", moonbeam: "moonbeam", kaia: "kaia", hyper: "hyperevm", hyperevm: "hyperevm", zkevm: "polygonzkevm" };
+-const CHAIN = { eth: "ethereum", ethereum: "ethereum", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", sol: "solana", solana: "solana", lunc: "terraclassic", terra: "terraclassic", terraclassic: "terraclassic",
++  cronos: "cronos", mode: "mode", uni: "unichain", unichain: "unichain", bera: "berachain", berachain: "berachain", abstract: "abstract", ink: "ink", taiko: "taiko", moonbeam: "moonbeam", kaia: "kaia", hyper: "hyperevm", hyperevm: "hyperevm", zkevm: "polygonzkevm", ely: "elysium", elysium: "elysium" };
++const CHAIN = { eth: "ethereum", ethereum: "ethereum", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", ely: "elysium", elysium: "elysium", sol: "solana", solana: "solana", lunc: "terraclassic", terra: "terraclassic", terraclassic: "terraclassic",
+   arb: "arbitrum", arbitrum: "arbitrum", poly: "polygon", matic: "polygon", polygon: "polygon", op: "optimism", optimism: "optimism", avax: "avalanche", avalanche: "avalanche",
+   linea: "linea", blast: "blast", zksync: "zksync", scroll: "scroll", mantle: "mantle", sonic: "sonic", uni: "unichain", unichain: "unichain", cro: "cronos", cronos: "cronos", xrpl: "xrpl", xrp: "xrpl" };
+ const TERRA_RE = /\bterra1(?:[02-9ac-hj-np-z]{58}|[02-9ac-hj-np-z]{38})\b/i, XRPL_RE = /\b(?:[A-Za-z0-9]{1,20}\.)?r[1-9A-HJ-NP-Za-km-z]{24,34}\b/, EVM_RE = /\b0x[a-fA-F0-9]{40}\b/, SOL_RE = /\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/;
+diff --git a/index.html b/index.html
+index 8a3be41..538e990 100644
+--- a/index.html
++++ b/index.html
+@@ -629,11 +629,11 @@ html{scroll-padding-top:90px}
+ <section class="section" id="tools"><div class="container"><div class="sectionheading"><div><span class="nx-eyebrow">Your everyday toolkit</span><h2>Scan. Swap. <span class="grad">Bridge.</span></h2><p>Check a token contract or audit Solidity code, then swap or bridge across chains — right here, with your own wallet.</p></div></div></div></section></div>
+ <span id="sniffer"></span><div class="plat2"><section class="scn" id="scanner" aria-label="CA Scanner"><div class="scn-in"><div class="scn-intro"><div class="toolhead"><div class="toolicon">✦</div><div><h3>CBL Coin Sniffer</h3><p>Token scan &amp; Solidity contract audit</p></div></div><p class="sniffintro">Paste a token contract address and pick a network, or switch to Contract audit for any EVM chain. <a href="#vetting">How our vetting works ↗</a></p></div><div class="scan-box"><div class="tabs" style="justify-content:flex-start;margin:6px 0 12px"><button class="chip" id="sc-t1" type="button" aria-pressed="true">Token scan</button><button class="chip" id="sc-t2" type="button" aria-pressed="false">Contract audit</button></div>
+ <div id="au-box" hidden><p class="sc-note" style="margin:0 0 10px">Works on all major EVM chains. Checks the Solidity code for owner powers, hidden fees, blacklists, minting and other red flags. Enter a contract address (verified source is fetched), or paste your own code if it is not published yet.</p>
+-<div class="scb"><select id="au-chain" aria-label="Network"><option value="auto">Auto-detect (all EVM chains)</option><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="polygon">Polygon</option><option value="arbitrum">Arbitrum</option><option value="optimism">Optimism</option><option value="avalanche">Avalanche</option><option value="robinhood">Robinhood Chain</option><option value="linea">Linea</option><option value="scroll">Scroll</option><option value="zksync">zkSync Era</option><option value="blast">Blast</option><option value="mantle">Mantle</option><option value="gnosis">Gnosis</option><option value="celo">Celo</option><option value="fantom">Fantom</option><option value="sonic">Sonic</option><option value="opbnb">opBNB</option><option value="cronos">Cronos</option><option value="mode">Mode</option><option value="unichain">Unichain</option><option value="berachain">Berachain</option><option value="abstract">Abstract</option><option value="ink">Ink</option><option value="taiko">Taiko</option><option value="moonbeam">Moonbeam</option><option value="kaia">Kaia</option><option value="hyperevm">HyperEVM</option><option value="polygonzkevm">Polygon zkEVM</option></select><input id="au-ca" placeholder="Contract address (0x...)" autocomplete="off" spellcheck="false" aria-label="Contract address"><button class="go" id="au-go" type="button">Audit address</button></div>
++<div class="scb"><select id="au-chain" aria-label="Network"><option value="auto">Auto-detect (all EVM chains)</option><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="polygon">Polygon</option><option value="arbitrum">Arbitrum</option><option value="optimism">Optimism</option><option value="avalanche">Avalanche</option><option value="robinhood">Robinhood Chain</option><option value="elysium">Elysium</option><option value="linea">Linea</option><option value="scroll">Scroll</option><option value="zksync">zkSync Era</option><option value="blast">Blast</option><option value="mantle">Mantle</option><option value="gnosis">Gnosis</option><option value="celo">Celo</option><option value="fantom">Fantom</option><option value="sonic">Sonic</option><option value="opbnb">opBNB</option><option value="cronos">Cronos</option><option value="mode">Mode</option><option value="unichain">Unichain</option><option value="berachain">Berachain</option><option value="abstract">Abstract</option><option value="ink">Ink</option><option value="taiko">Taiko</option><option value="moonbeam">Moonbeam</option><option value="kaia">Kaia</option><option value="hyperevm">HyperEVM</option><option value="polygonzkevm">Polygon zkEVM</option></select><input id="au-ca" placeholder="Contract address (0x...)" autocomplete="off" spellcheck="false" aria-label="Contract address"><button class="go" id="au-go" type="button">Audit address</button></div>
+ <div class="sc-note" style="margin:12px 0 6px">Or paste Solidity code (single file or flattened, up to 200,000 characters)</div>
+ <textarea id="au-code" rows="9" spellcheck="false" aria-label="Solidity code" placeholder="// SPDX-License-Identifier: MIT&#10;pragma solidity ^0.8.20;&#10;contract MyToken { ... }" style="width:100%;font:15.6px ui-monospace,Menlo,Consolas,monospace;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;resize:vertical"></textarea>
+ <div style="margin-top:10px"><button class="go" id="au-gocode" type="button">Audit pasted code</button></div></div>
+-<div class="scb" id="sc-bar"><select id="sc-chain" aria-label="Network"><option value="auto">Auto-detect</option><optgroup label="Non-EVM"><option value="solana">Solana</option><option value="xrpl">XRP Ledger</option><option value="terraclassic">Terra Classic</option></optgroup><optgroup label="EVM chains"><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="arbitrum">Arbitrum</option><option value="polygon">Polygon</option><option value="optimism">Optimism</option><option value="avalanche">Avalanche</option><option value="linea">Linea</option><option value="blast">Blast</option><option value="zksync">zkSync Era</option><option value="scroll">Scroll</option><option value="mantle">Mantle</option><option value="sonic">Sonic</option><option value="unichain">Unichain</option><option value="cronos">Cronos</option><option value="robinhood">Robinhood Chain</option></optgroup></select><input id="sc-ca" placeholder="Token address (0x..., Solana mint, CODE.rIssuer or terra1...)" autocomplete="off" spellcheck="false" aria-label="Contract address"><button class="go" id="sc-go" type="button">Scan</button></div>
++<div class="scb" id="sc-bar"><select id="sc-chain" aria-label="Network"><option value="auto">Auto-detect</option><optgroup label="Non-EVM"><option value="solana">Solana</option><option value="xrpl">XRP Ledger</option><option value="terraclassic">Terra Classic</option></optgroup><optgroup label="EVM chains"><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="arbitrum">Arbitrum</option><option value="polygon">Polygon</option><option value="optimism">Optimism</option><option value="avalanche">Avalanche</option><option value="linea">Linea</option><option value="blast">Blast</option><option value="zksync">zkSync Era</option><option value="scroll">Scroll</option><option value="mantle">Mantle</option><option value="sonic">Sonic</option><option value="unichain">Unichain</option><option value="cronos">Cronos</option><option value="robinhood">Robinhood Chain</option><option value="elysium">Elysium</option></optgroup></select><input id="sc-ca" placeholder="Token address (0x..., Solana mint, CODE.rIssuer or terra1...)" autocomplete="off" spellcheck="false" aria-label="Contract address"><button class="go" id="sc-go" type="button">Scan</button></div>
+ <div class="sct" id="sc-tryrow"><span>Try:</span><button class="chip" id="sc-try" type="button">PEPE (Ethereum)</button></div></div></div><div class="sres" id="sc-res" aria-live="polite"></div></section>
+ <section id="swap" class="swc" aria-label="CBL Swap"><div class="toolhead"><div class="toolicon blue">⇄</div><div><h3>Crypto Swap &amp; Bridge</h3><p>Switch between swap and cross-chain bridge</p></div></div>
+ <div class="swap sw"><div class="tabs"><button class="chip" id="tS" aria-pressed="true">Swap</button><button class="chip" id="tB" aria-pressed="false">Bridge</button></div><div style="display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap"><button class="chip" id="wc" type="button">Connect EVM wallet</button><button class="chip" id="wcs" type="button">Connect Solana wallet</button><button class="chip" id="wcx" type="button">Connect XRPL wallet</button><button class="chip" id="wct" type="button">Connect Terra wallet</button><small id="wst" style="color:var(--mute)"></small></div><div class="nb" id="nb" hidden role="status"></div><div id="swp" style="display:flex;flex-direction:column;gap:12px"><div class="fld"><label for="cca">Any token by address</label><div><input id="cca" placeholder="Contract address, XRPL CODE.rIssuer or terra1..." style="font-size:16.8px" autocomplete="off" spellcheck="false"><select id="ccn" aria-label="Network"><option value="">Auto</option><option value="solana">Solana</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="robinhood">Robinhood Chain</option><option value="ethereum">Ethereum</option><option value="xrpl">XRP Ledger</option><option value="terraclassic">Terra Classic</option></select><button class="chip" id="ccb" type="button">Load</button></div></div><div class="tabs"><button class="chip" id="sB" type="button" aria-pressed="true">Buy</button><button class="chip" id="sS" type="button" aria-pressed="false">Sell</button></div><div class="fld"><label for="pay">You pay</label><div><input id="amt" type="number" min="0" placeholder="0.0" inputmode="decimal"><select id="pay"></select></div></div>
+@@ -1303,7 +1303,7 @@ if(document.getElementById("fgrid"))document.getElementById("fgrid").innerHTML=W
+ <script>
+ (function(){
+ var $=function(i){return document.getElementById(i)};
+-var GP={ethereum:1,bsc:56,base:8453,arbitrum:42161,polygon:137,optimism:10,avalanche:43114,linea:59144,blast:81457,zksync:324,scroll:534352,mantle:5000,sonic:146,unichain:130,cronos:25,robinhood:4663},EXP={terraclassic:"https://finder.terra-classic.hexxagon.io/mainnet/address/",xrpl:"https://xrpscan.com/account/",ethereum:"https://etherscan.io/token/",bsc:"https://bscscan.com/token/",base:"https://basescan.org/token/",arbitrum:"https://arbiscan.io/token/",polygon:"https://polygonscan.com/token/",optimism:"https://optimistic.etherscan.io/token/",avalanche:"https://snowtrace.io/token/",linea:"https://lineascan.build/token/",blast:"https://blastscan.io/token/",zksync:"https://explorer.zksync.io/address/",scroll:"https://scrollscan.com/token/",mantle:"https://mantlescan.xyz/token/",sonic:"https://sonicscan.org/token/",unichain:"https://uniscan.xyz/token/",cronos:"https://cronoscan.com/token/",robinhood:"https://robinhoodchain.blockscout.com/token/",solana:"https://solscan.io/token/"},NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync Era",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood Chain",solana:"Solana",xrpl:"XRP Ledger",terraclassic:"Terra Classic"},OKC=["ethereum","bsc","base","arbitrum","polygon","optimism","avalanche","linea","blast","zksync","scroll","mantle","sonic","unichain","cronos","robinhood","solana"];
++var GP={ethereum:1,bsc:56,base:8453,arbitrum:42161,polygon:137,optimism:10,avalanche:43114,linea:59144,blast:81457,zksync:324,scroll:534352,mantle:5000,sonic:146,unichain:130,cronos:25,robinhood:4663,elysium:99901},EXP={terraclassic:"https://finder.terra-classic.hexxagon.io/mainnet/address/",xrpl:"https://xrpscan.com/account/",ethereum:"https://etherscan.io/token/",bsc:"https://bscscan.com/token/",base:"https://basescan.org/token/",arbitrum:"https://arbiscan.io/token/",polygon:"https://polygonscan.com/token/",optimism:"https://optimistic.etherscan.io/token/",avalanche:"https://snowtrace.io/token/",linea:"https://lineascan.build/token/",blast:"https://blastscan.io/token/",zksync:"https://explorer.zksync.io/address/",scroll:"https://scrollscan.com/token/",mantle:"https://mantlescan.xyz/token/",sonic:"https://sonicscan.org/token/",unichain:"https://uniscan.xyz/token/",cronos:"https://cronoscan.com/token/",robinhood:"https://robinhoodchain.blockscout.com/token/",elysium:"https://elysium.kinetiq.xyz/explorer/address/",solana:"https://solscan.io/token/"},NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync Era",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood Chain",elysium:"Elysium",solana:"Solana",xrpl:"XRP Ledger",terraclassic:"Terra Classic"},OKC=["ethereum","bsc","base","arbitrum","polygon","optimism","avalanche","linea","blast","zksync","scroll","mantle","sonic","unichain","cronos","robinhood","elysium","solana"];
+ function j(u){return fetch(u).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()})}
+ function pc(x){var n=parseFloat(x);return isNaN(n)?null:n*100}
+ function usd(n){n=Number(n);if(!isFinite(n)||!n)return "n/a";if(n>=1e9)return "$"+(n/1e9).toFixed(2)+"B";if(n>=1e6)return "$"+(n/1e6).toFixed(2)+"M";if(n>=1e3)return "$"+(n/1e3).toFixed(1)+"K";return "$"+n.toPrecision(3)}
+@@ -1436,7 +1436,7 @@ $("au-ca").onkeydown=function(e){if(e.key==="Enter")$("au-go").click()};
+ <script>
+ (function(){
+ var G=document.getElementById("hrGrid");if(!G)return;
+-var NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood",solana:"Solana"},SW={ethereum:1,bsc:1,base:1,robinhood:1,solana:1};
++var NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood",elysium:"Elysium",solana:"Solana"},SW={ethereum:1,bsc:1,base:1,robinhood:1,solana:1};
+ var R=[],CV=[],M="safe",esc=function(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
+ var usd=function(n){n=Number(n);if(!isFinite(n)||!n)return"—";if(n>=1e9)return"$"+(n/1e9).toFixed(2)+"B";if(n>=1e6)return"$"+(n/1e6).toFixed(2)+"M";if(n>=1e3)return"$"+(n/1e3).toFixed(1)+"K";return"$"+n.toFixed(0)};
+ var price=function(p){p=Number(p);if(!p)return"—";return p>=1?"$"+p.toLocaleString("en-US",{maximumFractionDigits:2}):p<1e-6?"$"+p.toExponential(2):"$"+p.toPrecision(3)};
+diff --git a/radar.html b/radar.html
+index 4f7a39e..dc09bb8 100644
+--- a/radar.html
++++ b/radar.html
+@@ -112,7 +112,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
+ </main><footer>CBL Crypto Hub · <a href="mailto:hello@cryptobarlounge.space">hello@cryptobarlounge.space</a> · Token data is informational, not investment advice.</footer><script>
+ (function(){
+ var $=function(i){return document.getElementById(i)},esc=function(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
+-var NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood",solana:"Solana"};
++var NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood",elysium:"Elysium",solana:"Solana"};
+ var SWAP={ethereum:1,bsc:1,base:1,robinhood:1,solana:1};
+ var ROWS=[],CURVE=[],CS="hot",TAB="trending",CHAIN="all",SHOW=40,T=0,NOW=0;
+ function DATA(){return TAB==="curve"?CURVE:ROWS}
+diff --git a/wallet.html b/wallet.html
+index 4bc0ab6..6e784cc 100644
+--- a/wallet.html
++++ b/wallet.html
+@@ -252,7 +252,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
+ <p>Paste any wallet to see every token it created, which ones are still alive, and what it bought and sold this week. Then follow it in Telegram and get a DM on its next move.</p>
+ <form class="wt-search" id="wtForm" autocomplete="off">
+ <input id="wtAddr" placeholder="Wallet address: 0x…, Solana, XRPL r… or terra1…" spellcheck="false" aria-label="Wallet address">
+-<select id="wtChain" aria-label="Network"><option value="auto">All chains</option><optgroup label="EVM chain (optional)"><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="arbitrum">Arbitrum</option><option value="polygon">Polygon</option><option value="optimism">Optimism</option><option value="avalanche">Avalanche</option><option value="linea">Linea</option><option value="blast">Blast</option><option value="zksync">zkSync Era</option><option value="scroll">Scroll</option><option value="mantle">Mantle</option><option value="sonic">Sonic</option><option value="unichain">Unichain</option><option value="cronos">Cronos</option><option value="robinhood">Robinhood Chain</option></optgroup></select>
++<select id="wtChain" aria-label="Network"><option value="auto">All chains</option><optgroup label="EVM chain (optional)"><option value="ethereum">Ethereum</option><option value="bsc">BNB Chain</option><option value="base">Base</option><option value="arbitrum">Arbitrum</option><option value="polygon">Polygon</option><option value="optimism">Optimism</option><option value="avalanche">Avalanche</option><option value="linea">Linea</option><option value="blast">Blast</option><option value="zksync">zkSync Era</option><option value="scroll">Scroll</option><option value="mantle">Mantle</option><option value="sonic">Sonic</option><option value="unichain">Unichain</option><option value="cronos">Cronos</option><option value="robinhood">Robinhood Chain</option><option value="elysium">Elysium</option></optgroup></select>
+ <button class="wt-go" id="wtGo" type="submit">Check wallet</button>
+ </form>
+ <div class="wt-recent" id="wtRecent"></div>
+@@ -266,7 +266,7 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
+ </section>
+ <section class="wt-how">
+ <h3>Supported chains</h3>
+-<p>Solana, XRP Ledger, Terra Classic, and EVM: Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos and Robinhood Chain.</p>
++<p>Solana, XRP Ledger, Terra Classic, and EVM: Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos, Robinhood Chain and Elysium.</p>
+ <h3>Bot commands</h3>
+ <p><code>/wallet &lt;address&gt;</code> developer report · <code>/track &lt;address&gt; [chain] [name]</code> alerts · <code>/wallets</code> your list · <code>/untrack &lt;address&gt;</code>. On any token scan, tap <b>📜 Dev history</b> or <b>👤 Track dev</b>.</p>
+ <p class="wt-note">EVM: tokens the wallet deployed itself are counted. Launches through a factory (four.meme, Clanker…) show up as buys. Data comes from public explorers and DexScreener and can lag a few minutes. Not financial advice.</p>
+@@ -276,9 +276,9 @@ section#market-discovery .eyebrow{background:rgba(255,255,255,.13)}
+ (function(){
+ var $=function(i){return document.getElementById(i)},esc=function(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})};
+ var BOT="CBLScannerBot";fetch("/api/config").then(function(r){return r.json()}).then(function(c){if(c&&c.bot){BOT=c.bot;$("wtBotLink").href="https://t.me/"+BOT}}).catch(function(){});
+-var NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync Era",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood Chain",solana:"Solana",xrpl:"XRP Ledger",terraclassic:"Terra Classic",evm:"EVM"};
+-var ADDR={solana:"https://solscan.io/account/",xrpl:"https://xrpscan.com/account/",terraclassic:"https://finder.terra-classic.hexxagon.io/mainnet/address/",ethereum:"https://etherscan.io/address/",bsc:"https://bscscan.com/address/",base:"https://basescan.org/address/",arbitrum:"https://arbiscan.io/address/",polygon:"https://polygonscan.com/address/",optimism:"https://optimistic.etherscan.io/address/",avalanche:"https://snowtrace.io/address/",linea:"https://lineascan.build/address/",blast:"https://blastscan.io/address/",zksync:"https://explorer.zksync.io/address/",scroll:"https://scrollscan.com/address/",mantle:"https://mantlescan.xyz/address/",sonic:"https://sonicscan.org/address/",unichain:"https://uniscan.xyz/address/",cronos:"https://cronoscan.com/address/",robinhood:"https://robinhoodchain.blockscout.com/address/"};
+-var TX=function(c,h){return(ADDR[c]||"").replace(/\/(address|account)\/$/,"/tx/")+h};
++var NM={ethereum:"Ethereum",bsc:"BNB Chain",base:"Base",arbitrum:"Arbitrum",polygon:"Polygon",optimism:"Optimism",avalanche:"Avalanche",linea:"Linea",blast:"Blast",zksync:"zkSync Era",scroll:"Scroll",mantle:"Mantle",sonic:"Sonic",unichain:"Unichain",cronos:"Cronos",robinhood:"Robinhood Chain",elysium:"Elysium",solana:"Solana",xrpl:"XRP Ledger",terraclassic:"Terra Classic",evm:"EVM"};
++var ADDR={solana:"https://solscan.io/account/",xrpl:"https://xrpscan.com/account/",terraclassic:"https://finder.terra-classic.hexxagon.io/mainnet/address/",ethereum:"https://etherscan.io/address/",bsc:"https://bscscan.com/address/",base:"https://basescan.org/address/",arbitrum:"https://arbiscan.io/address/",polygon:"https://polygonscan.com/address/",optimism:"https://optimistic.etherscan.io/address/",avalanche:"https://snowtrace.io/address/",linea:"https://lineascan.build/address/",blast:"https://blastscan.io/address/",zksync:"https://explorer.zksync.io/address/",scroll:"https://scrollscan.com/address/",mantle:"https://mantlescan.xyz/address/",sonic:"https://sonicscan.org/address/",unichain:"https://uniscan.xyz/address/",cronos:"https://cronoscan.com/address/",robinhood:"https://robinhoodchain.blockscout.com/address/",elysium:"https://elysium.kinetiq.xyz/explorer/address/"};
++var TX=function(c,h){return(ADDR[c]||"").replace(/\/(address|account)\/$/,c==="elysium"?"/transaction/":"/tx/")+h};
+ var fam=function(a){return/^0x[a-fA-F0-9]{40}$/.test(a)?"evm":/^terra1[02-9ac-hj-np-z]{38}$/.test(a)?"terraclassic":/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/.test(a)?"xrpl":/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a)?"solana":null};
+ var usd=function(n){n=Number(n);if(!isFinite(n)||!n)return"—";if(n>=1e9)return"$"+(n/1e9).toFixed(2)+"B";if(n>=1e6)return"$"+(n/1e6).toFixed(2)+"M";if(n>=1e3)return"$"+(n/1e3).toFixed(1)+"K";return"$"+n.toPrecision(3)};
+ var amt=function(n){n=Math.abs(Number(n));if(!isFinite(n))return"?";if(n>=1e9)return+(n/1e9).toFixed(2)+"B";if(n>=1e6)return+(n/1e6).toFixed(2)+"M";if(n>=1e4)return+(n/1e3).toFixed(1)+"K";if(n>=1)return n.toLocaleString("en-US",{maximumFractionDigits:2});return n?String(+n.toPrecision(3)):"0"};
