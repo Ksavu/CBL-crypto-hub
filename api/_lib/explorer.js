@@ -190,7 +190,9 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   dbg.source = src; dbg.firstBlock = first; dbg.launch = launch; dbg.launchOffset = launch - first; dbg.recipients = recs.length;
   const by = {};
   recs.forEach((r) => { if (r.blk >= launch && r.blk - launch <= cfg.win) by[r.to] = { first: r.blk }; });
-  const boughtOf = (ws) => { const set = new Set(ws); let t = 0; sends.concat(chunkT.filter((x) => x.from !== src)).forEach((x) => { if (set.has(x.to) && x.blk >= launch && x.blk - launch <= cfg.fan) t += x.amt; }); return supply > 0 ? (t / supply) * 100 : null; };
+  // span = how many blocks after launch count. Pool buyers: only the launch window (a bot that keeps buying and selling
+  // would otherwise have the same tokens counted again and again). Distributions: the longer fan-out window.
+  const boughtOf = (ws, span) => { const set = new Set(ws); let t = 0; sends.concat(chunkT.filter((x) => x.from !== src)).forEach((x) => { if (set.has(x.to) && x.blk >= launch && x.blk - launch <= span) t += x.amt; }); return supply > 0 ? (t / supply) * 100 : null; };
   const all = Object.keys(by), same = all.filter((a) => by[a].first - launch <= (cfg.bwin || 0));
   // Bundle = one wallet that received tokens at launch and immediately fanned them out to many fresh wallets
   const got = {}; // wallets that received tokens (from the distributor or a mint) -> block
@@ -211,13 +213,13 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   let bundle = fanPick ? Array.from(fan[fanPick].to).filter((a) => a !== src && !isC.has(a)).slice(0, 60) : srcWallet ? (allW.length >= 2 ? allW.slice(0, 60) : []) : (sameW.length >= 2 ? sameW : []);
   const distribution = !!fanPick || (srcWallet && bundle.length > 0);
   const snipe = srcWallet && !fanPick ? [] : all.filter((a) => !bundle.includes(a) && !isC.has(a));
-  const grp = async (ws) => {
+  const grp = async (ws, span) => {
     if (!ws.length) return null;
     const sel = ws.slice(0, 40);
     const bal = await Promise.all(sel.map((a) => rpcCall(cfg, "eth_call", [{ to: token, data: "0x70a08231" + pad(a).slice(2) }, "latest"]).then((v) => (typeof v === "string" && v.length > 2 ? parseInt(v, 16) : 0)).catch(() => 0)));
-    return { wallets: ws.length, boughtPct: boughtOf(ws), stillHolding: bal.filter((x) => x > 0).length, heldPct: (supply > 0 ? (bal.reduce((x, y) => x + y, 0) / supply) * 100 : null) };
+    return { wallets: ws.length, boughtPct: boughtOf(ws, span), stillHolding: bal.filter((x) => x > 0).length, heldPct: (supply > 0 ? (bal.reduce((x, y) => x + y, 0) / supply) * 100 : null) };
   };
-  const [bundlers, snipers] = await Promise.all([grp(bundle), grp(snipe)]);
+  const [bundlers, snipers] = await Promise.all([grp(bundle, distribution ? cfg.fan : cfg.win), grp(snipe, cfg.win)]);
   dbg.buyers = all.length; dbg.sameBlock = same.length;
   // diagnostics: first-time receivers from ANY sender (launchpads often fan out through helper contracts)
   const seen = {}, blkCount = {};
