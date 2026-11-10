@@ -133,7 +133,7 @@ async function diag() {
       tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
     logRange: logRange(),
-    hint: "rpc.ok must be true. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the deployer, verified-source check, audits and the wallet tracker need it.",
+    hint: "rpc.ok must be true. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the wallet tracker needs it.",
   };
 }
 

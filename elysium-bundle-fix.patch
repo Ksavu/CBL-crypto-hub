@@ -1,0 +1,59 @@
+diff --git a/api/_lib/elysium.js b/api/_lib/elysium.js
+index 9187187..f48e53d 100644
+--- a/api/_lib/elysium.js
++++ b/api/_lib/elysium.js
+@@ -133,7 +133,7 @@ async function diag() {
+       tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
+     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
+     logRange: logRange(),
+-    hint: "rpc.ok must be true. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the deployer, verified-source check, audits and the wallet tracker need it.",
++    hint: "rpc.ok must be true. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the wallet tracker needs it.",
+   };
+ }
+ 
+diff --git a/api/_lib/explorer.js b/api/_lib/explorer.js
+index 120120c..896ace3 100644
+--- a/api/_lib/explorer.js
++++ b/api/_lib/explorer.js
+@@ -99,6 +99,16 @@ const pad = (a) => "0x" + a.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+ const rpcCall = (cfg, method, params) => get(cfg.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }).then((r) => (r && r.result !== undefined ? r.result : null));
+ const logs = (cfg, token, pair, from, to) => rpcCall(cfg, "eth_getLogs", [{ address: token, topics: [TRANSFER, pad(pair)], fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16) }]);
+ 
++/** Which of these addresses are contracts (eth_getCode, batches of 50). */
++async function codeSet(cfg, addrs) {
++  const out = new Set();
++  for (let i = 0; i < addrs.length; i += 50) {
++    const part = addrs.slice(i, i + 50);
++    const r = await get(cfg.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(part.map((a, k) => ({ jsonrpc: "2.0", id: k, method: "eth_getCode", params: [a, "latest"] }))) });
++    (Array.isArray(r) ? r : []).forEach((x) => { if (x && typeof x.result === "string" && x.result.length > 2 && part[x.id]) out.add(part[x.id]); });
++  }
++  return out;
++}
+ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budgetMs = 9000) {
+   const cfg = await conf(chain); if (!cfg) return null;
+   const dbg = { supply: supply || null, creationTx: creationTx || null }, fail = (why) => ({ traced: false, dbg: Object.assign(dbg, { why }) });
+@@ -179,7 +189,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
+   dbg.source = src; dbg.firstBlock = first; dbg.launch = launch; dbg.launchOffset = launch - first; dbg.recipients = recs.length;
+   const by = {};
+   recs.forEach((r) => { if (r.blk >= launch && r.blk - launch <= cfg.win) by[r.to] = { first: r.blk }; });
+-  const boughtOf = (ws) => { const set = new Set(ws); let t = 0; sends.concat(chunkT).forEach((x) => { if (set.has(x.to) && x.blk >= launch && x.blk - launch <= cfg.fan) t += x.amt; }); return supply > 0 ? (t / supply) * 100 : null; };
++  const boughtOf = (ws) => { const set = new Set(ws); let t = 0; sends.concat(chunkT.filter((x) => x.from !== src)).forEach((x) => { if (set.has(x.to) && x.blk >= launch && x.blk - launch <= cfg.fan) t += x.amt; }); return supply > 0 ? (t / supply) * 100 : null; };
+   const all = Object.keys(by), same = all.filter((a) => by[a].first - launch <= (cfg.bwin || 0));
+   // Bundle = one wallet that received tokens at launch and immediately fanned them out to many fresh wallets
+   const got = {}; // wallets that received tokens (from the distributor or a mint) -> block
+@@ -188,8 +198,13 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
+   chunkT.forEach((x) => { if (x.from === src || x.blk - first > cfg.fan || x.to === src || DEAD.test(x.to) || x.to === tk || zero.test(x.to)) return; (fan[x.from] = fan[x.from] || { to: new Set(), amt: 0 }); fan[x.from].to.add(x.to); fan[x.from].amt += x.amt; });
+   const fans = Object.keys(fan).filter((a) => fan[a].to.size >= 5).sort((a, c) => fan[c].amt - fan[a].amt);
+   dbg.fanOut = fans.slice(0, 4).map((a) => a.slice(0, 8) + ":" + fan[a].to.size + ":" + (supply > 0 ? ((fan[a].amt / supply) * 100).toFixed(1) : "?") + "%");
+-  let bundle = fans.length ? Array.from(fan[fans[0]].to).filter((a) => a !== src).slice(0, 60) : (same.length >= 2 ? same : []);
+-  const snipe = all.filter((a) => !bundle.includes(a));
++  // Contracts are not buyers: routers, pool managers, lockers and launchpad contracts receive and fan out tokens at launch too.
++  const fansTop = fans.slice(0, 4);
++  const isC = await codeSet(cfg, [...new Set(fansTop.concat(...fansTop.map((a) => Array.from(fan[a].to)), all))].slice(0, 200)).catch(() => new Set());
++  dbg.contractsSkipped = isC.size;
++  const fanPick = fansTop.find((a) => !isC.has(a)), sameW = same.filter((a) => !isC.has(a));
++  let bundle = fanPick ? Array.from(fan[fanPick].to).filter((a) => a !== src && !isC.has(a)).slice(0, 60) : (sameW.length >= 2 ? sameW : []);
++  const snipe = all.filter((a) => !bundle.includes(a) && !isC.has(a));
+   const grp = async (ws) => {
+     if (!ws.length) return null;
+     const sel = ws.slice(0, 40);
