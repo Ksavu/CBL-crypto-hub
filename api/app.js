@@ -58,7 +58,7 @@ function posOut(list, st) {
     chain: p.chain, c: T.CODE[p.chain], token: p.token, sym: p.sym, url: p.url, amount: Number(p.raw) / 10 ** p.dec, valueUsd: p.valueUsd, valueNat: p.valueNat,
     priceUsd: p.priceUsd, spentNat: p.spentNat, gotNat: p.gotNat, pnlNat: p.pnlNat, pnlPct: p.pnlPct })).sort((a, b) => st.sort === "az" ? String(a.sym || a.token).localeCompare(String(b.sym || b.token)) : st.sort === "low" ? (a.valueUsd || 0) - (b.valueUsd || 0) : (b.valueUsd || 0) - (a.valueUsd || 0));
 }
-const ordOut = (o) => ({ id: o.id, chain: o.chain, c: T.CODE[o.chain], token: o.token, kind: o.kind, pct: o.params.pct, sell: o.params.sell, ref: o.params.ref, trig: o.params.trig });
+const ordOut = (o) => ({ id: o.id, chain: o.chain, c: T.CODE[o.chain], token: o.token, kind: o.kind, pct: o.params.pct, sell: o.params.sell, amount: o.params.amount || null, ref: o.params.ref, trig: o.params.trig });
 const setOut = (s) => ({ slipBuy: s.slipBuy, slipSell: s.slipSell, maxImpact: s.maxImpact, minPos: s.minPos, sort: s.sort, presets: s.presets, sellP: s.sellP, mev: s.mev, prio: s.prio, sellConfirm: s.sellConfirm, autoTp: s.autoTp, autoSl: s.autoSl, bundle: s.bundle, bundleTip: s.bundleTip });
 
 /** Only these settings can be changed from the web, each validated. */
@@ -120,12 +120,39 @@ module.exports = async (req, res) => {
         const r = c === "s" && st.bundle ? Object.assign(await B.sell(uid, p.ca, pct), { bundle: true }) : await T.sell(uid, c, p.ca, pct);
         out = { ok: true, c, tx: r.hash || (r.sigs && r.sigs[0]), txs: r.sigs || [r.hash], route: r.route, received: fmt(r.out, c), fee: fmt(r.fee || 0n, c), bundle: !!r.bundle };
       } else if (a === "positions") { out = { positions: posOut((await T.positions(uid)).list, st) }; }
+      else if (a === "addOrder" && p.kind === "lb") { const c = codeOf(p.ca, p.chain); out = await O.addLimit(uid, c, p.ca, Number(p.pct), String(p.amount || "")); out.orders = (await O.list(uid, T.CH[c].key, p.ca)).map(ordOut); }
       else if (a === "addOrder") { const c = codeOf(p.ca, p.chain); out = await O.add(uid, c, p.ca, p.kind === "sl" ? "stop_loss" : "take_profit", p.pct, p.sell); out.orders = (await O.list(uid, T.CH[c].key, p.ca)).map(ordOut); }
       else if (a === "cancelOrder") { await O.cancel(uid, p.id); out = { orders: (await O.list(uid)).map(ordOut) }; }
       else if (a === "settings") { const s = cleanSettings(st, p || {}); await T.saveSettings(uid, Object.assign(st, s, { pend: st.pend || null })); out = { settings: setOut(T.settings(await T.getRow(uid))) }; }
       else if (a === "addWallet") { await B.addWallet(uid); out = await home(uid); }
       else if (a === "spread") { const r = await B.spread(uid, String(p.each)); out = { sent: fmt(r.amt, "s"), n: r.n }; }
       else if (a === "collect") { const r = await B.collect(uid); out = { total: fmt(r.total, "s") }; }
+      else if (a === "refs") { // referrals: link + earnings per coin
+        const R = require("./_lib/refs"), st2 = await R.stats(uid), bot = String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, "");
+        out = { link: `https://t.me/${bot}?start=ref_${uid}`, share: st2.share, invited: st2.invited, trades: st2.trades,
+          coins: Object.keys(T.CH).map((c) => ({ c, nat: nat(c), name: T.CH[c].name, earned: fmt(st2.earned[c], c), avail: fmt(st2.avail[c], c), min: R.MIN[c], can: st2.avail[c] >= T.toUnits(R.MIN[c], T.CH[c].dec) })) };
+      }
+      else if (a === "refClaim") {
+        const admins = String(process.env.ADMIN_IDS || "").split(",").map((x) => x.trim()).filter(Boolean);
+        const notify = async (text) => { for (const id of admins) await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ chat_id: id, text, parse_mode: "HTML" }) }).catch(() => {}); };
+        const r = await require("./_lib/refs").claim(uid, p.c, notify);
+        out = { amount: fmt(r.amt, r.c), nat: nat(r.c), tx: r.tx || null, queued: r.queued || null };
+      }
+      else if (a === "copyList") {
+        const C = require("./_lib/copy"), db = require("./_lib/db");
+        const rows = await C.list(uid), log = (await db.select("bot_copy_log", `tg_id=eq.${uid}&select=side,token,ok,note,created_at&order=id.desc&limit=10`).catch(() => [])) || [];
+        out = { max: C.MAX_TARGETS, list: rows.map((r) => ({ id: r.id, chain: r.chain, c: T.CODE[r.chain], nat: nat(T.CODE[r.chain]), target: r.target, label: r.label, amount: r.amount, sells: r.sells, safe: r.safe, max_day: r.max_day, active: r.active })),
+          log: log.map((x) => ({ side: x.side, token: x.token, ok: x.ok, note: x.ok === false ? String(x.note || "").slice(0, 80) : null, at: x.created_at })) };
+      }
+      else if (a === "copyAdd") { await require("./_lib/copy").add(uid, String(p.target || ""), String(p.amount || ""), p.chain || null, p.label || null); out = { added: true }; }
+      else if (a === "copyUpdate") {
+        const q = {}; ["active", "sells", "safe"].forEach((k) => { if (typeof p[k] === "boolean") q[k] = p[k]; });
+        if (p.amount != null) { const v = String(p.amount).trim(); if (!/^\d*\.?\d+$/.test(v) || !(Number(v) > 0)) throw new T.UserErr("Enter an amount like 0.1"); q.amount = v; }
+        if (p.max_day != null) { const n = Math.round(Number(p.max_day)); if (!(n >= 1 && n <= 200)) throw new T.UserErr("Max per day: 1–200"); q.max_day = n; }
+        if (!Object.keys(q).length) throw new T.UserErr("Nothing to change.");
+        await require("./_lib/copy").update(uid, Number(p.id), q); out = { updated: true };
+      }
+      else if (a === "copyRemove") { await require("./_lib/copy").remove(uid, Number(p.id)); out = { removed: true }; }
       else if (a === "withdraw") {
         if (age > FRESH) return res.status(401).json({ ok: false, error: "For withdrawals, please sign in again (security check).", login: true, fresh: true });
         const c = T.CH[p.c] ? p.c : null; if (!c) throw new T.UserErr("Choose a coin.");

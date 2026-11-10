@@ -256,6 +256,13 @@ async function onMessage(msg) {
         return void (await reply(msg, `✅ Claim #${cl.id} marked paid.`));
       } catch (e) { return void (await reply(msg, "⚠️ " + esc(e.message))); }
     }
+    if (name === "recap") { // daily recap: preview, or "/recap now" to post it in the channel (admins)
+      if (!require("./_lib/trendpost").isAdmin(msg.from.id)) return;
+      try {
+        if ((args[0] || "").toLowerCase() === "now") { const r = await require("./_lib/recap").job(SITE(), tg, true); return void (await reply(msg, "☀️ Recap: " + esc(r.recap))); }
+        const m = await require("./_lib/recap").build(SITE()); return void (await reply(msg, m.text, { reply_markup: m.reply_markup }));
+      } catch (e) { return void (await reply(msg, "⚠️ " + esc(e.message))); }
+    }
     if (["boost", "unboost", "boosts", "trendpost"].includes(name)) { // CBL Trending paid spots (admins only, set ADMIN_IDS)
       const TP = require("./_lib/trendpost");
       if (!TP.isAdmin(msg.from.id)) return void (await reply(msg, "🔥 Want your token in <b>CBL Trending</b>? " + (process.env.TRENDING_CONTACT ? "Contact " + esc(process.env.TRENDING_CONTACT) : "Contact the CBL team.")));

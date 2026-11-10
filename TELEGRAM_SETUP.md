@@ -175,3 +175,7 @@ They are labelled ⬆️ higher.fun by their `…high` address ending and by hig
 - In a project group (bot added as admin): `/buybot <token address>`; options `/buybot min 50`, `step 20`, `emoji 🚀`, `media <url>`, `off` / `on`.
 - Solana buys come through the Helius webhook (instant); all chains are also checked every 5 minutes (`/api/cron?job=buybot`, GitHub Actions).
 - Busy Solana tokens send many webhook calls to Vercel; watch your Vercel usage if many big tokens use the buy bot.
+
+## Daily recap
+- Posted once a day in `RECAP_CHANNEL` (or `TRENDING_CHANNEL`) at `RECAP_HOUR_UTC` (default 8 = 9:00 Belgrade winter time).
+- Admins: `/recap` preview, `/recap now` post it right away.

@@ -94,7 +94,11 @@ module.exports = async (req, res) => {
   if (job === "devs") { const r = await require("./_lib/devstats").devJob(t0 + 50000).catch((e) => ({ error: String(e.message).slice(0, 100) })); return res.status(200).json({ ok: true, job: "devs", ...r }); }
   if (job === "curves") { const r = await require("./_lib/curves").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "curves", ...r.stats }); }
   if (job === "buybot") { const r = await require("./_lib/buybot").pollJob(t0 + 50000, tg).catch((e) => ({ error: String(e.message).slice(0, 100) })); return res.status(200).json({ ok: true, job: "buybot", ...r }); }
-  if (job === "trending") { const r = await require("./_lib/trendpost").job(site, tg).catch((e) => ({ error: String(e.message).slice(0, 100) })); return res.status(200).json({ ok: true, job: "trending", ...r }); }
+  if (job === "trending") {
+    const r = await require("./_lib/trendpost").job(site, tg).catch((e) => ({ error: String(e.message).slice(0, 100) }));
+    const rc = await require("./_lib/recap").job(site, tg).catch((e) => ({ recapError: String(e.message).slice(0, 100) })); // daily recap, once a day
+    return res.status(200).json({ ok: true, job: "trending", ...r, ...rc });
+  }
   if (job === "radar") { const r = await require("./_lib/radar").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "radar", ...r.stats }); }
   const out = { checked: 0, alerts: 0, sent: 0, errors: 0 };
   try {

@@ -71,7 +71,7 @@ h2{font-size:20px;margin:22px 0 10px}
 .pills{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.pill{border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-weight:600}
 .pill[aria-pressed="true"]{background:var(--violet);border-color:var(--violet)}
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:#120e25f2;backdrop-filter:blur(12px);border-top:1px solid #ffffff12;padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:20}
-nav.tabs .in{width:min(560px,100%);margin:auto;display:grid;grid-template-columns:repeat(5,1fr)}
+nav.tabs .in{width:min(560px,100%);margin:auto;display:grid;grid-template-columns:repeat(6,1fr)}
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:11px;color:var(--muted);border-radius:12px}
 nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#fff;background:#ffffff0f}
 .field{display:flex;flex-direction:column;gap:6px;margin:12px 0}.field label{font-size:13px;color:var(--muted)}
@@ -103,7 +103,8 @@ nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#
   <button data-tab="home" aria-current="page"><span>◎</span>Home</button>
   <button data-tab="trade"><span>⇅</span>Trade</button>
   <button data-tab="positions"><span>▤</span>Positions</button>
-  <button data-tab="orders"><span>⊕</span>TP / SL</button>
+  <button data-tab="orders"><span>⊕</span>Orders</button>
+  <button data-tab="copy"><span>⧉</span>Copy</button>
   <button data-tab="wallet"><span>▣</span>Wallet</button>
 </div></nav>
 <div class="toast" id="toast" role="status"></div>
@@ -194,6 +195,7 @@ function go(tab, force) {
   if (tab === "positions") return positionsView();
   if (tab === "orders") return ordersView();
   if (tab === "wallet") return walletView(force);
+  if (tab === "copy") return copyView();
 }
 
 /* ---------- home ---------- */
@@ -222,8 +224,58 @@ async function homeView(force) {
       <div class="addr"><span>⬡</span><code>${E(w.evm)}</code><button data-copy="${E(w.evm)}">Copy</button></div>
     </section>
     <h2>Positions</h2>
-    <div class="list">${pos.length ? pos.slice(0, 8).map(posRow).join("") : '<p class="empty">No positions yet. Paste a token above to buy your first one.</p>'}</div>`;
-  bindCommon();
+    <div class="list">${pos.length ? pos.slice(0, 8).map(posRow).join("") : '<p class="empty">No positions yet. Paste a token above to buy your first one.</p>'}</div>
+    <div id="refbox"></div>`;
+  bindCommon(); refsCard();
+}
+
+/* ---------- referrals (on Home) ---------- */
+async function refsCard() {
+  const box = $("#refbox"); if (!box) return;
+  let r; try { r = await api("refs"); } catch (e) { return; }
+  const earned = r.coins.filter((c) => Number(c.earned) > 0);
+  box.innerHTML = `<h2>Invite & earn</h2>
+    <p class="small muted">Friends who join with your link pay normal fees; you get <b>${r.share}%</b> of them, forever. Earnings build up here; claim them to your CBL wallet.</p>
+    <div class="addr"><span>🔗</span><code>${E(r.link)}</code><button data-copy="${E(r.link)}">Copy</button></div>
+    <p class="small muted">Invited: <b>${r.invited}</b> · their trades: <b>${r.trades}</b></p>
+    <div class="list">${earned.length ? earned.map((c) => `<div class="row"><div class="grow"><b>${E(c.nat)} · ${E(c.name)}</b><span class="small muted">earned ${E(c.earned)} · min claim ${E(c.min)}</span></div><b>${E(c.avail)}</b>${c.can ? `<button class="btn ghost small" data-claim="${c.c}">Claim</button>` : ""}</div>`).join("") : '<p class="empty">No earnings yet. Share your link to start.</p>'}</div>`;
+  box.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copy(b.dataset.copy));
+  box.querySelectorAll("[data-claim]").forEach((b) => b.onclick = () => busy(b, async () => {
+    const x = await api("refClaim", { c: b.dataset.claim });
+    toast(x.tx ? `Claimed ${x.amount} ${x.nat} to your wallet` : `Claim of ${x.amount} ${x.nat} received. It will be paid shortly.`); S.home = null; refsCard();
+  }));
+}
+
+/* ---------- copy trading ---------- */
+async function copyView() {
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading copy trading…</div>';
+  let d; try { d = await api("copyList"); } catch (e) { if (!e.quiet) view.innerHTML = `<p class="empty">${E(e.message)}</p>`; return; }
+  view.innerHTML = `<h2>Copy trading</h2>
+    <p class="small muted">Follow a wallet. When it buys, you buy the same token with your amount. When it sells, you sell the same share. Solana copies are instant; BNB, Base and Robinhood within 5 minutes.</p>
+    <div class="list">${d.list.length ? d.list.map((r) => `<div class="row" style="flex-wrap:wrap">
+      <div class="grow"><b>${r.active ? "🟢" : "⏸"} ${E(r.label || short(r.target))}</b><span class="small muted">${E(CH[r.c] ? CH[r.c].name : r.chain)} · ${short(r.target)}</span></div>
+      <button class="btn ghost small" data-cp="${r.id}" data-k="active" data-v="${!r.active}">${r.active ? "Pause" : "Resume"}</button>
+      <button class="btn ghost small" data-cdel="${r.id}">Remove</button>
+      <div style="width:100%;display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px">
+        <form class="custom" data-camt="${r.id}" style="flex:1;min-width:180px;margin:0"><input inputmode="decimal" value="${E(r.amount)}" aria-label="Amount per buy"><button class="btn small">${E(r.nat)} / buy</button></form>
+        <label class="small"><input type="checkbox" data-cp="${r.id}" data-k="sells" ${r.sells ? "checked" : ""}> Copy sells</label>
+        <label class="small"><input type="checkbox" data-cp="${r.id}" data-k="safe" ${r.safe ? "checked" : ""}> 🛡 Safe mode</label>
+      </div></div>`).join("") : '<p class="empty">You don\'t follow any wallet yet.</p>'}</div>
+    ${d.list.length < d.max ? `<h2>Follow a wallet</h2>
+    <form id="cadd"><div class="field"><label for="ct">Wallet address</label><input id="ct" autocomplete="off" spellcheck="false" placeholder="Solana or 0x wallet"></div>
+    <div class="two"><div class="field"><label for="ca2">Amount per buy</label><input id="ca2" inputmode="decimal" placeholder="0.1"></div>
+    <div class="field"><label for="cc">Chain (0x wallets)</label><select id="cc"><option value="">Solana (auto)</option><option value="bnb">BNB Chain</option><option value="base">Base</option><option value="robinhood">Robinhood</option></select></div></div>
+    <div class="field"><label for="cl">Name (optional)</label><input id="cl" maxlength="20" placeholder="whale"></div>
+    <button class="btn main" style="width:100%">Follow</button></form>` : ""}
+    ${d.log.length ? `<h2>Last copies</h2><div class="list">${d.log.map((x) => `<div class="row"><div class="grow"><b>${x.ok ? "✅" : x.ok === false ? "⚠️" : "⏳"} ${E(x.side)} ${short(x.token)}</b>${x.note ? `<span class="small muted">${E(x.note)}</span>` : ""}</div><span class="small muted">${new Date(x.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</span></div>`).join("")}</div>` : ""}
+    <p class="small muted" style="margin-top:18px">🛡 Safe mode skips tokens with a CBL score under 50 and honeypots. Max ${d.list[0] ? d.list[0].max_day : 20} copied buys per day. Your auto TP/SL settings apply. Copying is risky: wallets you follow can dump on you. Keep enough coin in your CBL wallet.</p>`;
+  view.querySelectorAll("button[data-cp]").forEach((b) => b.onclick = () => busy(b, async () => { await api("copyUpdate", { id: Number(b.dataset.cp), [b.dataset.k]: b.dataset.v === "true" }); copyView(); }));
+  view.querySelectorAll("input[data-cp]").forEach((i) => i.onchange = () => busy(null, async () => { await api("copyUpdate", { id: Number(i.dataset.cp), [i.dataset.k]: i.checked }); toast("Saved"); }));
+  view.querySelectorAll("[data-cdel]").forEach((b) => b.onclick = () => { if (confirm("Stop following this wallet?")) busy(b, async () => { await api("copyRemove", { id: Number(b.dataset.cdel) }); toast("Removed"); copyView(); }); });
+  view.querySelectorAll("form[data-camt]").forEach((f) => f.onsubmit = (ev) => { ev.preventDefault(); busy(ev.submitter, async () => { await api("copyUpdate", { id: Number(f.dataset.camt), amount: f.querySelector("input").value.trim() }); toast("Amount saved"); }); });
+  const fa = $("#cadd"); if (fa) fa.onsubmit = (ev) => { ev.preventDefault(); const t = $("#ct").value.trim(), a = $("#ca2").value.trim();
+    if (!t || !a) return toast("Enter the wallet and amount", true);
+    busy(ev.submitter, async () => { await api("copyAdd", { target: t, amount: a, chain: $("#cc").value || null, label: $("#cl").value.trim() || null }); toast("Following"); copyView(); }); };
 }
 const posRow = (p) => `<button class="row" data-open="${E(p.token)}" data-c="${p.c}" style="text-align:left;width:100%"><div class="grow"><b>${E(p.sym || short(p.token))}</b><span class="small muted">${CH[p.c].name} · ${num(p.amount)}</span></div><div style="text-align:right"><b>${usd(p.valueUsd)}</b><div class="small ${p.pnlNat == null ? "muted" : p.pnlNat >= 0 ? "up" : "down"}">${p.pnlNat == null ? "–" : (p.pnlNat >= 0 ? "+" : "") + nat(p.pnlNat) + " " + CH[p.c].nat + (p.pnlPct != null ? ` (${p.pnlPct >= 0 ? "+" : ""}${p.pnlPct.toFixed(0)}%)` : "")}</div></div></button>`;
 function bindCommon() {
@@ -302,6 +354,7 @@ async function tokenView(ca, c) {
       <div style="margin-top:8px">
         <form class="custom" id="tpf"><input id="tpv" inputmode="decimal" placeholder="TP +%" aria-label="Take profit percent"><input id="tps" inputmode="decimal" placeholder="sell %" value="50" aria-label="Take profit sell percent" style="max-width:76px"><button class="btn" aria-label="Add take profit">＋</button></form>
         <form class="custom" id="slf"><input id="slv" inputmode="decimal" placeholder="SL −%" aria-label="Stop loss percent"><input id="sls" inputmode="decimal" placeholder="sell %" value="100" aria-label="Stop loss sell percent" style="max-width:76px"><button class="btn" aria-label="Add stop loss">＋</button></form>
+        <form class="custom" id="lbf"><input id="lbv" inputmode="decimal" placeholder="Buy at −%" aria-label="Limit buy drop percent"><input id="lba" inputmode="decimal" placeholder="amount" aria-label="Limit buy amount" style="max-width:86px"><button class="btn" aria-label="Add limit buy">＋</button></form>
       </div>
     </div>
     <p class="small muted" style="margin-top:14px">Slippage buy ${st.slipBuy}% · sell ${st.slipSell}% · fee ${(S.home && S.home.fee) || 1}%. Change it under ⚙.</p>
@@ -313,6 +366,8 @@ async function tokenView(ca, c) {
   $("#cs").onsubmit = (ev) => { ev.preventDefault(); doSell(ev.submitter, Number($("#csv").value)); };
   $("#tpf").onsubmit = (ev) => { ev.preventDefault(); addOrder(ev.submitter, "tp", $("#tpv").value, $("#tps").value); };
   $("#slf").onsubmit = (ev) => { ev.preventDefault(); addOrder(ev.submitter, "sl", $("#slv").value, $("#sls").value); };
+  $("#lbf").onsubmit = (ev) => { ev.preventDefault(); const v = $("#lbv").value, a = $("#lba").value.trim(); if (!v || !a) return toast("Enter the drop % and amount", true);
+    busy(ev.submitter, async () => { const r = await api("addOrder", { ca, chain: CH[cc].key, kind: "lb", pct: Number(v), amount: a }); toast(`Limit buy set at −${v}%`); $("#ol").innerHTML = ordersList(r.orders); bindOrders(); }); };
   bindOrders();
   function txLinks(r) { const exp = { s: "https://solscan.io/tx/", b: "https://bscscan.com/tx/", e: "https://basescan.org/tx/", r: "https://robinhoodchain.blockscout.com/tx/" }[cc]; return (r.txs || [r.tx]).filter(Boolean).map((x) => exp + x); }
   async function doBuy(btn, amt) {
@@ -330,7 +385,7 @@ async function tokenView(ca, c) {
   }
 }
 function lastTx(links) { if (!links.length) return; const p = document.createElement("p"); p.className = "small"; p.innerHTML = "Transaction: " + links.map((l, i) => `<a href="${l}" target="_blank" rel="noopener">${links.length > 1 ? "tx " + (i + 1) : "view"}</a>`).join(" · "); setTimeout(() => { const s = view.querySelector(".tok"); if (s) s.prepend(p); }, 900); }
-const ordersList = (os) => (os || []).length ? os.map((o) => `<div class="row"><div class="grow"><b>${o.kind === "take_profit" ? "Take profit +" : "Stop loss −"}${o.pct}% → sell ${o.sell}%</b><span class="small muted">${CH[o.c].name} · ${short(o.token)} · at ${Number(o.trig).toPrecision(4)} ${CH[o.c].nat}</span></div><button class="btn ghost small" data-cancel="${o.id}">Cancel</button></div>`).join("") : '<p class="small muted" style="margin:4px 2px">No orders. Add a take profit or stop loss below.</p>';
+const ordersList = (os) => (os || []).length ? os.map((o) => `<div class="row"><div class="grow"><b>${o.kind === "limit_buy" ? `Limit buy −${o.pct}% → spend ${o.amount} ${CH[o.c].nat}` : (o.kind === "take_profit" ? "Take profit +" : "Stop loss −") + o.pct + "% → sell " + o.sell + "%"}</b><span class="small muted">${CH[o.c].name} · ${short(o.token)} · at ${Number(o.trig).toPrecision(4)} ${CH[o.c].nat}</span></div><button class="btn ghost small" data-cancel="${o.id}">Cancel</button></div>`).join("") : '<p class="small muted" style="margin:4px 2px">No orders. Add a take profit, stop loss or limit buy below.</p>';
 function bindOrders() { view.querySelectorAll("[data-cancel]").forEach((b) => b.onclick = () => busy(b, async () => { const r = await api("cancelOrder", { id: Number(b.dataset.cancel) }); toast("Order cancelled"); if (S.tab === "orders") ordersView(); else { const el = $("#ol"); if (el) { el.innerHTML = ordersList(r.orders.filter((o) => S.tok && o.token.toLowerCase() === S.tok.ca.toLowerCase())); bindOrders(); } } })); }
 
 /* ---------- positions / orders ---------- */
@@ -340,7 +395,7 @@ async function positionsView() {
 }
 async function ordersView() {
   view.innerHTML = '<div class="empty"><span class="spin"></span> Loading orders…</div>';
-  try { S.home = await api("home"); view.innerHTML = `<h2>Take profit / stop loss</h2><div class="list">${ordersList(S.home.orders)}</div><p class="small muted">Open a token to add orders. Prices are checked every 5 minutes, so fast moves can fill past the target.</p>`; bindOrders(); } catch (e) { if (!e.quiet) view.innerHTML = `<p class="empty">${E(e.message)}</p>`; }
+  try { S.home = await api("home"); view.innerHTML = `<h2>Orders · take profit / stop loss / limit buy</h2><div class="list">${ordersList(S.home.orders)}</div><p class="small muted">Open a token to add orders. Prices are checked every 5 minutes, so fast moves can fill past the target.</p>`; bindOrders(); } catch (e) { if (!e.quiet) view.innerHTML = `<p class="empty">${E(e.message)}</p>`; }
 }
 
 /* ---------- wallet ---------- */
