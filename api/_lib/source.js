@@ -49,6 +49,15 @@ async function etherscan(chain, addr) {
   return { name: r.ContractName || "", compiler: r.CompilerVersion || "", source: join(files), from: "Etherscan" };
 }
 async function blockscout(chain, addr) {
+  if (chain === "elysium") { // verified source from the opsis indexer; a Blockscout API only if one is configured
+    const s = await require("./elysium").indexSource(addr).catch(() => null);
+    if (s) {
+      let files = [], sc = s.source.trim();
+      try { if (sc.startsWith("{{")) sc = sc.slice(1, -1); if (sc.startsWith("{")) { const o = JSON.parse(sc), src = o.sources || o; files = Object.entries(src).map(([path, v]) => ({ path, content: (v && v.content) || "" })); } } catch (e) { files = []; }
+      if (!files.length) files = [{ path: (s.name || "Contract") + ".sol", content: sc }];
+      return { name: s.name, compiler: s.compiler, source: join(files), from: "elysiumexplore.com" };
+    }
+  }
   const api = chain === "elysium" ? await require("./elysium").blockscoutApi().catch(() => null) : BLOCKSCOUT[chain];
   if (!api) return null;
   const j = await jget(`${api}/smart-contracts/${addr}`);

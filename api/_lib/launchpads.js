@@ -26,7 +26,8 @@ function launchpadOf(chain, ca, dexes, labels) {
     if (hit(/robin/)) return { n: "RobinFun", k: "robin", g: grad(d.filter((x) => /robin/.test(x))) };
     for (const [re, n, k] of [[/klik/, "Klik", "klik"], [/printr/, "Printr", "printr"], [/dyor/, "DYOR.fun", "dyor"], [/realfun/, "RealFun", "realfun"], [/apestore/, "Ape.store", "ape"]]) if (hit(re)) return { n, k, g: null };
   }
-  if (chain === "elysium") { // launchpads DexScreener lists as their own DEX on Elysium; most others launch straight into Uniswap v4 pools
+  if (chain === "elysium") { // launchpads' own DEXes: by name, or by contract address (DexScreener shows unlabelled DEXes as addresses)
+    for (const x of d) if (ELY_DEX[x]) return { n: ELY_DEX[x], k: ELY_DEX[x].toLowerCase(), g: grad(d.filter((y) => ELY_DEX[y] === ELY_DEX[x])) || null };
     const hit = (re) => d.some((x) => re.test(x));
     for (const [re, n, k] of [[/boxa/, "BOXA", "boxa"], [/kleos/, "Kleos", "kleos"], [/montra/, "Montra", "montra"], [/elyspump/, "ElysPump", "elyspump"]]) if (hit(re)) return { n, k, g: grad(d.filter((x) => re.test(x))) || null };
   }
@@ -48,7 +49,17 @@ const BY_CREATOR = {
     "0x5fcc1df0dc020cf454e742e9a8ae2554c37a452c": "Hood.fun", "0xc6a2941b962fb667786d7f4b97f7f965d6f0a4f8": "Hood.fun",
     "0xd861cb5dc71a0171e8f0f6586cadb069f3a35e4d": "RobinFun",
   },
-  elysium: {}, // add launchpad factory contracts here (lower case) once confirmed on the explorer
+  elysium: { // token factories per launchpad, from elysiumexplore.com/v1/launchpads (2026-11-10)
+    "0x00d4c904f74f74c6920c95e3ee807ab3c52dd205": "BOXA", "0x8ca88b12bc89b58034c583f1a5df02f7e67d62e1": "BOXA", "0x56f810328a4e42e983f7f487f34776680d6cd7ab": "BOXA",
+    "0x893217cbf5c054fd6ee56893b313a4b98c4403e4": "Kleos", "0x6e3afddc49f5d43858a1fdd48184426ded11029b": "Kleos", "0x7700cb672bbd853cf57e82ea14c3ebbaac3ec470": "Kleos", "0xdd9ece123c8c9ee95122b412871c52987e4abcdd": "Kleos",
+    "0xe11cafa5901b0aab51eb78251488400f9e4320cc": "ElysPump", "0x5afe876a625a6fe230dd361b9a5bef8e9bea6fe3": "ElysPump",
+  },
+};
+// Elysium launchpads' own pool contracts (V3 factories and V4 pool managers), same source as BY_CREATOR.elysium.
+const ELY_DEX = {
+  "0x06c63714fbf1f5753017123e2fcfdede4540b2c4": "BOXA", "0xd5a7c10820446c58868a204b8979b8cc9cb2a1a3": "BOXA",
+  "0x809ff79945fffbf9b8df33bb3b62872ceb2efaf1": "Kleos", "0xb308b5df891c300a5f5a5b8fdbc30108ba842490": "Kleos",
+  "0x367f85886af509e364c8190862bc714555fefc3e": "ElysPump", "0x5fb015a49f5b35073f9ce01c2adb287a75f89600": "ElysPump",
 };
 const PAD_INFO = {
   BOXA: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",

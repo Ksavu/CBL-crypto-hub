@@ -25,11 +25,12 @@ Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
 
 - `rpc.ok` must be `true` (chain id 99901).
 - `dexscreener.elysiumPairs` and `geckoterminal.pools` should be above 0.
-- `kinetiqExplorer.holders.ok` and `.tokenScans.ok` should be `true`: that is Kinetiq's own explorer API
-  (undocumented, rate limited), used for holder count, top holders and the blocked/taxed transfer check.
-  Status `429` means rate limited; reload in a minute.
-- `blockscout` is empty unless `ELYSIUM_EXPLORER_API` is set. Without a Blockscout API there is no deployer,
-  verified-source check, contract audit or wallet tracker on Elysium.
+- `indexer.token.ok` and `indexer.holders.ok` should be `true`: that is elysiumexplore.com ("opsis"), a free
+  third-party indexer (docs: https://elysiumexplore.com/api-docs). It supplies holder count, top holders,
+  the deployer, the launchpad and verified source for audits.
+- `kinetiqExplorer` is Kinetiq's own explorer API (undocumented). It refuses server requests with `429`, so
+  it is only a backup for holders and the source of the blocked/taxed check when it does answer.
+- `blockscout` is empty unless `ELYSIUM_EXPLORER_API` is set. Only the wallet tracker still needs it.
 
 ## Vercel env (all optional)
 
@@ -37,6 +38,7 @@ Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
   The public RPC is shared by everyone, so set this before real traffic.
 - `ELYSIUM_EXPLORER_API`: Blockscout API v2 base, e.g. `https://<host>/api/v2`, if you find one. No public
   one is known. A host is only used if it knows mainnet WHYPE as a contract.
+- `ELYSIUM_INDEXER_API`: base URL of the indexer if it moves (default `https://elysiumexplore.com`).
 - `ELYSIUM_LOG_RANGE`: block span per `eth_getLogs` call (default `2000`). Raise it if your RPC allows more:
   with 100 ms blocks, 2000 blocks is only ~3 minutes, so the sniper/bundle trace reaches further back with a bigger span.
 
@@ -47,8 +49,8 @@ or when the contract exists on Elysium and not on Robinhood Chain.
 
 ## Known gaps
 
-- GoPlus and honeypot.is don't cover chain 99901. The honeypot/tax signal comes from Kinetiq's token scan,
-  which only lists tokens it flagged (blocked or taxed); mint, blacklist and pause functions are not checked
-  (the card says "Limited coverage on this chain").
-- Launchpad detection only knows the pads DexScreener lists as their own DEX (BOXA, Kleos, Montra). Add factory
-  contracts to `BY_CREATOR.elysium` in `api/_lib/launchpads.js` to tag more.
+- GoPlus and honeypot.is don't cover chain 99901, and Kinetiq's token scan (blocked/taxed) usually refuses
+  server requests, so in practice there is no honeypot or tax check yet; mint, blacklist and pause functions
+  are not checked either (the card says "Limited coverage on this chain").
+- Launchpads tagged: BOXA, Kleos, ElysPump (factories and pool contracts in `api/_lib/launchpads.js`), Montra
+  by DEX name, plus whatever the indexer reports for a token.

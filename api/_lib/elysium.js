@@ -49,17 +49,55 @@ async function blockscoutApi() {
   else { const lim = L[R.findIndex((r) => r.limited)] || null; live = { t: Date.now() - 4 * 60e3, api: null, soft: lim }; return lim; }
   return live.api;
 }
+// opsis (elysiumexplore.com): free third-party indexer with a documented API (https://elysiumexplore.com/api-docs).
+// Main source for holders, deployer, launchpad and verified source. ELYSIUM_INDEXER_API overrides the base URL.
+const indexer = () => (env("ELYSIUM_INDEXER_API") || "https://elysiumexplore.com").replace(/\/+$/, "");
+const NOT_A_PAD = /^(uniswap|bridged|ramses|aero)/i; // "pad" ids that only say where the first pool is
+const PAD_NAME = { "boxa-v3": "BOXA", "boxa-v4": "BOXA", kleos: "Kleos", elyspump: "ElysPump" }; // indexer pad id -> the name used in launchpads.js
+/** { name, symbol, supply (raw string), holders, creator, creationTx, top10Share (%), pad } or null. */
+async function indexToken(addr) {
+  const r = await jget(`${indexer()}/v1/tokens/${String(addr).toLowerCase()}`, 4000), t = r.json && r.json.token;
+  if (!t || String(t.address || "").toLowerCase() !== String(addr).toLowerCase()) return null;
+  const A = (x) => (/^0x[0-9a-f]{40}$/i.test(String(x || "")) ? String(x).toLowerCase() : null), pad = r.json.pad || {};
+  const padId = String(pad.id || t.launchpad || ""), share = Number(r.json.top10Share);
+  return { name: t.name || null, symbol: t.symbol || null, supply: /^\d+$/.test(String(t.total_supply || "")) ? String(t.total_supply) : null, holders: Number(t.holders) > 0 ? Number(t.holders) : null,
+    creator: A(t.creator), creationTx: /^0x[0-9a-f]{64}$/i.test(String(t.created_tx || "")) ? t.created_tx : null, createdTs: Number(t.created_ts) || null,
+    top10Share: Number.isFinite(share) && share >= 0 && share <= 100 ? share : null,
+    pad: padId && !NOT_A_PAD.test(padId) ? PAD_NAME[padId] || String(pad.name || padId).slice(0, 30) : null, padId: padId || null };
+}
+// Holders: { holders: [{ holder, balance }], total, labels: { <address>: { name, kind: "contract" | ... } } }.
+// Other common field names are accepted too, and rows that don't parse are skipped.
+function normHolders(j) {
+  const lab = (j && !Array.isArray(j) && j.labels) || {};
+  const L = Array.isArray(j) ? j : j && (j.holders || j.items || j.data || j.result);
+  if (!Array.isArray(L)) return null;
+  const out = [];
+  for (const x of L) {
+    if (!x || typeof x !== "object") continue;
+    const a = [x.address, x.holder, x.account, x.addr, x.owner, x.wallet].map((v) => (v && typeof v === "object" ? v.hash || v.address : v)).find((v) => /^0x[0-9a-f]{40}$/i.test(String(v || "")));
+    const v = [x.balance, x.value, x.amount, x.raw, x.balance_raw].find((q) => /^\d+$/.test(String(q == null ? "" : q)));
+    if (a && v != null) out.push({ address: { hash: String(a).toLowerCase(), is_contract: x.is_contract === true || x.kind === "contract" || !!(lab[String(a).toLowerCase()] && /contract|pool|system/.test(String(lab[String(a).toLowerCase()].kind))) }, value: String(v) });
+  }
+  return out.length ? { items: out, total: j && Number(j.total) > 0 ? Number(j.total) : null } : null;
+}
+const indexHolders = (addr) => jget(`${indexer()}/v1/tokens/${String(addr).toLowerCase()}/holders`, 4000).then((r) => normHolders(r.json));
+/** Verified source through the indexer's Etherscan-style route: { name, compiler, source } or null. */
+async function indexSource(addr) {
+  const r = await jget(`${indexer()}/api?module=contract&action=getsourcecode&address=${addr}`, 6000), x = r.json && Array.isArray(r.json.result) ? r.json.result[0] : null;
+  return x && x.SourceCode ? { name: x.ContractName || "", compiler: x.CompilerVersion || "", source: String(x.SourceCode) } : null;
+}
 /** Top holders, Blockscout shape: { items: [{ address: { hash, is_contract }, value }] } or null. */
 const holders = (addr) => jget(`${KAPI}/lists/token-holders?address=${addr}`, 4000).then((r) => (r.json && Array.isArray(r.json.items) ? r.json : null));
 /** Number of holders, or null. */
 const holderCount = (addr) => jget(`${KAPI}/holder-distribution/${addr}`, 4000).then((r) => { const n = r.json && r.json.distribution && Number(r.json.distribution.holders); return n > 0 ? n : null; });
 // Kinetiq's transfer test of tokens: { address, result: "blocked" | "taxed" | ..., takenBps?, hop? }. One list, cached 3 minutes.
-let scans = { t: 0, map: null };
+let scans = { t: 0, miss: 0, map: null };
 async function tokenScan(addr) {
   if (!scans.map || Date.now() - scans.t > 3 * 60e3) {
+    if (Date.now() - scans.miss < 2 * 60e3) return scans.map ? scans.map.get(String(addr).toLowerCase()) || null : null; // refused a moment ago: don't ask again yet
     const r = await jget(KAPI + "/token-scans", 5000), L = r.json && Array.isArray(r.json.tokens) ? r.json.tokens : null;
-    if (L) scans = { t: Date.now(), map: new Map(L.map((x) => [String(x.address || "").toLowerCase(), x])) };
-    else if (!scans.map) return null;
+    if (L) scans = { t: Date.now(), miss: 0, map: new Map(L.map((x) => [String(x.address || "").toLowerCase(), x])) };
+    else { scans.miss = Date.now(); if (!scans.map) return null; }
   }
   return scans.map.get(String(addr).toLowerCase()) || null;
 }
@@ -70,7 +108,11 @@ const blockscoutHost = async () => { const a = await blockscoutApi(); return a ?
 async function diag() {
   const call = (method, params) => jget(rpc(), 5000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || [] }) });
   const gtRetry = async (u) => { let r = await jget(u, 6000); if (r.status === 429) { await new Promise((z) => setTimeout(z, 1500)); r = await jget(u, 6000); } return r; };
-  const [kh, ks] = await Promise.all([jget(`${KAPI}/lists/token-holders?address=${WHYPE}`, 5000), jget(KAPI + "/token-scans", 5000)]);
+  const KNTQ = "0xe45a355d9e9cad2ad85f2d03e3ee3102a036acf0"; // a token every indexer has
+  const [kh, ks, it, ih, il] = await Promise.all([jget(`${KAPI}/lists/token-holders?address=${WHYPE}`, 5000), jget(KAPI + "/token-scans", 5000),
+    jget(`${indexer()}/v1/tokens/${KNTQ}`, 5000), jget(`${indexer()}/v1/tokens/${KNTQ}/holders`, 5000), jget(`${indexer()}/v1/launchpads`, 5000)]);
+  const shape = (j) => { const L = Array.isArray(j) ? j : j && (j.holders || j.items || j.data || j.result || j.launchpads); return { topKeys: j && !Array.isArray(j) ? Object.keys(j).slice(0, 12) : "array", rows: Array.isArray(L) ? L.length : 0, first: Array.isArray(L) && L[0] ? JSON.stringify(L[0]).slice(0, 600) : null }; };
+  const parsed = await indexToken(KNTQ).catch(() => null), nh = normHolders(ih.json);
   const [cid, head, code, ds, gt, ...bs] = await Promise.all([
     call("eth_chainId"), call("eth_blockNumber"), call("eth_getCode", [WHYPE, "latest"]),
     jget("https://api.dexscreener.com/latest/dex/tokens/" + WHYPE, 6000), gtRetry("https://api.geckoterminal.com/api/v2/networks/elysium/trending_pools?page=1"),
@@ -84,12 +126,15 @@ async function diag() {
       whypeHasCode: !!(code.json && typeof code.json.result === "string" && code.json.result.length > 2) },
     dexscreener: { status: ds.status, elysiumPairs: dsPairs.length, dexIds: [...new Set(dsPairs.map((p) => p.dexId))].slice(0, 12) },
     geckoterminal: { status: gt.status, pools: ((gt.json && gt.json.data) || []).length, dexes: [...new Set(((gt.json && gt.json.data) || []).map((p) => p.relationships && p.relationships.dex && p.relationships.dex.data && p.relationships.dex.data.id))].slice(0, 12) },
+    indexer: { base: indexer(), token: { status: it.status, error: it.error, ok: !!parsed, parsed: parsed && { holders: parsed.holders, creator: parsed.creator, pad: parsed.pad, padId: parsed.padId, top10Share: parsed.top10Share } },
+      holders: Object.assign({ status: ih.status, error: ih.error, ok: !!nh, parsedRows: nh ? nh.items.length : 0 }, shape(ih.json)),
+      launchpads: Object.assign({ status: il.status, error: il.error }, shape(il.json)) },
     kinetiqExplorer: { holders: { status: kh.status, error: kh.error, ok: !!(kh.json && Array.isArray(kh.json.items)), items: kh.json && kh.json.items ? kh.json.items.length : 0 },
       tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
     logRange: logRange(),
-    hint: "rpc.ok must be true. kinetiqExplorer gives holders and the blocked/taxed check; status 429 = rate limited (shared Vercel IP), reload in a minute. blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the deployer, verified-source check, audits and the wallet tracker need it.",
+    hint: "rpc.ok must be true. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the deployer, verified-source check, audits and the wallet tracker need it.",
   };
 }
 
-module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, diag };
+module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, indexToken, indexHolders, indexSource, diag };

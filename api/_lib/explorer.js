@@ -38,12 +38,19 @@ const rpc = (cfg, to, data) => get(cfg.rpc, { method: "POST", headers: { "conten
 async function explorerEvm(chain, addr, pairAddr) {
   const cfg = await conf(chain); if (!cfg) return null;
   NET.length = 0;
-  // Elysium without a Blockscout API: holders from Kinetiq's explorer API (same item shape), count from its distribution endpoint.
+  // Elysium without a Blockscout API: token facts and holders from the opsis indexer, mapped to Blockscout's shape.
+  // If the indexer gives no holder list, Kinetiq's explorer API is tried (same item shape; it often refuses servers).
   const kin = !!cfg.dynamic && !cfg.api;
-  const [tok, ad, hold, own, kinCount] = await Promise.all([
-    bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), kin ? ELY.holders(addr).catch(() => null) : bs(cfg, `/tokens/${addr}/holders`),
-    rpc(cfg, addr, "0x8da5cb5b"), kin ? ELY.holderCount(addr).catch(() => null) : null,
-  ]);
+  let tok, ad, hold, own, kinCount = null, idx = null;
+  if (kin) {
+    let ih; [idx, ih, own] = await Promise.all([ELY.indexToken(addr).catch(() => null), ELY.indexHolders(addr).catch(() => null), rpc(cfg, addr, "0x8da5cb5b")]);
+    tok = idx && idx.supply ? { name: idx.name, symbol: idx.symbol, holders_count: idx.holders, total_supply: idx.supply } : null;
+    ad = idx && (idx.creator || idx.creationTx) ? { creator_address_hash: idx.creator || "", creation_transaction_hash: idx.creationTx } : null;
+    hold = ih;
+    if (!hold) [hold, kinCount] = await Promise.all([ELY.holders(addr).catch(() => null), idx && idx.holders ? null : ELY.holderCount(addr).catch(() => null)]);
+  } else {
+    [tok, ad, hold, own] = await Promise.all([bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), bs(cfg, `/tokens/${addr}/holders`), rpc(cfg, addr, "0x8da5cb5b")]);
+  }
   // No explorer answer (down, or its API host isn't configured): name, symbol and supply straight from the token contract.
   let chainTok = null;
   if (!tok) {
@@ -57,9 +64,10 @@ async function explorerEvm(chain, addr, pairAddr) {
   else if (kinCount) out.holders = kinCount;
   if (tok) { out.name = tok.name || null; out.symbol = tok.symbol || null; }
   else if (chainTok) { out.name = chainTok.name; out.symbol = chainTok.symbol; out.rpcOnly = true; }
+  if (idx && idx.pad) out.pad = idx.pad;
   if (ad) {
     if (typeof ad.is_verified === "boolean") out.verified = ad.is_verified;
-    out.proxy = !!(ad.proxy_type || (ad.implementations && ad.implementations.length));
+    out.proxy = kin ? null : !!(ad.proxy_type || (ad.implementations && ad.implementations.length));
     out.creator = (ad.creator_address_hash || "").toLowerCase() || null;
     out.creationTx = ad.creation_transaction_hash || ad.creation_tx_hash || null;
   }
@@ -81,6 +89,7 @@ async function explorerEvm(chain, addr, pairAddr) {
     if (pct.length) { out.top1 = pct[0]; out.top5 = pct.slice(0, 5).reduce((x, y) => x + y, 0); out.top10 = pct.slice(0, 10).reduce((x, y) => x + y, 0); }
     if (out.creator && out.creatorPct === null && items.length >= 50) out.creatorPct = 0;
   }
+  if (out.top10 === null && idx && idx.top10Share !== null) out.top10 = idx.top10Share; // no holder list: the indexer's own top-10 figure
   return out;
 }
 
@@ -97,6 +106,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   const origin = cfg.api ? cfg.api.replace(/\/api\/v2$/, "") : null;
   let start = 0;
   if (creationTx) { const tx = await bs(cfg, `/transactions/${creationTx}`); start = parseInt((tx && (tx.block_number != null ? tx.block_number : tx.block)) || 0, 10); }
+  if (!(start > 0) && creationTx) { const tx = await rpcCall(cfg, "eth_getTransactionByHash", [creationTx]); start = parseInt((tx && tx.blockNumber) || "0x0", 16) || 0; if (start > 0) dbg.startFrom = "tx"; }
   if (!(start > 0)) {
     // deployment block straight from the node: first block where the token has code
     const hn = parseInt(await rpcCall(cfg, "eth_blockNumber", []), 16);

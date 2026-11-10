@@ -1,0 +1,261 @@
+diff --git a/ELYSIUM_SETUP.md b/ELYSIUM_SETUP.md
+index f766429..72fc948 100644
+--- a/ELYSIUM_SETUP.md
++++ b/ELYSIUM_SETUP.md
+@@ -25,11 +25,12 @@ Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
+ 
+ - `rpc.ok` must be `true` (chain id 99901).
+ - `dexscreener.elysiumPairs` and `geckoterminal.pools` should be above 0.
+-- `kinetiqExplorer.holders.ok` and `.tokenScans.ok` should be `true`: that is Kinetiq's own explorer API
+-  (undocumented, rate limited), used for holder count, top holders and the blocked/taxed transfer check.
+-  Status `429` means rate limited; reload in a minute.
+-- `blockscout` is empty unless `ELYSIUM_EXPLORER_API` is set. Without a Blockscout API there is no deployer,
+-  verified-source check, contract audit or wallet tracker on Elysium.
++- `indexer.token.ok` and `indexer.holders.ok` should be `true`: that is elysiumexplore.com ("opsis"), a free
++  third-party indexer (docs: https://elysiumexplore.com/api-docs). It supplies holder count, top holders,
++  the deployer, the launchpad and verified source for audits.
++- `kinetiqExplorer` is Kinetiq's own explorer API (undocumented). It refuses server requests with `429`, so
++  it is only a backup for holders and the source of the blocked/taxed check when it does answer.
++- `blockscout` is empty unless `ELYSIUM_EXPLORER_API` is set. Only the wallet tracker still needs it.
+ 
+ ## Vercel env (all optional)
+ 
+@@ -37,6 +38,7 @@ Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
+   The public RPC is shared by everyone, so set this before real traffic.
+ - `ELYSIUM_EXPLORER_API`: Blockscout API v2 base, e.g. `https://<host>/api/v2`, if you find one. No public
+   one is known. A host is only used if it knows mainnet WHYPE as a contract.
++- `ELYSIUM_INDEXER_API`: base URL of the indexer if it moves (default `https://elysiumexplore.com`).
+ - `ELYSIUM_LOG_RANGE`: block span per `eth_getLogs` call (default `2000`). Raise it if your RPC allows more:
+   with 100 ms blocks, 2000 blocks is only ~3 minutes, so the sniper/bundle trace reaches further back with a bigger span.
+ 
+@@ -47,8 +49,8 @@ or when the contract exists on Elysium and not on Robinhood Chain.
+ 
+ ## Known gaps
+ 
+-- GoPlus and honeypot.is don't cover chain 99901. The honeypot/tax signal comes from Kinetiq's token scan,
+-  which only lists tokens it flagged (blocked or taxed); mint, blacklist and pause functions are not checked
+-  (the card says "Limited coverage on this chain").
+-- Launchpad detection only knows the pads DexScreener lists as their own DEX (BOXA, Kleos, Montra). Add factory
+-  contracts to `BY_CREATOR.elysium` in `api/_lib/launchpads.js` to tag more.
++- GoPlus and honeypot.is don't cover chain 99901, and Kinetiq's token scan (blocked/taxed) usually refuses
++  server requests, so in practice there is no honeypot or tax check yet; mint, blacklist and pause functions
++  are not checked either (the card says "Limited coverage on this chain").
++- Launchpads tagged: BOXA, Kleos, ElysPump (factories and pool contracts in `api/_lib/launchpads.js`), Montra
++  by DEX name, plus whatever the indexer reports for a token.
+diff --git a/api/_lib/elysium.js b/api/_lib/elysium.js
+index 75e7fad..9187187 100644
+--- a/api/_lib/elysium.js
++++ b/api/_lib/elysium.js
+@@ -49,17 +49,55 @@ async function blockscoutApi() {
+   else { const lim = L[R.findIndex((r) => r.limited)] || null; live = { t: Date.now() - 4 * 60e3, api: null, soft: lim }; return lim; }
+   return live.api;
+ }
++// opsis (elysiumexplore.com): free third-party indexer with a documented API (https://elysiumexplore.com/api-docs).
++// Main source for holders, deployer, launchpad and verified source. ELYSIUM_INDEXER_API overrides the base URL.
++const indexer = () => (env("ELYSIUM_INDEXER_API") || "https://elysiumexplore.com").replace(/\/+$/, "");
++const NOT_A_PAD = /^(uniswap|bridged|ramses|aero)/i; // "pad" ids that only say where the first pool is
++const PAD_NAME = { "boxa-v3": "BOXA", "boxa-v4": "BOXA", kleos: "Kleos", elyspump: "ElysPump" }; // indexer pad id -> the name used in launchpads.js
++/** { name, symbol, supply (raw string), holders, creator, creationTx, top10Share (%), pad } or null. */
++async function indexToken(addr) {
++  const r = await jget(`${indexer()}/v1/tokens/${String(addr).toLowerCase()}`, 4000), t = r.json && r.json.token;
++  if (!t || String(t.address || "").toLowerCase() !== String(addr).toLowerCase()) return null;
++  const A = (x) => (/^0x[0-9a-f]{40}$/i.test(String(x || "")) ? String(x).toLowerCase() : null), pad = r.json.pad || {};
++  const padId = String(pad.id || t.launchpad || ""), share = Number(r.json.top10Share);
++  return { name: t.name || null, symbol: t.symbol || null, supply: /^\d+$/.test(String(t.total_supply || "")) ? String(t.total_supply) : null, holders: Number(t.holders) > 0 ? Number(t.holders) : null,
++    creator: A(t.creator), creationTx: /^0x[0-9a-f]{64}$/i.test(String(t.created_tx || "")) ? t.created_tx : null, createdTs: Number(t.created_ts) || null,
++    top10Share: Number.isFinite(share) && share >= 0 && share <= 100 ? share : null,
++    pad: padId && !NOT_A_PAD.test(padId) ? PAD_NAME[padId] || String(pad.name || padId).slice(0, 30) : null, padId: padId || null };
++}
++// Holders: { holders: [{ holder, balance }], total, labels: { <address>: { name, kind: "contract" | ... } } }.
++// Other common field names are accepted too, and rows that don't parse are skipped.
++function normHolders(j) {
++  const lab = (j && !Array.isArray(j) && j.labels) || {};
++  const L = Array.isArray(j) ? j : j && (j.holders || j.items || j.data || j.result);
++  if (!Array.isArray(L)) return null;
++  const out = [];
++  for (const x of L) {
++    if (!x || typeof x !== "object") continue;
++    const a = [x.address, x.holder, x.account, x.addr, x.owner, x.wallet].map((v) => (v && typeof v === "object" ? v.hash || v.address : v)).find((v) => /^0x[0-9a-f]{40}$/i.test(String(v || "")));
++    const v = [x.balance, x.value, x.amount, x.raw, x.balance_raw].find((q) => /^\d+$/.test(String(q == null ? "" : q)));
++    if (a && v != null) out.push({ address: { hash: String(a).toLowerCase(), is_contract: x.is_contract === true || x.kind === "contract" || !!(lab[String(a).toLowerCase()] && /contract|pool|system/.test(String(lab[String(a).toLowerCase()].kind))) }, value: String(v) });
++  }
++  return out.length ? { items: out, total: j && Number(j.total) > 0 ? Number(j.total) : null } : null;
++}
++const indexHolders = (addr) => jget(`${indexer()}/v1/tokens/${String(addr).toLowerCase()}/holders`, 4000).then((r) => normHolders(r.json));
++/** Verified source through the indexer's Etherscan-style route: { name, compiler, source } or null. */
++async function indexSource(addr) {
++  const r = await jget(`${indexer()}/api?module=contract&action=getsourcecode&address=${addr}`, 6000), x = r.json && Array.isArray(r.json.result) ? r.json.result[0] : null;
++  return x && x.SourceCode ? { name: x.ContractName || "", compiler: x.CompilerVersion || "", source: String(x.SourceCode) } : null;
++}
+ /** Top holders, Blockscout shape: { items: [{ address: { hash, is_contract }, value }] } or null. */
+ const holders = (addr) => jget(`${KAPI}/lists/token-holders?address=${addr}`, 4000).then((r) => (r.json && Array.isArray(r.json.items) ? r.json : null));
+ /** Number of holders, or null. */
+ const holderCount = (addr) => jget(`${KAPI}/holder-distribution/${addr}`, 4000).then((r) => { const n = r.json && r.json.distribution && Number(r.json.distribution.holders); return n > 0 ? n : null; });
+ // Kinetiq's transfer test of tokens: { address, result: "blocked" | "taxed" | ..., takenBps?, hop? }. One list, cached 3 minutes.
+-let scans = { t: 0, map: null };
++let scans = { t: 0, miss: 0, map: null };
+ async function tokenScan(addr) {
+   if (!scans.map || Date.now() - scans.t > 3 * 60e3) {
++    if (Date.now() - scans.miss < 2 * 60e3) return scans.map ? scans.map.get(String(addr).toLowerCase()) || null : null; // refused a moment ago: don't ask again yet
+     const r = await jget(KAPI + "/token-scans", 5000), L = r.json && Array.isArray(r.json.tokens) ? r.json.tokens : null;
+-    if (L) scans = { t: Date.now(), map: new Map(L.map((x) => [String(x.address || "").toLowerCase(), x])) };
+-    else if (!scans.map) return null;
++    if (L) scans = { t: Date.now(), miss: 0, map: new Map(L.map((x) => [String(x.address || "").toLowerCase(), x])) };
++    else { scans.miss = Date.now(); if (!scans.map) return null; }
+   }
+   return scans.map.get(String(addr).toLowerCase()) || null;
+ }
+@@ -70,7 +108,11 @@ const blockscoutHost = async () => { const a = await blockscoutApi(); return a ?
+ async function diag() {
+   const call = (method, params) => jget(rpc(), 5000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || [] }) });
+   const gtRetry = async (u) => { let r = await jget(u, 6000); if (r.status === 429) { await new Promise((z) => setTimeout(z, 1500)); r = await jget(u, 6000); } return r; };
+-  const [kh, ks] = await Promise.all([jget(`${KAPI}/lists/token-holders?address=${WHYPE}`, 5000), jget(KAPI + "/token-scans", 5000)]);
++  const KNTQ = "0xe45a355d9e9cad2ad85f2d03e3ee3102a036acf0"; // a token every indexer has
++  const [kh, ks, it, ih, il] = await Promise.all([jget(`${KAPI}/lists/token-holders?address=${WHYPE}`, 5000), jget(KAPI + "/token-scans", 5000),
++    jget(`${indexer()}/v1/tokens/${KNTQ}`, 5000), jget(`${indexer()}/v1/tokens/${KNTQ}/holders`, 5000), jget(`${indexer()}/v1/launchpads`, 5000)]);
++  const shape = (j) => { const L = Array.isArray(j) ? j : j && (j.holders || j.items || j.data || j.result || j.launchpads); return { topKeys: j && !Array.isArray(j) ? Object.keys(j).slice(0, 12) : "array", rows: Array.isArray(L) ? L.length : 0, first: Array.isArray(L) && L[0] ? JSON.stringify(L[0]).slice(0, 600) : null }; };
++  const parsed = await indexToken(KNTQ).catch(() => null), nh = normHolders(ih.json);
+   const [cid, head, code, ds, gt, ...bs] = await Promise.all([
+     call("eth_chainId"), call("eth_blockNumber"), call("eth_getCode", [WHYPE, "latest"]),
+     jget("https://api.dexscreener.com/latest/dex/tokens/" + WHYPE, 6000), gtRetry("https://api.geckoterminal.com/api/v2/networks/elysium/trending_pools?page=1"),
+@@ -84,12 +126,15 @@ async function diag() {
+       whypeHasCode: !!(code.json && typeof code.json.result === "string" && code.json.result.length > 2) },
+     dexscreener: { status: ds.status, elysiumPairs: dsPairs.length, dexIds: [...new Set(dsPairs.map((p) => p.dexId))].slice(0, 12) },
+     geckoterminal: { status: gt.status, pools: ((gt.json && gt.json.data) || []).length, dexes: [...new Set(((gt.json && gt.json.data) || []).map((p) => p.relationships && p.relationships.dex && p.relationships.dex.data && p.relationships.dex.data.id))].slice(0, 12) },
++    indexer: { base: indexer(), token: { status: it.status, error: it.error, ok: !!parsed, parsed: parsed && { holders: parsed.holders, creator: parsed.creator, pad: parsed.pad, padId: parsed.padId, top10Share: parsed.top10Share } },
++      holders: Object.assign({ status: ih.status, error: ih.error, ok: !!nh, parsedRows: nh ? nh.items.length : 0 }, shape(ih.json)),
++      launchpads: Object.assign({ status: il.status, error: il.error }, shape(il.json)) },
+     kinetiqExplorer: { holders: { status: kh.status, error: kh.error, ok: !!(kh.json && Array.isArray(kh.json.items)), items: kh.json && kh.json.items ? kh.json.items.length : 0 },
+       tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
+     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
+     logRange: logRange(),
+-    hint: "rpc.ok must be true. kinetiqExplorer gives holders and the blocked/taxed check; status 429 = rate limited (shared Vercel IP), reload in a minute. blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the deployer, verified-source check, audits and the wallet tracker need it.",
++    hint: "rpc.ok must be true. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the deployer, verified-source check, audits and the wallet tracker need it.",
+   };
+ }
+ 
+-module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, diag };
++module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, indexToken, indexHolders, indexSource, diag };
+diff --git a/api/_lib/explorer.js b/api/_lib/explorer.js
+index 371ae99..120120c 100644
+--- a/api/_lib/explorer.js
++++ b/api/_lib/explorer.js
+@@ -38,12 +38,19 @@ const rpc = (cfg, to, data) => get(cfg.rpc, { method: "POST", headers: { "conten
+ async function explorerEvm(chain, addr, pairAddr) {
+   const cfg = await conf(chain); if (!cfg) return null;
+   NET.length = 0;
+-  // Elysium without a Blockscout API: holders from Kinetiq's explorer API (same item shape), count from its distribution endpoint.
++  // Elysium without a Blockscout API: token facts and holders from the opsis indexer, mapped to Blockscout's shape.
++  // If the indexer gives no holder list, Kinetiq's explorer API is tried (same item shape; it often refuses servers).
+   const kin = !!cfg.dynamic && !cfg.api;
+-  const [tok, ad, hold, own, kinCount] = await Promise.all([
+-    bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), kin ? ELY.holders(addr).catch(() => null) : bs(cfg, `/tokens/${addr}/holders`),
+-    rpc(cfg, addr, "0x8da5cb5b"), kin ? ELY.holderCount(addr).catch(() => null) : null,
+-  ]);
++  let tok, ad, hold, own, kinCount = null, idx = null;
++  if (kin) {
++    let ih; [idx, ih, own] = await Promise.all([ELY.indexToken(addr).catch(() => null), ELY.indexHolders(addr).catch(() => null), rpc(cfg, addr, "0x8da5cb5b")]);
++    tok = idx && idx.supply ? { name: idx.name, symbol: idx.symbol, holders_count: idx.holders, total_supply: idx.supply } : null;
++    ad = idx && (idx.creator || idx.creationTx) ? { creator_address_hash: idx.creator || "", creation_transaction_hash: idx.creationTx } : null;
++    hold = ih;
++    if (!hold) [hold, kinCount] = await Promise.all([ELY.holders(addr).catch(() => null), idx && idx.holders ? null : ELY.holderCount(addr).catch(() => null)]);
++  } else {
++    [tok, ad, hold, own] = await Promise.all([bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), bs(cfg, `/tokens/${addr}/holders`), rpc(cfg, addr, "0x8da5cb5b")]);
++  }
+   // No explorer answer (down, or its API host isn't configured): name, symbol and supply straight from the token contract.
+   let chainTok = null;
+   if (!tok) {
+@@ -57,9 +64,10 @@ async function explorerEvm(chain, addr, pairAddr) {
+   else if (kinCount) out.holders = kinCount;
+   if (tok) { out.name = tok.name || null; out.symbol = tok.symbol || null; }
+   else if (chainTok) { out.name = chainTok.name; out.symbol = chainTok.symbol; out.rpcOnly = true; }
++  if (idx && idx.pad) out.pad = idx.pad;
+   if (ad) {
+     if (typeof ad.is_verified === "boolean") out.verified = ad.is_verified;
+-    out.proxy = !!(ad.proxy_type || (ad.implementations && ad.implementations.length));
++    out.proxy = kin ? null : !!(ad.proxy_type || (ad.implementations && ad.implementations.length));
+     out.creator = (ad.creator_address_hash || "").toLowerCase() || null;
+     out.creationTx = ad.creation_transaction_hash || ad.creation_tx_hash || null;
+   }
+@@ -81,6 +89,7 @@ async function explorerEvm(chain, addr, pairAddr) {
+     if (pct.length) { out.top1 = pct[0]; out.top5 = pct.slice(0, 5).reduce((x, y) => x + y, 0); out.top10 = pct.slice(0, 10).reduce((x, y) => x + y, 0); }
+     if (out.creator && out.creatorPct === null && items.length >= 50) out.creatorPct = 0;
+   }
++  if (out.top10 === null && idx && idx.top10Share !== null) out.top10 = idx.top10Share; // no holder list: the indexer's own top-10 figure
+   return out;
+ }
+ 
+@@ -97,6 +106,7 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
+   const origin = cfg.api ? cfg.api.replace(/\/api\/v2$/, "") : null;
+   let start = 0;
+   if (creationTx) { const tx = await bs(cfg, `/transactions/${creationTx}`); start = parseInt((tx && (tx.block_number != null ? tx.block_number : tx.block)) || 0, 10); }
++  if (!(start > 0) && creationTx) { const tx = await rpcCall(cfg, "eth_getTransactionByHash", [creationTx]); start = parseInt((tx && tx.blockNumber) || "0x0", 16) || 0; if (start > 0) dbg.startFrom = "tx"; }
+   if (!(start > 0)) {
+     // deployment block straight from the node: first block where the token has code
+     const hn = parseInt(await rpcCall(cfg, "eth_blockNumber", []), 16);
+diff --git a/api/_lib/launchpads.js b/api/_lib/launchpads.js
+index e6822ec..27c60ed 100644
+--- a/api/_lib/launchpads.js
++++ b/api/_lib/launchpads.js
+@@ -26,7 +26,8 @@ function launchpadOf(chain, ca, dexes, labels) {
+     if (hit(/robin/)) return { n: "RobinFun", k: "robin", g: grad(d.filter((x) => /robin/.test(x))) };
+     for (const [re, n, k] of [[/klik/, "Klik", "klik"], [/printr/, "Printr", "printr"], [/dyor/, "DYOR.fun", "dyor"], [/realfun/, "RealFun", "realfun"], [/apestore/, "Ape.store", "ape"]]) if (hit(re)) return { n, k, g: null };
+   }
+-  if (chain === "elysium") { // launchpads DexScreener lists as their own DEX on Elysium; most others launch straight into Uniswap v4 pools
++  if (chain === "elysium") { // launchpads' own DEXes: by name, or by contract address (DexScreener shows unlabelled DEXes as addresses)
++    for (const x of d) if (ELY_DEX[x]) return { n: ELY_DEX[x], k: ELY_DEX[x].toLowerCase(), g: grad(d.filter((y) => ELY_DEX[y] === ELY_DEX[x])) || null };
+     const hit = (re) => d.some((x) => re.test(x));
+     for (const [re, n, k] of [[/boxa/, "BOXA", "boxa"], [/kleos/, "Kleos", "kleos"], [/montra/, "Montra", "montra"], [/elyspump/, "ElysPump", "elyspump"]]) if (hit(re)) return { n, k, g: grad(d.filter((x) => re.test(x))) || null };
+   }
+@@ -48,7 +49,17 @@ const BY_CREATOR = {
+     "0x5fcc1df0dc020cf454e742e9a8ae2554c37a452c": "Hood.fun", "0xc6a2941b962fb667786d7f4b97f7f965d6f0a4f8": "Hood.fun",
+     "0xd861cb5dc71a0171e8f0f6586cadb069f3a35e4d": "RobinFun",
+   },
+-  elysium: {}, // add launchpad factory contracts here (lower case) once confirmed on the explorer
++  elysium: { // token factories per launchpad, from elysiumexplore.com/v1/launchpads (2026-11-10)
++    "0x00d4c904f74f74c6920c95e3ee807ab3c52dd205": "BOXA", "0x8ca88b12bc89b58034c583f1a5df02f7e67d62e1": "BOXA", "0x56f810328a4e42e983f7f487f34776680d6cd7ab": "BOXA",
++    "0x893217cbf5c054fd6ee56893b313a4b98c4403e4": "Kleos", "0x6e3afddc49f5d43858a1fdd48184426ded11029b": "Kleos", "0x7700cb672bbd853cf57e82ea14c3ebbaac3ec470": "Kleos", "0xdd9ece123c8c9ee95122b412871c52987e4abcdd": "Kleos",
++    "0xe11cafa5901b0aab51eb78251488400f9e4320cc": "ElysPump", "0x5afe876a625a6fe230dd361b9a5bef8e9bea6fe3": "ElysPump",
++  },
++};
++// Elysium launchpads' own pool contracts (V3 factories and V4 pool managers), same source as BY_CREATOR.elysium.
++const ELY_DEX = {
++  "0x06c63714fbf1f5753017123e2fcfdede4540b2c4": "BOXA", "0xd5a7c10820446c58868a204b8979b8cc9cb2a1a3": "BOXA",
++  "0x809ff79945fffbf9b8df33bb3b62872ceb2efaf1": "Kleos", "0xb308b5df891c300a5f5a5b8fdbc30108ba842490": "Kleos",
++  "0x367f85886af509e364c8190862bc714555fefc3e": "ElysPump", "0x5fb015a49f5b35073f9ce01c2adb287a75f89600": "ElysPump",
+ };
+ const PAD_INFO = {
+   BOXA: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
+diff --git a/api/_lib/scanner.js b/api/_lib/scanner.js
+index 7e9c9fd..d490d86 100644
+--- a/api/_lib/scanner.js
++++ b/api/_lib/scanner.js
+@@ -152,7 +152,7 @@ async function runScan(caIn, selIn, opts) {
+   // Launchpad origin: deployer contract (EVM), else DEX ids + vanity address endings (pump, bonk, LoL, 4444, b07...).
+   const lpHit = (kind === "evm" && EF.launchpadByCreator(chain, ex && ex.creator)) || null;
+   const lpGuess = LP.launchpadOf(chain, ca, pairs.map((p) => p.dexId).concat(pair && pair.curve ? ["pumpfun"] : []), [].concat(...pairs.map((p) => p.labels || [])));
+-  let launchpad = lpHit || (lpGuess && lpGuess.n) || null;
++  let launchpad = lpHit || (lpGuess && lpGuess.n) || (chain === "elysium" && ex && ex.pad) || null;
+   if (chain === "solana" && !/pump$|bonk$|LoL$/.test(ca) && (!launchpad || launchpad === "LaunchLab" || pairs.some((p) => /launchlab|raydium/i.test(p.dexId || "")))) {
+     const hi = await LP.higherOf([ca]).catch(() => new Set()); if (hi.has(ca)) launchpad = "higher.fun";
+   }
+diff --git a/api/_lib/source.js b/api/_lib/source.js
+index 266f5a7..0958e88 100644
+--- a/api/_lib/source.js
++++ b/api/_lib/source.js
+@@ -49,6 +49,15 @@ async function etherscan(chain, addr) {
+   return { name: r.ContractName || "", compiler: r.CompilerVersion || "", source: join(files), from: "Etherscan" };
+ }
+ async function blockscout(chain, addr) {
++  if (chain === "elysium") { // verified source from the opsis indexer; a Blockscout API only if one is configured
++    const s = await require("./elysium").indexSource(addr).catch(() => null);
++    if (s) {
++      let files = [], sc = s.source.trim();
++      try { if (sc.startsWith("{{")) sc = sc.slice(1, -1); if (sc.startsWith("{")) { const o = JSON.parse(sc), src = o.sources || o; files = Object.entries(src).map(([path, v]) => ({ path, content: (v && v.content) || "" })); } } catch (e) { files = []; }
++      if (!files.length) files = [{ path: (s.name || "Contract") + ".sol", content: sc }];
++      return { name: s.name, compiler: s.compiler, source: join(files), from: "elysiumexplore.com" };
++    }
++  }
+   const api = chain === "elysium" ? await require("./elysium").blockscoutApi().catch(() => null) : BLOCKSCOUT[chain];
+   if (!api) return null;
+   const j = await jget(`${api}/smart-contracts/${addr}`);
