@@ -29,13 +29,21 @@ async function jget(u, ms, opt) {
 }
 
 // A real mainnet Blockscout knows WHYPE as a contract (testnet's WHYPE lives at another address).
-const probe = (api, ms) => jget(api + "/addresses/" + WHYPE, ms).then((r) => ({ status: r.status, error: r.error, ok: !!(r.json && r.json.is_contract === true) }));
+// 429 = the host is there but rate limiting this server's IP (Vercel IPs are shared): one short retry, then report "limited".
+async function probe(api, ms) {
+  let r = await jget(api + "/addresses/" + WHYPE, ms);
+  if (r.status === 429) { await new Promise((z) => setTimeout(z, 700 + Math.random() * 500)); r = await jget(api + "/addresses/" + WHYPE, ms); }
+  return { status: r.status, error: r.error, ok: !!(r.json && r.json.is_contract === true), limited: r.status === 429 };
+}
 // Which Blockscout API answers? Checked once per warm instance (a miss is retried after 5 minutes).
 let live = { t: 0, api: null };
 async function blockscoutApi() {
-  if (live.api || Date.now() - live.t < 5 * 60e3) return live.api;
-  const L = apis(), hits = await Promise.all(L.map((a) => probe(a, 2500).then((r) => r.ok)));
-  live = { t: Date.now(), api: L[hits.indexOf(true)] || null };
+  if (live.api || Date.now() - live.t < 5 * 60e3) return live.api || live.soft || null;
+  const L = apis(), R = await Promise.all(L.map((a) => probe(a, 2500)));
+  const ok = L[R.findIndex((r) => r.ok)] || null;
+  // Rate limited and nothing confirmed: use that host for now (single calls often get through) and check again in a minute.
+  if (ok) live = { t: Date.now(), api: ok };
+  else { const lim = L[R.findIndex((r) => r.limited)] || null; live = { t: Date.now() - 4 * 60e3, api: null, soft: lim }; return lim; }
   return live.api;
 }
 /** Host of the Etherscan-style API (<host>/api?module=...) on the same Blockscout, or null. */
@@ -44,9 +52,10 @@ const blockscoutHost = async () => { const a = await blockscoutApi(); return a ?
 /** One-click health check after deploy: /api/scan?chaindiag=elysium */
 async function diag() {
   const call = (method, params) => jget(rpc(), 5000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || [] }) });
+  const gtRetry = async (u) => { let r = await jget(u, 6000); if (r.status === 429) { await new Promise((z) => setTimeout(z, 1500)); r = await jget(u, 6000); } return r; };
   const [cid, head, code, ds, gt, ...bs] = await Promise.all([
     call("eth_chainId"), call("eth_blockNumber"), call("eth_getCode", [WHYPE, "latest"]),
-    jget("https://api.dexscreener.com/latest/dex/tokens/" + WHYPE, 6000), jget("https://api.geckoterminal.com/api/v2/networks/elysium/trending_pools?page=1", 6000),
+    jget("https://api.dexscreener.com/latest/dex/tokens/" + WHYPE, 6000), gtRetry("https://api.geckoterminal.com/api/v2/networks/elysium/trending_pools?page=1"),
     ...apis().map((a) => probe(a, 4000)),
   ]);
   const chainId = cid.json && cid.json.result ? parseInt(cid.json.result, 16) : null;
@@ -57,9 +66,9 @@ async function diag() {
       whypeHasCode: !!(code.json && typeof code.json.result === "string" && code.json.result.length > 2) },
     dexscreener: { status: ds.status, elysiumPairs: dsPairs.length, dexIds: [...new Set(dsPairs.map((p) => p.dexId))].slice(0, 12) },
     geckoterminal: { status: gt.status, pools: ((gt.json && gt.json.data) || []).length, dexes: [...new Set(((gt.json && gt.json.data) || []).map((p) => p.relationships && p.relationships.dex && p.relationships.dex.data && p.relationships.dex.data.id))].slice(0, 12) },
-    blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok })),
+    blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
     logRange: logRange(),
-    hint: "rpc.ok must be true. If no blockscout entry is ok, set ELYSIUM_EXPLORER_API to the explorer's /api/v2 base: scans still work without it (market + on-chain basics), but holders, deployer and the wallet tracker need it.",
+    hint: "rpc.ok must be true. Status 429 = rate limited (shared Vercel IP): reload in a minute. If no blockscout entry is ever ok, set ELYSIUM_EXPLORER_API to the explorer's /api/v2 base: scans still work without it (market + on-chain basics), but holders, deployer and the wallet tracker need it.",
   };
 }
 

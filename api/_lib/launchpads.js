@@ -28,7 +28,7 @@ function launchpadOf(chain, ca, dexes, labels) {
   }
   if (chain === "elysium") { // launchpads DexScreener lists as their own DEX on Elysium; most others launch straight into Uniswap v4 pools
     const hit = (re) => d.some((x) => re.test(x));
-    for (const [re, n, k] of [[/boxa/, "BOXA", "boxa"], [/kleos/, "Kleos", "kleos"], [/montra/, "Montra", "montra"]]) if (hit(re)) return { n, k, g: grad(d.filter((x) => re.test(x))) || null };
+    for (const [re, n, k] of [[/boxa/, "BOXA", "boxa"], [/kleos/, "Kleos", "kleos"], [/montra/, "Montra", "montra"], [/elyspump/, "ElysPump", "elyspump"]]) if (hit(re)) return { n, k, g: grad(d.filter((x) => re.test(x))) || null };
   }
   if (chain === "bsc" && (/4444$/i.test(a) || curve(["fourmeme", "four_meme"]))) return { n: "Four.meme", k: "four", g: grad(["fourmeme", "four_meme"]) };
   if (chain === "base") {
@@ -54,6 +54,7 @@ const PAD_INFO = {
   BOXA: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
   Kleos: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
   Montra: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
+  ElysPump: "Elysium launchpad (Kinetiq's Hyperliquid L2, gas in HYPE).",
   Pons: "Robinhood Chain launchpad: tokens trade on their own bonding curve until 4.2 ETH, then move to a locked Uniswap v4 pool.",
   "Hood.fun": "Robinhood Chain fair-launch platform: bonding curve first, then a Uniswap v3-style pool after graduation.",
   RobinFun: "Robinhood Chain launchpad with a bonding curve that graduates to an AMM pool.",
