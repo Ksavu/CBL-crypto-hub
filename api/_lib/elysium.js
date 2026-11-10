@@ -16,7 +16,10 @@ const rpc = () => env("ELYSIUM_RPC") || PUBLIC_RPC;
 const EXPLORER = "https://elysium.kinetiq.xyz"; // pages moved from /explorer/... to the host root at launch (old links redirect)
 const ADDR_URL = EXPLORER + "/address/", TX_URL = EXPLORER + "/tx/", TOKEN_URL = EXPLORER + "/token/";
 const WHYPE = "0xba876237b0f021a6c6d852d6c26e107997cc5e81"; // wrapped HYPE (Uniswap's WETH9 for chain 99901)
-const API_GUESS = ["https://elysium.kinetiq.xyz/api/v2"];
+const API_GUESS = []; // no public Blockscout API v2 host is known: holders come from Kinetiq's explorer API below
+// Kinetiq's own explorer API (what elysium.kinetiq.xyz/token/<address> calls). Undocumented, so every use is optional
+// and best effort; it rate limits (HTTP 429), so the scanner makes at most two calls per scan plus one cached list.
+const KAPI = "https://elysium.kinetiq.xyz/api/explorer/mainnet";
 const apis = () => [env("ELYSIUM_EXPLORER_API").replace(/\/+$/, "")].concat(API_GUESS).filter((x, i, a) => /^https:\/\//.test(x) && a.indexOf(x) === i);
 const logRange = () => { const n = parseInt(env("ELYSIUM_LOG_RANGE"), 10); return n >= 100 && n <= 1000000 ? n : 2000; };
 
@@ -46,6 +49,20 @@ async function blockscoutApi() {
   else { const lim = L[R.findIndex((r) => r.limited)] || null; live = { t: Date.now() - 4 * 60e3, api: null, soft: lim }; return lim; }
   return live.api;
 }
+/** Top holders, Blockscout shape: { items: [{ address: { hash, is_contract }, value }] } or null. */
+const holders = (addr) => jget(`${KAPI}/lists/token-holders?address=${addr}`, 4000).then((r) => (r.json && Array.isArray(r.json.items) ? r.json : null));
+/** Number of holders, or null. */
+const holderCount = (addr) => jget(`${KAPI}/holder-distribution/${addr}`, 4000).then((r) => { const n = r.json && r.json.distribution && Number(r.json.distribution.holders); return n > 0 ? n : null; });
+// Kinetiq's transfer test of tokens: { address, result: "blocked" | "taxed" | ..., takenBps?, hop? }. One list, cached 3 minutes.
+let scans = { t: 0, map: null };
+async function tokenScan(addr) {
+  if (!scans.map || Date.now() - scans.t > 3 * 60e3) {
+    const r = await jget(KAPI + "/token-scans", 5000), L = r.json && Array.isArray(r.json.tokens) ? r.json.tokens : null;
+    if (L) scans = { t: Date.now(), map: new Map(L.map((x) => [String(x.address || "").toLowerCase(), x])) };
+    else if (!scans.map) return null;
+  }
+  return scans.map.get(String(addr).toLowerCase()) || null;
+}
 /** Host of the Etherscan-style API (<host>/api?module=...) on the same Blockscout, or null. */
 const blockscoutHost = async () => { const a = await blockscoutApi(); return a ? a.replace(/^https:\/\//, "").replace(/\/api\/v2$/, "") : null; };
 
@@ -53,6 +70,7 @@ const blockscoutHost = async () => { const a = await blockscoutApi(); return a ?
 async function diag() {
   const call = (method, params) => jget(rpc(), 5000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || [] }) });
   const gtRetry = async (u) => { let r = await jget(u, 6000); if (r.status === 429) { await new Promise((z) => setTimeout(z, 1500)); r = await jget(u, 6000); } return r; };
+  const [kh, ks] = await Promise.all([jget(`${KAPI}/lists/token-holders?address=${WHYPE}`, 5000), jget(KAPI + "/token-scans", 5000)]);
   const [cid, head, code, ds, gt, ...bs] = await Promise.all([
     call("eth_chainId"), call("eth_blockNumber"), call("eth_getCode", [WHYPE, "latest"]),
     jget("https://api.dexscreener.com/latest/dex/tokens/" + WHYPE, 6000), gtRetry("https://api.geckoterminal.com/api/v2/networks/elysium/trending_pools?page=1"),
@@ -66,10 +84,12 @@ async function diag() {
       whypeHasCode: !!(code.json && typeof code.json.result === "string" && code.json.result.length > 2) },
     dexscreener: { status: ds.status, elysiumPairs: dsPairs.length, dexIds: [...new Set(dsPairs.map((p) => p.dexId))].slice(0, 12) },
     geckoterminal: { status: gt.status, pools: ((gt.json && gt.json.data) || []).length, dexes: [...new Set(((gt.json && gt.json.data) || []).map((p) => p.relationships && p.relationships.dex && p.relationships.dex.data && p.relationships.dex.data.id))].slice(0, 12) },
+    kinetiqExplorer: { holders: { status: kh.status, error: kh.error, ok: !!(kh.json && Array.isArray(kh.json.items)), items: kh.json && kh.json.items ? kh.json.items.length : 0 },
+      tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
     logRange: logRange(),
-    hint: "rpc.ok must be true. Status 429 = rate limited (shared Vercel IP): reload in a minute. If no blockscout entry is ever ok, set ELYSIUM_EXPLORER_API to the explorer's /api/v2 base: scans still work without it (market + on-chain basics), but holders, deployer and the wallet tracker need it.",
+    hint: "rpc.ok must be true. kinetiqExplorer gives holders and the blocked/taxed check; status 429 = rate limited (shared Vercel IP), reload in a minute. blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the deployer, verified-source check, audits and the wallet tracker need it.",
   };
 }
 
-module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, diag };
+module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, diag };

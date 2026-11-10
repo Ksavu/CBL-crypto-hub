@@ -96,12 +96,24 @@ async function runScan(caIn, selIn, opts) {
   // DexScreener paid orders (profile, community takeover, ads). Hype info only, never affects the score.
   const ordersP = getOrders(chain, ca);
   let gp = null, hp = null, rc = null, deep = null, ex = null;
+  const extra = [];
   if (kind === "evm") {
     const id = EVM[chain];
     [gp, hp] = await Promise.all([
       j(`https://api.gopluslabs.io/api/v1/token_security/${id}?contract_addresses=${low}`).then((r) => r.result && r.result[low]).catch(() => null),
       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
     ]);
+    // Elysium: GoPlus and honeypot.is don't cover it. Kinetiq's explorer runs its own transfer test: blocked = can't sell, taxed = fee on transfer.
+    if (chain === "elysium" && !hp) {
+      const ks = await Promise.race([ELY.tokenScan(low), new Promise((ok) => setTimeout(() => ok(null), 5500))]).catch(() => null);
+      if (ks) {
+        sources.kinetiq = true;
+        const bps = Number(ks.takenBps), pct = Number.isFinite(bps) && bps > 0 ? bps / 100 : null;
+        if (ks.result === "blocked") hp = { honeypotResult: { isHoneypot: true, honeypotReason: "Kinetiq's token scan: a test transfer was blocked" + (ks.hop ? ` (${String(ks.hop).replace(/_/g, " ")})` : "") } };
+        else if (ks.result === "taxed" && pct !== null) extra.push({ sev: pct >= 50 ? "critical" : pct >= 20 ? "high" : pct >= 10 ? "medium" : pct >= 3 ? "low" : "info", title: `Transfer tax about ${pct.toFixed(pct < 10 ? 1 : 0)}%`, detail: "Measured by Kinetiq's token scan on a test transfer." });
+        else if (ks.result === "taxed") extra.push({ sev: "low", title: "Token takes a fee on transfers", detail: "Flagged by Kinetiq's token scan." });
+      }
+    }
     if (EXPLORER_CHAINS.includes(chain)) {
       ex = await Promise.race([explorerEvm(chain, low, pair && pair.pairAddress), new Promise((ok) => setTimeout(() => ok(null), 6000))]).catch(() => null);
       if (!opts.noDeep) {
@@ -180,7 +192,7 @@ async function runScan(caIn, selIn, opts) {
       if (pair && pair.curveProgress == null && typeof pons.progress === "number") pair.curveProgress = pons.progress;
     }
   }
-  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad });
+  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad, extra });
   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
   if (launchpad && ex && ex.creationTx && chain === "robinhood") { // (Elysium: add here once its launchpad factories are in launchpads.BY_CREATOR)
     const tx = await j(`https://robinhoodchain.blockscout.com/api/v2/transactions/${ex.creationTx}`, 3500).catch(() => null);

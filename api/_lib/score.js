@@ -42,6 +42,7 @@ function analyze(i) {
   }
   // Chains without GoPlus coverage: mint, blacklist and hidden-owner flags can't be checked, so never present a top score.
   const limited = kind === "evm" && !["ethereum", "bsc", "base"].includes(i.chain);
+  (i.extra || []).forEach((r) => add(r.sev, r.title, r.detail)); // chain-specific findings from the scanner (e.g. Kinetiq's token scan on Elysium)
   if (limited && hasSec) add("info", "Limited coverage on this chain", "Mint, blacklist, pause and hidden-owner functions could not be checked automatically. Verify the contract yourself.");
   let score = 100;
   for (const r of R) score -= PTS[r.sev] || 0;

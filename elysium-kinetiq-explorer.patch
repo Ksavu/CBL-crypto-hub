@@ -1,0 +1,175 @@
+diff --git a/ELYSIUM_SETUP.md b/ELYSIUM_SETUP.md
+index c8b6300..f766429 100644
+--- a/ELYSIUM_SETUP.md
++++ b/ELYSIUM_SETUP.md
+@@ -25,16 +25,18 @@ Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
+ 
+ - `rpc.ok` must be `true` (chain id 99901).
+ - `dexscreener.elysiumPairs` and `geckoterminal.pools` should be above 0.
+-- `blockscout[].ok`: if none is `true`, set `ELYSIUM_EXPLORER_API` (below). Scans still work without it
+-  (market data, owner, supply, snipers/bundlers from the RPC), but holder counts, top holders, the deployer,
+-  verified-source checks, audits and the wallet tracker need the explorer API.
++- `kinetiqExplorer.holders.ok` and `.tokenScans.ok` should be `true`: that is Kinetiq's own explorer API
++  (undocumented, rate limited), used for holder count, top holders and the blocked/taxed transfer check.
++  Status `429` means rate limited; reload in a minute.
++- `blockscout` is empty unless `ELYSIUM_EXPLORER_API` is set. Without a Blockscout API there is no deployer,
++  verified-source check, contract audit or wallet tracker on Elysium.
+ 
+ ## Vercel env (all optional)
+ 
+ - `ELYSIUM_RPC`: private RPC (Alchemy `https://elysium-mainnet.g.alchemy.com/v2/<key>`, Quicknode, Chainstack).
+   The public RPC is shared by everyone, so set this before real traffic.
+-- `ELYSIUM_EXPLORER_API`: Blockscout API v2 base, e.g. `https://<host>/api/v2`, tried before the built-in
+-  `https://elysium.kinetiq.xyz/api/v2`. A host is only used if it knows mainnet WHYPE as a contract.
++- `ELYSIUM_EXPLORER_API`: Blockscout API v2 base, e.g. `https://<host>/api/v2`, if you find one. No public
++  one is known. A host is only used if it knows mainnet WHYPE as a contract.
+ - `ELYSIUM_LOG_RANGE`: block span per `eth_getLogs` call (default `2000`). Raise it if your RPC allows more:
+   with 100 ms blocks, 2000 blocks is only ~3 minutes, so the sniper/bundle trace reaches further back with a bigger span.
+ 
+@@ -45,7 +47,8 @@ or when the contract exists on Elysium and not on Robinhood Chain.
+ 
+ ## Known gaps
+ 
+-- GoPlus and honeypot.is don't cover chain 99901, so there is no sell-tax / honeypot simulation yet
++- GoPlus and honeypot.is don't cover chain 99901. The honeypot/tax signal comes from Kinetiq's token scan,
++  which only lists tokens it flagged (blocked or taxed); mint, blacklist and pause functions are not checked
+   (the card says "Limited coverage on this chain").
+ - Launchpad detection only knows the pads DexScreener lists as their own DEX (BOXA, Kleos, Montra). Add factory
+   contracts to `BY_CREATOR.elysium` in `api/_lib/launchpads.js` to tag more.
+diff --git a/api/_lib/elysium.js b/api/_lib/elysium.js
+index 89bbe69..75e7fad 100644
+--- a/api/_lib/elysium.js
++++ b/api/_lib/elysium.js
+@@ -16,7 +16,10 @@ const rpc = () => env("ELYSIUM_RPC") || PUBLIC_RPC;
+ const EXPLORER = "https://elysium.kinetiq.xyz"; // pages moved from /explorer/... to the host root at launch (old links redirect)
+ const ADDR_URL = EXPLORER + "/address/", TX_URL = EXPLORER + "/tx/", TOKEN_URL = EXPLORER + "/token/";
+ const WHYPE = "0xba876237b0f021a6c6d852d6c26e107997cc5e81"; // wrapped HYPE (Uniswap's WETH9 for chain 99901)
+-const API_GUESS = ["https://elysium.kinetiq.xyz/api/v2"];
++const API_GUESS = []; // no public Blockscout API v2 host is known: holders come from Kinetiq's explorer API below
++// Kinetiq's own explorer API (what elysium.kinetiq.xyz/token/<address> calls). Undocumented, so every use is optional
++// and best effort; it rate limits (HTTP 429), so the scanner makes at most two calls per scan plus one cached list.
++const KAPI = "https://elysium.kinetiq.xyz/api/explorer/mainnet";
+ const apis = () => [env("ELYSIUM_EXPLORER_API").replace(/\/+$/, "")].concat(API_GUESS).filter((x, i, a) => /^https:\/\//.test(x) && a.indexOf(x) === i);
+ const logRange = () => { const n = parseInt(env("ELYSIUM_LOG_RANGE"), 10); return n >= 100 && n <= 1000000 ? n : 2000; };
+ 
+@@ -46,6 +49,20 @@ async function blockscoutApi() {
+   else { const lim = L[R.findIndex((r) => r.limited)] || null; live = { t: Date.now() - 4 * 60e3, api: null, soft: lim }; return lim; }
+   return live.api;
+ }
++/** Top holders, Blockscout shape: { items: [{ address: { hash, is_contract }, value }] } or null. */
++const holders = (addr) => jget(`${KAPI}/lists/token-holders?address=${addr}`, 4000).then((r) => (r.json && Array.isArray(r.json.items) ? r.json : null));
++/** Number of holders, or null. */
++const holderCount = (addr) => jget(`${KAPI}/holder-distribution/${addr}`, 4000).then((r) => { const n = r.json && r.json.distribution && Number(r.json.distribution.holders); return n > 0 ? n : null; });
++// Kinetiq's transfer test of tokens: { address, result: "blocked" | "taxed" | ..., takenBps?, hop? }. One list, cached 3 minutes.
++let scans = { t: 0, map: null };
++async function tokenScan(addr) {
++  if (!scans.map || Date.now() - scans.t > 3 * 60e3) {
++    const r = await jget(KAPI + "/token-scans", 5000), L = r.json && Array.isArray(r.json.tokens) ? r.json.tokens : null;
++    if (L) scans = { t: Date.now(), map: new Map(L.map((x) => [String(x.address || "").toLowerCase(), x])) };
++    else if (!scans.map) return null;
++  }
++  return scans.map.get(String(addr).toLowerCase()) || null;
++}
+ /** Host of the Etherscan-style API (<host>/api?module=...) on the same Blockscout, or null. */
+ const blockscoutHost = async () => { const a = await blockscoutApi(); return a ? a.replace(/^https:\/\//, "").replace(/\/api\/v2$/, "") : null; };
+ 
+@@ -53,6 +70,7 @@ const blockscoutHost = async () => { const a = await blockscoutApi(); return a ?
+ async function diag() {
+   const call = (method, params) => jget(rpc(), 5000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || [] }) });
+   const gtRetry = async (u) => { let r = await jget(u, 6000); if (r.status === 429) { await new Promise((z) => setTimeout(z, 1500)); r = await jget(u, 6000); } return r; };
++  const [kh, ks] = await Promise.all([jget(`${KAPI}/lists/token-holders?address=${WHYPE}`, 5000), jget(KAPI + "/token-scans", 5000)]);
+   const [cid, head, code, ds, gt, ...bs] = await Promise.all([
+     call("eth_chainId"), call("eth_blockNumber"), call("eth_getCode", [WHYPE, "latest"]),
+     jget("https://api.dexscreener.com/latest/dex/tokens/" + WHYPE, 6000), gtRetry("https://api.geckoterminal.com/api/v2/networks/elysium/trending_pools?page=1"),
+@@ -66,10 +84,12 @@ async function diag() {
+       whypeHasCode: !!(code.json && typeof code.json.result === "string" && code.json.result.length > 2) },
+     dexscreener: { status: ds.status, elysiumPairs: dsPairs.length, dexIds: [...new Set(dsPairs.map((p) => p.dexId))].slice(0, 12) },
+     geckoterminal: { status: gt.status, pools: ((gt.json && gt.json.data) || []).length, dexes: [...new Set(((gt.json && gt.json.data) || []).map((p) => p.relationships && p.relationships.dex && p.relationships.dex.data && p.relationships.dex.data.id))].slice(0, 12) },
++    kinetiqExplorer: { holders: { status: kh.status, error: kh.error, ok: !!(kh.json && Array.isArray(kh.json.items)), items: kh.json && kh.json.items ? kh.json.items.length : 0 },
++      tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
+     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
+     logRange: logRange(),
+-    hint: "rpc.ok must be true. Status 429 = rate limited (shared Vercel IP): reload in a minute. If no blockscout entry is ever ok, set ELYSIUM_EXPLORER_API to the explorer's /api/v2 base: scans still work without it (market + on-chain basics), but holders, deployer and the wallet tracker need it.",
++    hint: "rpc.ok must be true. kinetiqExplorer gives holders and the blocked/taxed check; status 429 = rate limited (shared Vercel IP), reload in a minute. blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the deployer, verified-source check, audits and the wallet tracker need it.",
+   };
+ }
+ 
+-module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, diag };
++module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, diag };
+diff --git a/api/_lib/explorer.js b/api/_lib/explorer.js
+index 04d0769..371ae99 100644
+--- a/api/_lib/explorer.js
++++ b/api/_lib/explorer.js
+@@ -38,9 +38,11 @@ const rpc = (cfg, to, data) => get(cfg.rpc, { method: "POST", headers: { "conten
+ async function explorerEvm(chain, addr, pairAddr) {
+   const cfg = await conf(chain); if (!cfg) return null;
+   NET.length = 0;
+-  const [tok, ad, hold, own] = await Promise.all([
+-    bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), bs(cfg, `/tokens/${addr}/holders`),
+-    rpc(cfg, addr, "0x8da5cb5b"),
++  // Elysium without a Blockscout API: holders from Kinetiq's explorer API (same item shape), count from its distribution endpoint.
++  const kin = !!cfg.dynamic && !cfg.api;
++  const [tok, ad, hold, own, kinCount] = await Promise.all([
++    bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), kin ? ELY.holders(addr).catch(() => null) : bs(cfg, `/tokens/${addr}/holders`),
++    rpc(cfg, addr, "0x8da5cb5b"), kin ? ELY.holderCount(addr).catch(() => null) : null,
+   ]);
+   // No explorer answer (down, or its API host isn't configured): name, symbol and supply straight from the token contract.
+   let chainTok = null;
+@@ -52,6 +54,7 @@ async function explorerEvm(chain, addr, pairAddr) {
+   if (!tok && !ad && !hold && !own && !chainTok) return null;
+   const out = { holders: null, verified: null, proxy: null, creator: null, creationTx: null, creatorPct: null, top1: null, top5: null, top10: null, owner: undefined, ownerKnown: false };
+   if (tok && tok.holders_count != null) out.holders = parseInt(tok.holders_count, 10) || null;
++  else if (kinCount) out.holders = kinCount;
+   if (tok) { out.name = tok.name || null; out.symbol = tok.symbol || null; }
+   else if (chainTok) { out.name = chainTok.name; out.symbol = chainTok.symbol; out.rpcOnly = true; }
+   if (ad) {
+diff --git a/api/_lib/scanner.js b/api/_lib/scanner.js
+index 115e659..7e9c9fd 100644
+--- a/api/_lib/scanner.js
++++ b/api/_lib/scanner.js
+@@ -96,12 +96,24 @@ async function runScan(caIn, selIn, opts) {
+   // DexScreener paid orders (profile, community takeover, ads). Hype info only, never affects the score.
+   const ordersP = getOrders(chain, ca);
+   let gp = null, hp = null, rc = null, deep = null, ex = null;
++  const extra = [];
+   if (kind === "evm") {
+     const id = EVM[chain];
+     [gp, hp] = await Promise.all([
+       j(`https://api.gopluslabs.io/api/v1/token_security/${id}?contract_addresses=${low}`).then((r) => r.result && r.result[low]).catch(() => null),
+       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
+     ]);
++    // Elysium: GoPlus and honeypot.is don't cover it. Kinetiq's explorer runs its own transfer test: blocked = can't sell, taxed = fee on transfer.
++    if (chain === "elysium" && !hp) {
++      const ks = await Promise.race([ELY.tokenScan(low), new Promise((ok) => setTimeout(() => ok(null), 5500))]).catch(() => null);
++      if (ks) {
++        sources.kinetiq = true;
++        const bps = Number(ks.takenBps), pct = Number.isFinite(bps) && bps > 0 ? bps / 100 : null;
++        if (ks.result === "blocked") hp = { honeypotResult: { isHoneypot: true, honeypotReason: "Kinetiq's token scan: a test transfer was blocked" + (ks.hop ? ` (${String(ks.hop).replace(/_/g, " ")})` : "") } };
++        else if (ks.result === "taxed" && pct !== null) extra.push({ sev: pct >= 50 ? "critical" : pct >= 20 ? "high" : pct >= 10 ? "medium" : pct >= 3 ? "low" : "info", title: `Transfer tax about ${pct.toFixed(pct < 10 ? 1 : 0)}%`, detail: "Measured by Kinetiq's token scan on a test transfer." });
++        else if (ks.result === "taxed") extra.push({ sev: "low", title: "Token takes a fee on transfers", detail: "Flagged by Kinetiq's token scan." });
++      }
++    }
+     if (EXPLORER_CHAINS.includes(chain)) {
+       ex = await Promise.race([explorerEvm(chain, low, pair && pair.pairAddress), new Promise((ok) => setTimeout(() => ok(null), 6000))]).catch(() => null);
+       if (!opts.noDeep) {
+@@ -180,7 +192,7 @@ async function runScan(caIn, selIn, opts) {
+       if (pair && pair.curveProgress == null && typeof pons.progress === "number") pair.curveProgress = pons.progress;
+     }
+   }
+-  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad });
++  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad, extra });
+   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
+   if (launchpad && ex && ex.creationTx && chain === "robinhood") { // (Elysium: add here once its launchpad factories are in launchpads.BY_CREATOR)
+     const tx = await j(`https://robinhoodchain.blockscout.com/api/v2/transactions/${ex.creationTx}`, 3500).catch(() => null);
+diff --git a/api/_lib/score.js b/api/_lib/score.js
+index 5d6af85..b888f75 100644
+--- a/api/_lib/score.js
++++ b/api/_lib/score.js
+@@ -42,6 +42,7 @@ function analyze(i) {
+   }
+   // Chains without GoPlus coverage: mint, blacklist and hidden-owner flags can't be checked, so never present a top score.
+   const limited = kind === "evm" && !["ethereum", "bsc", "base"].includes(i.chain);
++  (i.extra || []).forEach((r) => add(r.sev, r.title, r.detail)); // chain-specific findings from the scanner (e.g. Kinetiq's token scan on Elysium)
+   if (limited && hasSec) add("info", "Limited coverage on this chain", "Mint, blacklist, pause and hidden-owner functions could not be checked automatically. Verify the contract yourself.");
+   let score = 100;
+   for (const r of R) score -= PTS[r.sev] || 0;

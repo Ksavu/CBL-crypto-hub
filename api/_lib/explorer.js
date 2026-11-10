@@ -38,9 +38,11 @@ const rpc = (cfg, to, data) => get(cfg.rpc, { method: "POST", headers: { "conten
 async function explorerEvm(chain, addr, pairAddr) {
   const cfg = await conf(chain); if (!cfg) return null;
   NET.length = 0;
-  const [tok, ad, hold, own] = await Promise.all([
-    bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), bs(cfg, `/tokens/${addr}/holders`),
-    rpc(cfg, addr, "0x8da5cb5b"),
+  // Elysium without a Blockscout API: holders from Kinetiq's explorer API (same item shape), count from its distribution endpoint.
+  const kin = !!cfg.dynamic && !cfg.api;
+  const [tok, ad, hold, own, kinCount] = await Promise.all([
+    bs(cfg, `/tokens/${addr}`), bs(cfg, `/addresses/${addr}`), kin ? ELY.holders(addr).catch(() => null) : bs(cfg, `/tokens/${addr}/holders`),
+    rpc(cfg, addr, "0x8da5cb5b"), kin ? ELY.holderCount(addr).catch(() => null) : null,
   ]);
   // No explorer answer (down, or its API host isn't configured): name, symbol and supply straight from the token contract.
   let chainTok = null;
@@ -52,6 +54,7 @@ async function explorerEvm(chain, addr, pairAddr) {
   if (!tok && !ad && !hold && !own && !chainTok) return null;
   const out = { holders: null, verified: null, proxy: null, creator: null, creationTx: null, creatorPct: null, top1: null, top5: null, top10: null, owner: undefined, ownerKnown: false };
   if (tok && tok.holders_count != null) out.holders = parseInt(tok.holders_count, 10) || null;
+  else if (kinCount) out.holders = kinCount;
   if (tok) { out.name = tok.name || null; out.symbol = tok.symbol || null; }
   else if (chainTok) { out.name = chainTok.name; out.symbol = chainTok.symbol; out.rpcOnly = true; }
   if (ad) {
