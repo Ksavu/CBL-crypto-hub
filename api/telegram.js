@@ -131,6 +131,7 @@ async function doScan(msg, ca, chain, explicit, noCall) {
   try {
     const deep = detect(ca) === "sol" && !!process.env.HELIUS_API_KEY;
     const r = await runScan(ca, chain, deep ? { noDeep: true } : undefined); // fast first answer
+    require("./_lib/points").scan(msg.from, ca).catch(() => {});
     // Groups: the first person to post a token gets the call (shown on the card, tracked for X alerts and /lb).
     const call = group && !noCall && db.on() ? await Calls.record(msg.chat, msg.from, r, msg.message_id).catch((e) => { console.error("call record", e && e.message); return null; }) : null;
     const c = await withTrade(card(r, SITE(), { pending: deep, call }), r, msg);
@@ -165,6 +166,9 @@ async function onMessage(msg) {
     const name = cmd[1].toLowerCase(), args = (cmd[3] || "").trim().split(/\s+/).filter(Boolean);
     // Deep links from the website: t.me/<bot>?start=track_<wallet>[_<chain>] or ?start=w_<wallet>
     const sp = name === "start" && args[0] ? args[0].match(/^(track|w)_([A-Za-z0-9]{25,64})(?:_([a-z]+))?$/) : null;
+    require("./_lib/points").seen(msg.from).catch(() => {});
+    if (name === "points" || (name === "start" && args[0] === "points")) { const m = await require("./_lib/points").pointsMsg(msg.from.id); return void (await reply(msg, m.text, { reply_markup: m.reply_markup })); }
+    if (name === "rank") { const m = await require("./_lib/points").rankMsg(msg.chat.type === "private" ? null : msg.chat.id, tg); return void (await reply(msg, m.text)); }
     if (name === "start" && args[0] && await TB.start(args[0], msg)) return;
     if (await TB.command(name, args, msg, BOT_USER())) return;
     if (sp && WT.familyOf(sp[2])) {

@@ -97,7 +97,8 @@ module.exports = async (req, res) => {
   if (job === "trending") {
     const r = await require("./_lib/trendpost").job(site, tg).catch((e) => ({ error: String(e.message).slice(0, 100) }));
     const rc = await require("./_lib/recap").job(site, tg).catch((e) => ({ recapError: String(e.message).slice(0, 100) })); // daily recap, once a day
-    return res.status(200).json({ ok: true, job: "trending", ...r, ...rc });
+    const pt = await require("./_lib/points").job(tg).catch((e) => ({ pointsError: String(e.message).slice(0, 100) })); // points every 30 min, Monday winners post
+    return res.status(200).json({ ok: true, job: "trending", ...r, ...rc, ...pt });
   }
   if (job === "radar") { const r = await require("./_lib/radar").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "radar", ...r.stats }); }
   const out = { checked: 0, alerts: 0, sent: 0, errors: 0 };

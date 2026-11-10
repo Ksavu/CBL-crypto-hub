@@ -160,6 +160,7 @@ const HELP = [
   "/calls [reply to someone] – your (or their) calls",
   "/xalerts on|off – X milestone alerts in this group (admins)",
   "",
+  "/points – your CBL Points and the weekly leaderboard · /rank – top calling groups",
   "/buybot &lt;address&gt; – post every buy of your token in this group (admins)",
   "/alert &lt;address&gt; 2x | +50% | -30% | mc 1m | $0.01 – price alert in DM · /alerts · /unalert &lt;id&gt;",
   "/boost &lt;address&gt; [hours] – put a token on top of CBL Trending (admins)",

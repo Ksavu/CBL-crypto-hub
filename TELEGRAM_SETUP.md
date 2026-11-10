@@ -179,3 +179,9 @@ They are labelled ⬆️ higher.fun by their `…high` address ending and by hig
 ## Daily recap
 - Posted once a day in `RECAP_CHANNEL` (or `TRENDING_CHANNEL`) at `RECAP_HOUR_UTC` (default 8 = 9:00 Belgrade winter time).
 - Admins: `/recap` preview, `/recap now` post it right away.
+
+## CBL Points and group ranking
+- Run `points.sql` in Supabase once.
+- `/points` (also ⭐ Points in the Bartender menu) and `/rank` (top calling groups, 7 days).
+- Points recalculate every 30 min (trending cron). Monday at `WEEKLY_HOUR_UTC` (default 10) a winners post goes to the channel.
+- Optional `WEEKLY_PRIZE` text, e.g. `free 24h Trending boost` — shown on /points and in the winners post.

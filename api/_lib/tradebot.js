@@ -57,7 +57,7 @@ const HOME_KB = [
   [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 Orders (TP/SL/limit)", callback_data: "To" }],
   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
-  [{ text: "👥 Copy trade", callback_data: "TC" }, { text: "🔔 Alerts", callback_data: "TL" }],
+  [{ text: "👥 Copy trade", callback_data: "TC" }, { text: "🔔 Alerts", callback_data: "TL" }, { text: "⭐ Points", callback_data: "TP" }],
   [{ text: "🤝 Referrals", callback_data: "TR" }, { text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
 ];
 async function menuMsg(row) {
@@ -426,6 +426,7 @@ function make(tg) {
       } catch (e) { await ack(); await send(chat, errText(e)); }
       return true;
     }
+    if (k === "P") { await ack(); const m = await require("./points").pointsMsg(uid); m.reply_markup.inline_keyboard.push([{ text: "⬅️ Menu", callback_data: "Tm" }]); await edit(chat, mid, m); return true; }
     if (k === "L") {
       if (d[2] === "d") await db.patch("bot_orders", `tg_id=eq.${uid}&kind=eq.alert&id=eq.${Number(d.slice(3))}`, { active: false }).catch(() => {});
       await ack(); await edit(chat, mid, await alertsMsg(uid)); return true;
