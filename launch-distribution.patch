@@ -1,0 +1,78 @@
+diff --git a/api/_lib/deep.js b/api/_lib/deep.js
+index 0bd7847..3abd3de 100644
+--- a/api/_lib/deep.js
++++ b/api/_lib/deep.js
+@@ -282,7 +282,13 @@ function deepChecks(D, add) {
+     add((g.heldPct || 0) >= 10 ? "high" : (g.heldPct || 0) >= 5 || (g.boughtPct || 0) >= 5 ? "medium" : (g.boughtPct || 0) >= 3 ? "low" : "info", `${g.stillHolding} of ${g.wallets} ${label}`,
+       `Together they hold ${f(g.heldPct)} of supply`);
+   };
+-  grp(D.bundlers, "bundle wallets still hold tokens (bought in the launch block or received from those buyers)");
++  if (D.bundlers && D.bundlers.kind === "distribution") {
++    // Supply handed out by one wallet at launch. What matters is what those wallets can still sell: nothing held = information only.
++    const g = D.bundlers, h = g.heldPct || 0;
++    add(h >= 10 ? "high" : h >= 5 ? "medium" : h >= 1 ? "low" : "info",
++      `${g.wallets} linked wallets received ${typeof g.boughtPct === "number" ? f(g.boughtPct) + " of supply" : "tokens"} at launch, ${g.stillHolding} still hold`,
++      `Sent out by one wallet at launch (a distribution, not pool buys). Together they hold ${f(g.heldPct)} of supply now`);
++  } else grp(D.bundlers, "bundle wallets still hold tokens (bought in the launch block or received from those buyers)");
+   if (D.insiders) add((D.insiders.heldPct || 0) >= 10 ? "medium" : "info", `${D.insiders.stillHolding} insider wallets (same funding source) hold ${f(D.insiders.heldPct)}`, "Different wallets funded from the same address. Could be one person, or friends of the dev.");
+   grp(D.snipers, "sniper wallets still hold tokens (bought in the first seconds or received from those buyers)");
+   (D.notes || []).forEach((n) => add("info", n));
+diff --git a/api/_lib/explorer.js b/api/_lib/explorer.js
+index 896ace3..3d54d6b 100644
+--- a/api/_lib/explorer.js
++++ b/api/_lib/explorer.js
+@@ -105,7 +105,8 @@ async function codeSet(cfg, addrs) {
+   for (let i = 0; i < addrs.length; i += 50) {
+     const part = addrs.slice(i, i + 50);
+     const r = await get(cfg.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(part.map((a, k) => ({ jsonrpc: "2.0", id: k, method: "eth_getCode", params: [a, "latest"] }))) });
+-    (Array.isArray(r) ? r : []).forEach((x) => { if (x && typeof x.result === "string" && x.result.length > 2 && part[x.id]) out.add(part[x.id]); });
++    if (!Array.isArray(r)) out.failed = true; // no answer: callers must not read "not in the set" as "is a wallet"
++    (Array.isArray(r) ? r : []).forEach((x) => { if (x && typeof x.result === "string" && x.result.length > 2 && part[x.id]) out.add(part[x.id]); else if (!x || typeof x.result !== "string") out.failed = true; });
+   }
+   return out;
+ }
+@@ -200,11 +201,16 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
+   dbg.fanOut = fans.slice(0, 4).map((a) => a.slice(0, 8) + ":" + fan[a].to.size + ":" + (supply > 0 ? ((fan[a].amt / supply) * 100).toFixed(1) : "?") + "%");
+   // Contracts are not buyers: routers, pool managers, lockers and launchpad contracts receive and fan out tokens at launch too.
+   const fansTop = fans.slice(0, 4);
+-  const isC = await codeSet(cfg, [...new Set(fansTop.concat(...fansTop.map((a) => Array.from(fan[a].to)), all))].slice(0, 200)).catch(() => new Set());
++  const isC = await codeSet(cfg, [...new Set([src].concat(fansTop, ...fansTop.map((a) => Array.from(fan[a].to)), all))].slice(0, 200)).catch(() => Object.assign(new Set(), { failed: true }));
+   dbg.contractsSkipped = isC.size;
+-  const fanPick = fansTop.find((a) => !isC.has(a)), sameW = same.filter((a) => !isC.has(a));
+-  let bundle = fanPick ? Array.from(fan[fanPick].to).filter((a) => a !== src && !isC.has(a)).slice(0, 60) : (sameW.length >= 2 ? sameW : []);
+-  const snipe = all.filter((a) => !bundle.includes(a) && !isC.has(a));
++  // The distributor is normally a pool or launchpad contract (its recipients are buyers). When it is a plain wallet,
++  // the "buyers" are wallets it handed supply to: a distribution, with no snipers to speak of.
++  const srcWallet = !isC.failed && !isC.has(src);
++  dbg.sourceIsWallet = srcWallet;
++  const fanPick = fansTop.find((a) => !isC.has(a)), sameW = same.filter((a) => !isC.has(a)), allW = all.filter((a) => !isC.has(a));
++  let bundle = fanPick ? Array.from(fan[fanPick].to).filter((a) => a !== src && !isC.has(a)).slice(0, 60) : srcWallet ? (allW.length >= 2 ? allW.slice(0, 60) : []) : (sameW.length >= 2 ? sameW : []);
++  const distribution = !!fanPick || (srcWallet && bundle.length > 0);
++  const snipe = srcWallet && !fanPick ? [] : all.filter((a) => !bundle.includes(a) && !isC.has(a));
+   const grp = async (ws) => {
+     if (!ws.length) return null;
+     const sel = ws.slice(0, 40);
+@@ -219,6 +225,8 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
+   Object.values(seen).forEach((b) => { if (b - first <= 200) blkCount[b - first] = (blkCount[b - first] || 0) + 1; });
+   dbg.anyRecv = Object.keys(seen).length;
+   dbg.recvByBlockOffset = Object.entries(blkCount).sort((a, c) => c[1] - a[1]).slice(0, 6).map(([k, v]) => k + ":" + v);
++  // One wallet handing supply to many wallets at launch is a distribution, not pool buys: say so (the card and the score word it differently).
++  if (bundlers) bundlers.kind = distribution ? "distribution" : "bundle";
+   return { traced: true, bundlers, snipers, dbg };
+ }
+ module.exports = { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS: Object.keys(CFG) };
+diff --git a/api/_lib/format.js b/api/_lib/format.js
+index 580fac8..01649d7 100644
+--- a/api/_lib/format.js
++++ b/api/_lib/format.js
+@@ -77,7 +77,9 @@ function card(r, site, opt) {
+            h.bestAth ? `best ATH ${k(h.bestAth)}${h.bestSym ? " (" + esc(h.bestSym) + ")" : ""}` : null].filter(Boolean).join(" · ")));
+       } else if (typeof dm === "number" && dm > 1) L.push(`👨‍💻 Dev launched ${dm} tokens`);
+       if (d.traced) {
+-        L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
++        L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, d.bundlers && d.bundlers.kind === "distribution"
++          ? `📦 Launch distribution: ${d.bundlers.wallets} linked wallets received ${p(d.bundlers.boughtPct)} · ${d.bundlers.stillHolding} still hold (${p(d.bundlers.heldPct)} of supply)`
++          : `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
+         if (d.insiders) L.push(`🕵️ Insiders: ${g(d.insiders)}`);
+         // proof: biggest flagged wallets with the transaction that flagged them
+         const pr = [].concat(...[["📦", d.bundlers], ["🎯", d.snipers], ["🕵️", d.insiders]].map(([e, x]) => ((x && x.proof) || []).slice(0, 2).map((p) => Object.assign({ e }, p)))).slice(0, 5);

@@ -282,7 +282,13 @@ function deepChecks(D, add) {
     add((g.heldPct || 0) >= 10 ? "high" : (g.heldPct || 0) >= 5 || (g.boughtPct || 0) >= 5 ? "medium" : (g.boughtPct || 0) >= 3 ? "low" : "info", `${g.stillHolding} of ${g.wallets} ${label}`,
       `Together they hold ${f(g.heldPct)} of supply`);
   };
-  grp(D.bundlers, "bundle wallets still hold tokens (bought in the launch block or received from those buyers)");
+  if (D.bundlers && D.bundlers.kind === "distribution") {
+    // Supply handed out by one wallet at launch. What matters is what those wallets can still sell: nothing held = information only.
+    const g = D.bundlers, h = g.heldPct || 0;
+    add(h >= 10 ? "high" : h >= 5 ? "medium" : h >= 1 ? "low" : "info",
+      `${g.wallets} linked wallets received ${typeof g.boughtPct === "number" ? f(g.boughtPct) + " of supply" : "tokens"} at launch, ${g.stillHolding} still hold`,
+      `Sent out by one wallet at launch (a distribution, not pool buys). Together they hold ${f(g.heldPct)} of supply now`);
+  } else grp(D.bundlers, "bundle wallets still hold tokens (bought in the launch block or received from those buyers)");
   if (D.insiders) add((D.insiders.heldPct || 0) >= 10 ? "medium" : "info", `${D.insiders.stillHolding} insider wallets (same funding source) hold ${f(D.insiders.heldPct)}`, "Different wallets funded from the same address. Could be one person, or friends of the dev.");
   grp(D.snipers, "sniper wallets still hold tokens (bought in the first seconds or received from those buyers)");
   (D.notes || []).forEach((n) => add("info", n));

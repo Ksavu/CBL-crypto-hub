@@ -77,7 +77,9 @@ function card(r, site, opt) {
            h.bestAth ? `best ATH ${k(h.bestAth)}${h.bestSym ? " (" + esc(h.bestSym) + ")" : ""}` : null].filter(Boolean).join(" · ")));
       } else if (typeof dm === "number" && dm > 1) L.push(`👨‍💻 Dev launched ${dm} tokens`);
       if (d.traced) {
-        L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
+        L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, d.bundlers && d.bundlers.kind === "distribution"
+          ? `📦 Launch distribution: ${d.bundlers.wallets} linked wallets received ${p(d.bundlers.boughtPct)} · ${d.bundlers.stillHolding} still hold (${p(d.bundlers.heldPct)} of supply)`
+          : `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
         if (d.insiders) L.push(`🕵️ Insiders: ${g(d.insiders)}`);
         // proof: biggest flagged wallets with the transaction that flagged them
         const pr = [].concat(...[["📦", d.bundlers], ["🎯", d.snipers], ["🕵️", d.insiders]].map(([e, x]) => ((x && x.proof) || []).slice(0, 2).map((p) => Object.assign({ e }, p)))).slice(0, 5);

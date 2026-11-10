@@ -105,7 +105,8 @@ async function codeSet(cfg, addrs) {
   for (let i = 0; i < addrs.length; i += 50) {
     const part = addrs.slice(i, i + 50);
     const r = await get(cfg.rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(part.map((a, k) => ({ jsonrpc: "2.0", id: k, method: "eth_getCode", params: [a, "latest"] }))) });
-    (Array.isArray(r) ? r : []).forEach((x) => { if (x && typeof x.result === "string" && x.result.length > 2 && part[x.id]) out.add(part[x.id]); });
+    if (!Array.isArray(r)) out.failed = true; // no answer: callers must not read "not in the set" as "is a wallet"
+    (Array.isArray(r) ? r : []).forEach((x) => { if (x && typeof x.result === "string" && x.result.length > 2 && part[x.id]) out.add(part[x.id]); else if (!x || typeof x.result !== "string") out.failed = true; });
   }
   return out;
 }
@@ -200,11 +201,16 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   dbg.fanOut = fans.slice(0, 4).map((a) => a.slice(0, 8) + ":" + fan[a].to.size + ":" + (supply > 0 ? ((fan[a].amt / supply) * 100).toFixed(1) : "?") + "%");
   // Contracts are not buyers: routers, pool managers, lockers and launchpad contracts receive and fan out tokens at launch too.
   const fansTop = fans.slice(0, 4);
-  const isC = await codeSet(cfg, [...new Set(fansTop.concat(...fansTop.map((a) => Array.from(fan[a].to)), all))].slice(0, 200)).catch(() => new Set());
+  const isC = await codeSet(cfg, [...new Set([src].concat(fansTop, ...fansTop.map((a) => Array.from(fan[a].to)), all))].slice(0, 200)).catch(() => Object.assign(new Set(), { failed: true }));
   dbg.contractsSkipped = isC.size;
-  const fanPick = fansTop.find((a) => !isC.has(a)), sameW = same.filter((a) => !isC.has(a));
-  let bundle = fanPick ? Array.from(fan[fanPick].to).filter((a) => a !== src && !isC.has(a)).slice(0, 60) : (sameW.length >= 2 ? sameW : []);
-  const snipe = all.filter((a) => !bundle.includes(a) && !isC.has(a));
+  // The distributor is normally a pool or launchpad contract (its recipients are buyers). When it is a plain wallet,
+  // the "buyers" are wallets it handed supply to: a distribution, with no snipers to speak of.
+  const srcWallet = !isC.failed && !isC.has(src);
+  dbg.sourceIsWallet = srcWallet;
+  const fanPick = fansTop.find((a) => !isC.has(a)), sameW = same.filter((a) => !isC.has(a)), allW = all.filter((a) => !isC.has(a));
+  let bundle = fanPick ? Array.from(fan[fanPick].to).filter((a) => a !== src && !isC.has(a)).slice(0, 60) : srcWallet ? (allW.length >= 2 ? allW.slice(0, 60) : []) : (sameW.length >= 2 ? sameW : []);
+  const distribution = !!fanPick || (srcWallet && bundle.length > 0);
+  const snipe = srcWallet && !fanPick ? [] : all.filter((a) => !bundle.includes(a) && !isC.has(a));
   const grp = async (ws) => {
     if (!ws.length) return null;
     const sel = ws.slice(0, 40);
@@ -219,6 +225,8 @@ async function evmLaunch(chain, token, pairCreatedMs, supply, creationTx, budget
   Object.values(seen).forEach((b) => { if (b - first <= 200) blkCount[b - first] = (blkCount[b - first] || 0) + 1; });
   dbg.anyRecv = Object.keys(seen).length;
   dbg.recvByBlockOffset = Object.entries(blkCount).sort((a, c) => c[1] - a[1]).slice(0, 6).map(([k, v]) => k + ":" + v);
+  // One wallet handing supply to many wallets at launch is a distribution, not pool buys: say so (the card and the score word it differently).
+  if (bundlers) bundlers.kind = distribution ? "distribution" : "bundle";
   return { traced: true, bundlers, snipers, dbg };
 }
 module.exports = { explorerEvm, evmLaunch, NET, EXPLORER_CHAINS: Object.keys(CFG) };
