@@ -104,6 +104,10 @@ async function rankMsg(chatId, tg) {
     L.push(`${medal(i)} ${title} · <b>${g.avg.toFixed(1)}x</b> avg · ${g.n} calls · best ${g.best.toFixed(1)}x`);
   }
   if (!gs.length) L.push("No group has 5+ calls this week yet. Post tokens in your group with the bot to get ranked.");
+  if (chatId) {
+    const lb = await require("./calls").leaderboard(chatId, 7).catch(() => null);
+    if (lb && lb.users.length) { L.push("", "👤 <b>Top callers in this group · 7 days</b>"); lb.users.slice(0, 5).forEach((u, i) => L.push(`${medal(i)} ${esc(u.who)} · <b>${u.avg.toFixed(1)}x</b> avg · ${u.n} calls · best ${u.best ? u.best.x.toFixed(1) + "x " + esc(u.best.sym || "") : "–"}`)); L.push("<i>Full board: /lb</i>"); }
+  }
   if (chatId) L.push("", mine >= 0 ? `📍 This group: <b>#${mine + 1}</b> of ${gs.length} · ${gs[mine].avg.toFixed(1)}x avg · ${gs[mine].n} calls` : "📍 This group isn't ranked yet: it needs 5+ calls in 7 days.");
   return { text: L.join("\n") };
 }
