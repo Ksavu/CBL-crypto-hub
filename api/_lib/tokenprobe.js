@@ -1,0 +1,73 @@
+// Buy -> wallet transfer -> sell rehearsal for one token on one pool, done with a single eth_call.
+// The call carries the creation code of contracts/CblTokenProbe.sol; its constructor runs the rehearsal against the
+// live pool and returns the measurements. Nothing is deployed, signed or paid: every state change is rolled back.
+// Works on Uniswap v4 (PoolManager and forks), v3 and v2 style pools on any EVM chain whose RPC allows eth_call without "to".
+const { AbiCoder, keccak256 } = require("ethers");
+const INITCODE = require("./tokenprobe.json").bytecode;
+const coder = AbiCoder.defaultAbiCoder();
+const ZERO = "0x0000000000000000000000000000000000000000", MAGIC = 0xcb1cb1cb1n;
+const KEY_T = "tuple(address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks)";
+const RES_T = "tuple(uint256 magic,uint256 failAt,uint256 quoteIn,uint256 buyOut,uint256 buyGot,uint256 xferSent,uint256 xferGot,uint256 sellSent,uint256 sellPaid,uint256 quoteOut,bytes err)";
+const STEP = { 1: "buy", 2: "receive", 3: "transfer", 4: "toPool", 5: "sell", 99: "noCallback" };
+
+const poolId = (k) => keccak256(coder.encode(["address", "address", "uint24", "int24", "address"], [k.currency0, k.currency1, k.fee, k.tickSpacing, k.hooks]));
+/** v4 pool ids hash the tick spacing too; indexers often omit it. Find the one that reproduces the id (common values first). */
+function findTickSpacing(k, id) {
+  const want = String(id).toLowerCase(), common = [60, 200, 10, 1, 100, 50, 20, 2, 5, 120, 400, 1000, 2000];
+  for (const ts of common) if (poolId(Object.assign({}, k, { tickSpacing: ts })).toLowerCase() === want) return ts;
+  for (let ts = 1; ts <= 32767; ts++) if (!common.includes(ts) && poolId(Object.assign({}, k, { tickSpacing: ts })).toLowerCase() === want) return ts;
+  return null;
+}
+function callData(o) {
+  const key = o.key || { currency0: ZERO, currency1: ZERO, fee: 0, tickSpacing: 0, hooks: ZERO };
+  return INITCODE + coder.encode(["uint8", "address", KEY_T, "address", "bool", "uint256"], [o.mode, o.pool, [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks], o.token, !!o.tokenIs0, BigInt(o.amount)]).slice(2);
+}
+function decode(hex) {
+  if (typeof hex !== "string" || hex.length < 2 + 64 * 11) return null;
+  try {
+    const r = coder.decode([RES_T], hex)[0];
+    if (r.magic !== MAGIC) return null;
+    return { failAt: Number(r.failAt), quoteIn: r.quoteIn, buyOut: r.buyOut, buyGot: r.buyGot, xferSent: r.xferSent, xferGot: r.xferGot, sellSent: r.sellSent, sellPaid: r.sellPaid, quoteOut: r.quoteOut, err: r.err };
+  } catch (e) { return null; }
+}
+// Revert text of a failed step, when it is a plain Error(string)
+function errText(err) {
+  try { if (typeof err === "string" && err.startsWith("0x08c379a0")) return String(coder.decode(["string"], "0x" + err.slice(10).padEnd(64 * 3, "0"))[0]).replace(/[^\x20-\x7e]/g, "").slice(0, 60); } catch (e) {}
+  return null;
+}
+const pct = (lost, of) => (of > 0n ? Number((lost * 100000n) / of) / 1000 : null);
+/** Turn raw measurements into findings. honeypot: true = selling fails, false = a full sell worked, null = could not tell. */
+function interpret(r, mode) {
+  if (!r) return null;
+  const o = { mode, step: r.failAt ? STEP[r.failAt] || "unknown" : null, honeypot: null, reason: null, buyTax: null, sellTax: null, transferTax: null, poolCost: null, error: errText(r.err) };
+  if (r.buyOut > 0n && r.buyGot > 0n) o.buyTax = pct(r.buyOut - (r.buyGot > r.buyOut ? r.buyOut : r.buyGot), r.buyOut);
+  if (r.xferSent > 0n && r.failAt !== 3) o.transferTax = pct(r.xferSent - (r.xferGot > r.xferSent ? r.xferSent : r.xferGot), r.xferSent);
+  if (r.sellSent > 0n && r.sellPaid > 0n) o.sellTax = pct(r.sellSent - (r.sellPaid > r.sellSent ? r.sellSent : r.sellPaid), r.sellSent);
+  // v4 only: what a buy plus a sell costs in the pool itself (pool fee twice, hook fees, price impact), with the token's own
+  // taxes and the part set aside for the wallet transfer taken out: quote back per token sold vs quote paid per token bought.
+  if (mode === 4 && r.quoteIn > 0n && r.quoteOut > 0n && r.sellPaid > 0n && r.buyOut > 0n) {
+    const back = r.quoteOut * r.buyOut, paid = r.quoteIn * r.sellPaid;
+    o.poolCost = pct(paid - (back > paid ? paid : back), paid);
+  }
+  if (r.failAt === 4) { o.honeypot = true; o.reason = "Tokens could not be sent to the pool in a test sale" + (o.error ? ` ("${o.error}")` : ""); }
+  else if (r.failAt === 5) { o.honeypot = true; o.reason = "The pool rejected a test sale" + (o.error ? ` ("${o.error}")` : ""); }
+  else if (r.failAt === 0) o.honeypot = false;
+  // failAt 1 / 2 (could not buy) and 3 (wallet transfer refused) say nothing certain about selling: left as null for the caller to word
+  return o;
+}
+async function ethCall(rpc, data, ms) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms || 5000);
+  try {
+    const r = await fetch(rpc, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ data }, "latest"] }) });
+    const j = await r.json().catch(() => null);
+    if (j && typeof j.result === "string") return { hex: j.result };
+    return { hex: null, error: j && j.error ? String(j.error.message || "").slice(0, 120) : "http " + r.status };
+  } catch (e) { return { hex: null, error: String((e && e.message) || e).slice(0, 80) }; } finally { clearTimeout(t); }
+}
+/** One rehearsal. o: { mode: 4|3|2, pool, key?, token, tokenIs0, amount }. Returns { raw, findings } or { error }. */
+async function probe(rpc, o, ms) {
+  const res = await ethCall(rpc, callData(o), ms), raw = decode(res.hex);
+  if (!raw) return { error: res.error || "no measurements returned", findings: null };
+  return { raw, findings: interpret(raw, o.mode) };
+}
+module.exports = { probe, callData, decode, interpret, poolId, findTickSpacing, ZERO };

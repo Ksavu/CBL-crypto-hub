@@ -55,7 +55,16 @@ const indexer = () => (env("ELYSIUM_INDEXER_API") || "https://elysiumexplore.com
 const NOT_A_PAD = /^(uniswap|bridged|ramses|aero)/i; // "pad" ids that only say where the first pool is
 const PAD_NAME = { "boxa-v3": "BOXA", "boxa-v4": "BOXA", kleos: "Kleos", elyspump: "ElysPump" }; // indexer pad id -> the name used in launchpads.js
 /** { name, symbol, supply (raw string), holders, creator, creationTx, top10Share (%), pad } or null. */
-async function indexToken(addr) {
+const idxMemo = new Map(); // one scan asks twice (holders + sell check): share the answer for a few seconds
+function indexToken(addr) {
+  const k = String(addr).toLowerCase(), hit = idxMemo.get(k);
+  if (hit && Date.now() - hit.t < 20e3) return hit.p;
+  const p = indexTokenRaw(k); idxMemo.set(k, { t: Date.now(), p });
+  if (idxMemo.size > 200) idxMemo.delete(idxMemo.keys().next().value);
+  p.then((v) => { if (!v) idxMemo.delete(k); }, () => idxMemo.delete(k));
+  return p;
+}
+async function indexTokenRaw(addr) {
   const r = await jget(`${indexer()}/v1/tokens/${String(addr).toLowerCase()}`, 4000), t = r.json && r.json.token;
   if (!t || String(t.address || "").toLowerCase() !== String(addr).toLowerCase()) return null;
   const A = (x) => (/^0x[0-9a-f]{40}$/i.test(String(x || "")) ? String(x).toLowerCase() : null), pad = r.json.pad || {};
@@ -63,7 +72,8 @@ async function indexToken(addr) {
   return { name: t.name || null, symbol: t.symbol || null, supply: /^\d+$/.test(String(t.total_supply || "")) ? String(t.total_supply) : null, holders: Number(t.holders) > 0 ? Number(t.holders) : null,
     creator: A(t.creator), creationTx: /^0x[0-9a-f]{64}$/i.test(String(t.created_tx || "")) ? t.created_tx : null, createdTs: Number(t.created_ts) || null,
     top10Share: Number.isFinite(share) && share >= 0 && share <= 100 ? share : null,
-    pad: padId && !NOT_A_PAD.test(padId) ? PAD_NAME[padId] || String(pad.name || padId).slice(0, 30) : null, padId: padId || null };
+    pad: padId && !NOT_A_PAD.test(padId) ? PAD_NAME[padId] || String(pad.name || padId).slice(0, 30) : null, padId: padId || null,
+    pools: Array.isArray(r.json.pools) ? r.json.pools.slice(0, 40) : [] };
 }
 // Holders: { holders: [{ holder, balance }], total, labels: { <address>: { name, kind: "contract" | ... } } }.
 // Other common field names are accepted too, and rows that don't parse are skipped.
@@ -86,6 +96,41 @@ async function indexSource(addr) {
   const r = await jget(`${indexer()}/api?module=contract&action=getsourcecode&address=${addr}`, 6000), x = r.json && Array.isArray(r.json.result) ? r.json.result[0] : null;
   return x && x.SourceCode ? { name: x.ContractName || "", compiler: x.CompilerVersion || "", source: String(x.SourceCode) } : null;
 }
+// ---- Honeypot and tax check: a buy -> transfer -> sell rehearsal on the token's main pool (see ./tokenprobe.js) ----
+// pair = the DexScreener pair the scan uses; idx = indexToken() result if the caller already has it.
+// Returns { findings, pool: { version, address } } or { findings: null, why }.
+async function probeToken(token, pair, idx) {
+  const P = require("./tokenprobe"), low = String(token).toLowerCase();
+  if (!pair || !pair.pairAddress) return { findings: null, why: "no pool" };
+  const id = String(pair.pairAddress).toLowerCase(), labels = (pair.labels || []).map((x) => String(x).toLowerCase());
+  const one = (to, data) => jget(rpc(), 4000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) }).then((r) => (r.json && typeof r.json.result === "string" ? r.json.result : null));
+  const decimals = async (a) => { if (!a || a === P.ZERO || a === WHYPE) return 18; const h = await one(a, "0x313ce567"); const n = h && h.length > 2 ? parseInt(h, 16) : NaN; return n >= 0 && n <= 36 ? n : null; };
+  const units = (x, dec) => (x > 0 && Number.isFinite(x) ? (BigInt(Math.max(1, Math.floor(x * 1e9))) * 10n ** BigInt(dec)) / 1000000000n : 0n);
+  // about $1 of the quote token, less on thin pools so the rehearsal itself barely moves the price
+  const liq = Number(pair.liquidity && pair.liquidity.usd) || 0, usd = Math.min(1, Math.max(0.05, liq / 2000));
+  const priceUsd = parseFloat(pair.priceUsd), priceNative = parseFloat(pair.priceNative), quoteUsd = priceUsd > 0 && priceNative > 0 ? priceUsd / priceNative : null;
+  if (!idx) idx = await indexToken(low).catch(() => null);
+  const known = ((idx && idx.pools) || []).find((p) => String(p.pool || "").toLowerCase() === id);
+  if (id.length === 66) { // Uniswap v4 style: the id is a hash, the pool key comes from the indexer
+    if (!known) return { findings: null, why: "pool key unknown" };
+    const k = { currency0: String(known.token0).toLowerCase(), currency1: String(known.token1).toLowerCase(), fee: Number(known.fee), hooks: String(known.hooks || P.ZERO).toLowerCase() };
+    if (![k.currency0, k.currency1].includes(low)) return { findings: null, why: "pool does not hold this token" };
+    k.tickSpacing = P.findTickSpacing(k, id);
+    if (k.tickSpacing === null) return { findings: null, why: "pool key does not match its id" };
+    const quote = k.currency0 === low ? k.currency1 : k.currency0, dec = await decimals(quote);
+    if (dec === null || !quoteUsd) return { findings: null, why: "quote price unknown" };
+    const r = await P.probe(rpc(), { mode: 4, pool: String(known.dex).toLowerCase(), key: k, token: low, tokenIs0: k.currency0 === low, amount: units(usd / quoteUsd, dec) }, 5000);
+    return { findings: r.findings, why: r.error, pool: { version: "v4", id, manager: String(known.dex).toLowerCase(), hooks: k.hooks !== P.ZERO } };
+  }
+  if (id.length !== 42) return { findings: null, why: "unknown pool type" };
+  const quote = String((pair.quoteToken && pair.quoteToken.address) || "").toLowerCase(), q = /^0x[0-9a-f]{40}$/.test(quote) && quote !== P.ZERO ? quote : WHYPE;
+  const tokenIs0 = BigInt(low) < BigInt(q), ver = labels.includes("v2") ? "v2" : labels.includes("v3") ? "v3" : known && /^v[23]$/.test(String(known.version)) ? known.version : null;
+  const v3 = async () => { const dec = await decimals(q); if (dec === null || !quoteUsd) return { findings: null, error: "quote price unknown" }; return P.probe(rpc(), { mode: 3, pool: id, token: low, tokenIs0, amount: units(usd / quoteUsd, dec) }, 5000); };
+  const v2 = async () => { const dec = await decimals(low); if (dec === null || !(priceUsd > 0)) return { findings: null, error: "token price unknown" }; return P.probe(rpc(), { mode: 2, pool: id, token: low, tokenIs0, amount: units(usd / priceUsd, dec) }, 5000); };
+  let r = ver === "v2" ? await v2() : await v3(), used = ver === "v2" ? "v2" : "v3";
+  if (!r.findings && !ver) { r = await v2(); used = "v2"; } // unlabelled pool: a v2 pair does not answer a v3 swap
+  return { findings: r.findings, why: r.error, pool: { version: used, address: id } };
+}
 /** Top holders, Blockscout shape: { items: [{ address: { hash, is_contract }, value }] } or null. */
 const holders = (addr) => jget(`${KAPI}/lists/token-holders?address=${addr}`, 4000).then((r) => (r.json && Array.isArray(r.json.items) ? r.json : null));
 /** Number of holders, or null. */
@@ -104,8 +149,18 @@ async function tokenScan(addr) {
 /** Host of the Etherscan-style API (<host>/api?module=...) on the same Blockscout, or null. */
 const blockscoutHost = async () => { const a = await blockscoutApi(); return a ? a.replace(/^https:\/\//, "").replace(/\/api\/v2$/, "") : null; };
 
+/** Sell-check self test for one token: its best Elysium pair on DexScreener, then the rehearsal. /api/scan?chaindiag=elysium&probe=<token> */
+async function probeDiag(token) {
+  const t = String(token || "").toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(t)) return { error: "not a token address" };
+  const ds = await jget("https://api.dexscreener.com/latest/dex/tokens/" + t, 6000);
+  const pair = ((ds.json && ds.json.pairs) || []).filter((p) => p.chainId === KEY && String(p.baseToken && p.baseToken.address).toLowerCase() === t).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
+  if (!pair) return { token: t, error: "no Elysium pair on DexScreener (status " + ds.status + ")" };
+  const t0 = Date.now(), r = await probeToken(t, pair).catch((e) => ({ findings: null, why: String(e && e.message).slice(0, 120) }));
+  return { token: t, symbol: pair.baseToken.symbol, pair: { id: pair.pairAddress, dex: pair.dexId, labels: pair.labels || [], quote: pair.quoteToken && pair.quoteToken.symbol, liquidityUsd: pair.liquidity && pair.liquidity.usd }, ms: Date.now() - t0, pool: r.pool || null, findings: r.findings, why: r.findings ? undefined : r.why };
+}
 /** One-click health check after deploy: /api/scan?chaindiag=elysium */
-async function diag() {
+async function diag(probeAddr) {
   const call = (method, params) => jget(rpc(), 5000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || [] }) });
   const gtRetry = async (u) => { let r = await jget(u, 6000); if (r.status === 429) { await new Promise((z) => setTimeout(z, 1500)); r = await jget(u, 6000); } return r; };
   const KNTQ = "0xe45a355d9e9cad2ad85f2d03e3ee3102a036acf0"; // a token every indexer has
@@ -129,12 +184,13 @@ async function diag() {
     indexer: { base: indexer(), token: { status: it.status, error: it.error, ok: !!parsed, parsed: parsed && { holders: parsed.holders, creator: parsed.creator, pad: parsed.pad, padId: parsed.padId, top10Share: parsed.top10Share } },
       holders: Object.assign({ status: ih.status, error: ih.error, ok: !!nh, parsedRows: nh ? nh.items.length : 0 }, shape(ih.json)),
       launchpads: Object.assign({ status: il.status, error: il.error }, shape(il.json)) },
+    sellCheck: await probeDiag(probeAddr || KNTQ),
     kinetiqExplorer: { holders: { status: kh.status, error: kh.error, ok: !!(kh.json && Array.isArray(kh.json.items)), items: kh.json && kh.json.items ? kh.json.items.length : 0 },
       tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
     logRange: logRange(),
-    hint: "rpc.ok must be true. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the wallet tracker needs it.",
+    hint: "rpc.ok must be true. sellCheck.findings should show honeypot false with taxes for a normal token (add &probe=<token address> to test another one); if it shows why instead, the rehearsal could not run. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the wallet tracker needs it.",
   };
 }
 
-module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, indexToken, indexHolders, indexSource, diag };
+module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, probeToken, probeDiag, indexToken, indexHolders, indexSource, diag };

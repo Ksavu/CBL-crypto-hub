@@ -1,0 +1,447 @@
+diff --git a/ELYSIUM_SETUP.md b/ELYSIUM_SETUP.md
+index 72fc948..e8c3656 100644
+--- a/ELYSIUM_SETUP.md
++++ b/ELYSIUM_SETUP.md
+@@ -28,6 +28,8 @@ Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
+ - `indexer.token.ok` and `indexer.holders.ok` should be `true`: that is elysiumexplore.com ("opsis"), a free
+   third-party indexer (docs: https://elysiumexplore.com/api-docs). It supplies holder count, top holders,
+   the deployer, the launchpad and verified source for audits.
++- `sellCheck.findings` should show `"honeypot": false` and tax figures for KNTQ. That is the honeypot and tax
++  check (below). Add `&probe=<token address>` to the URL to run it on any token and see the raw result.
+ - `kinetiqExplorer` is Kinetiq's own explorer API (undocumented). It refuses server requests with `429`, so
+   it is only a backup for holders and the source of the blocked/taxed check when it does answer.
+ - `blockscout` is empty unless `ELYSIUM_EXPLORER_API` is set. Only the wallet tracker still needs it.
+@@ -42,6 +44,24 @@ Open `https://cryptobarlounge.space/api/scan?chaindiag=elysium`.
+ - `ELYSIUM_LOG_RANGE`: block span per `eth_getLogs` call (default `2000`). Raise it if your RPC allows more:
+   with 100 ms blocks, 2000 blocks is only ~3 minutes, so the sniper/bundle trace reaches further back with a bigger span.
+ 
++## Honeypot and tax check
++
++GoPlus and honeypot.is don't cover chain 99901, so the scanner runs its own rehearsal on the token's main pool:
++buy a little, move some to another wallet, send the rest back to the pool and sell. It is one `eth_call` carrying
++the creation code of `contracts/CblTokenProbe.sol` (compiled copy in `api/_lib/tokenprobe.json`); nothing is
++deployed, signed or paid, and the chain rolls everything back. Logic and wording live in `api/_lib/tokenprobe.js`.
++
++- Uniswap v4 pools (and the launchpads' own pool managers): real swaps both ways, so hook restrictions and
++  hook fees show up. Needs the pool key from the indexer.
++- v3 and v2 style pools: tokens are taken in a flash swap; buy, transfer and sell taxes are measured and a blocked
++  transfer to the pool is caught, but the final sell swap itself is not executed.
++- Results: "Honeypot confirmed by simulation" when the sale fails, buy/sell/transfer tax lines, a warning when
++  wallet-to-wallet transfers fail, and a pool-fee warning when a buy plus a sell costs 15% or more in a v4 pool.
++- Limits: a token that only blocks some wallets, or that switches a block on later, passes. Tokens with a
++  same-block sell cooldown or a no-contracts rule can fail the rehearsal without being honeypots.
++
++To rebuild the compiled copy: solc 0.8.26, optimizer 200 runs, EVM version shanghai, contract `CblTokenProbe`.
++
+ ## Bot
+ 
+ `/scan <0x…> elysium` (or `ely`). Auto-detect also works once DexScreener or GeckoTerminal lists the token,
+@@ -49,8 +69,7 @@ or when the contract exists on Elysium and not on Robinhood Chain.
+ 
+ ## Known gaps
+ 
+-- GoPlus and honeypot.is don't cover chain 99901, and Kinetiq's token scan (blocked/taxed) usually refuses
+-  server requests, so in practice there is no honeypot or tax check yet; mint, blacklist and pause functions
+-  are not checked either (the card says "Limited coverage on this chain").
++- Mint, blacklist, pause and hidden-owner functions are not checked (the card says "Limited coverage on this
++  chain"): the rehearsal shows what happens to a trade now, not what the owner can still change.
+ - Launchpads tagged: BOXA, Kleos, ElysPump (factories and pool contracts in `api/_lib/launchpads.js`), Montra
+   by DEX name, plus whatever the indexer reports for a token.
+diff --git a/api/_lib/elysium.js b/api/_lib/elysium.js
+index f48e53d..ec4b2d6 100644
+--- a/api/_lib/elysium.js
++++ b/api/_lib/elysium.js
+@@ -55,7 +55,16 @@ const indexer = () => (env("ELYSIUM_INDEXER_API") || "https://elysiumexplore.com
+ const NOT_A_PAD = /^(uniswap|bridged|ramses|aero)/i; // "pad" ids that only say where the first pool is
+ const PAD_NAME = { "boxa-v3": "BOXA", "boxa-v4": "BOXA", kleos: "Kleos", elyspump: "ElysPump" }; // indexer pad id -> the name used in launchpads.js
+ /** { name, symbol, supply (raw string), holders, creator, creationTx, top10Share (%), pad } or null. */
+-async function indexToken(addr) {
++const idxMemo = new Map(); // one scan asks twice (holders + sell check): share the answer for a few seconds
++function indexToken(addr) {
++  const k = String(addr).toLowerCase(), hit = idxMemo.get(k);
++  if (hit && Date.now() - hit.t < 20e3) return hit.p;
++  const p = indexTokenRaw(k); idxMemo.set(k, { t: Date.now(), p });
++  if (idxMemo.size > 200) idxMemo.delete(idxMemo.keys().next().value);
++  p.then((v) => { if (!v) idxMemo.delete(k); }, () => idxMemo.delete(k));
++  return p;
++}
++async function indexTokenRaw(addr) {
+   const r = await jget(`${indexer()}/v1/tokens/${String(addr).toLowerCase()}`, 4000), t = r.json && r.json.token;
+   if (!t || String(t.address || "").toLowerCase() !== String(addr).toLowerCase()) return null;
+   const A = (x) => (/^0x[0-9a-f]{40}$/i.test(String(x || "")) ? String(x).toLowerCase() : null), pad = r.json.pad || {};
+@@ -63,7 +72,8 @@ async function indexToken(addr) {
+   return { name: t.name || null, symbol: t.symbol || null, supply: /^\d+$/.test(String(t.total_supply || "")) ? String(t.total_supply) : null, holders: Number(t.holders) > 0 ? Number(t.holders) : null,
+     creator: A(t.creator), creationTx: /^0x[0-9a-f]{64}$/i.test(String(t.created_tx || "")) ? t.created_tx : null, createdTs: Number(t.created_ts) || null,
+     top10Share: Number.isFinite(share) && share >= 0 && share <= 100 ? share : null,
+-    pad: padId && !NOT_A_PAD.test(padId) ? PAD_NAME[padId] || String(pad.name || padId).slice(0, 30) : null, padId: padId || null };
++    pad: padId && !NOT_A_PAD.test(padId) ? PAD_NAME[padId] || String(pad.name || padId).slice(0, 30) : null, padId: padId || null,
++    pools: Array.isArray(r.json.pools) ? r.json.pools.slice(0, 40) : [] };
+ }
+ // Holders: { holders: [{ holder, balance }], total, labels: { <address>: { name, kind: "contract" | ... } } }.
+ // Other common field names are accepted too, and rows that don't parse are skipped.
+@@ -86,6 +96,41 @@ async function indexSource(addr) {
+   const r = await jget(`${indexer()}/api?module=contract&action=getsourcecode&address=${addr}`, 6000), x = r.json && Array.isArray(r.json.result) ? r.json.result[0] : null;
+   return x && x.SourceCode ? { name: x.ContractName || "", compiler: x.CompilerVersion || "", source: String(x.SourceCode) } : null;
+ }
++// ---- Honeypot and tax check: a buy -> transfer -> sell rehearsal on the token's main pool (see ./tokenprobe.js) ----
++// pair = the DexScreener pair the scan uses; idx = indexToken() result if the caller already has it.
++// Returns { findings, pool: { version, address } } or { findings: null, why }.
++async function probeToken(token, pair, idx) {
++  const P = require("./tokenprobe"), low = String(token).toLowerCase();
++  if (!pair || !pair.pairAddress) return { findings: null, why: "no pool" };
++  const id = String(pair.pairAddress).toLowerCase(), labels = (pair.labels || []).map((x) => String(x).toLowerCase());
++  const one = (to, data) => jget(rpc(), 4000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) }).then((r) => (r.json && typeof r.json.result === "string" ? r.json.result : null));
++  const decimals = async (a) => { if (!a || a === P.ZERO || a === WHYPE) return 18; const h = await one(a, "0x313ce567"); const n = h && h.length > 2 ? parseInt(h, 16) : NaN; return n >= 0 && n <= 36 ? n : null; };
++  const units = (x, dec) => (x > 0 && Number.isFinite(x) ? (BigInt(Math.max(1, Math.floor(x * 1e9))) * 10n ** BigInt(dec)) / 1000000000n : 0n);
++  // about $1 of the quote token, less on thin pools so the rehearsal itself barely moves the price
++  const liq = Number(pair.liquidity && pair.liquidity.usd) || 0, usd = Math.min(1, Math.max(0.05, liq / 2000));
++  const priceUsd = parseFloat(pair.priceUsd), priceNative = parseFloat(pair.priceNative), quoteUsd = priceUsd > 0 && priceNative > 0 ? priceUsd / priceNative : null;
++  if (!idx) idx = await indexToken(low).catch(() => null);
++  const known = ((idx && idx.pools) || []).find((p) => String(p.pool || "").toLowerCase() === id);
++  if (id.length === 66) { // Uniswap v4 style: the id is a hash, the pool key comes from the indexer
++    if (!known) return { findings: null, why: "pool key unknown" };
++    const k = { currency0: String(known.token0).toLowerCase(), currency1: String(known.token1).toLowerCase(), fee: Number(known.fee), hooks: String(known.hooks || P.ZERO).toLowerCase() };
++    if (![k.currency0, k.currency1].includes(low)) return { findings: null, why: "pool does not hold this token" };
++    k.tickSpacing = P.findTickSpacing(k, id);
++    if (k.tickSpacing === null) return { findings: null, why: "pool key does not match its id" };
++    const quote = k.currency0 === low ? k.currency1 : k.currency0, dec = await decimals(quote);
++    if (dec === null || !quoteUsd) return { findings: null, why: "quote price unknown" };
++    const r = await P.probe(rpc(), { mode: 4, pool: String(known.dex).toLowerCase(), key: k, token: low, tokenIs0: k.currency0 === low, amount: units(usd / quoteUsd, dec) }, 5000);
++    return { findings: r.findings, why: r.error, pool: { version: "v4", id, manager: String(known.dex).toLowerCase(), hooks: k.hooks !== P.ZERO } };
++  }
++  if (id.length !== 42) return { findings: null, why: "unknown pool type" };
++  const quote = String((pair.quoteToken && pair.quoteToken.address) || "").toLowerCase(), q = /^0x[0-9a-f]{40}$/.test(quote) && quote !== P.ZERO ? quote : WHYPE;
++  const tokenIs0 = BigInt(low) < BigInt(q), ver = labels.includes("v2") ? "v2" : labels.includes("v3") ? "v3" : known && /^v[23]$/.test(String(known.version)) ? known.version : null;
++  const v3 = async () => { const dec = await decimals(q); if (dec === null || !quoteUsd) return { findings: null, error: "quote price unknown" }; return P.probe(rpc(), { mode: 3, pool: id, token: low, tokenIs0, amount: units(usd / quoteUsd, dec) }, 5000); };
++  const v2 = async () => { const dec = await decimals(low); if (dec === null || !(priceUsd > 0)) return { findings: null, error: "token price unknown" }; return P.probe(rpc(), { mode: 2, pool: id, token: low, tokenIs0, amount: units(usd / priceUsd, dec) }, 5000); };
++  let r = ver === "v2" ? await v2() : await v3(), used = ver === "v2" ? "v2" : "v3";
++  if (!r.findings && !ver) { r = await v2(); used = "v2"; } // unlabelled pool: a v2 pair does not answer a v3 swap
++  return { findings: r.findings, why: r.error, pool: { version: used, address: id } };
++}
+ /** Top holders, Blockscout shape: { items: [{ address: { hash, is_contract }, value }] } or null. */
+ const holders = (addr) => jget(`${KAPI}/lists/token-holders?address=${addr}`, 4000).then((r) => (r.json && Array.isArray(r.json.items) ? r.json : null));
+ /** Number of holders, or null. */
+@@ -104,8 +149,18 @@ async function tokenScan(addr) {
+ /** Host of the Etherscan-style API (<host>/api?module=...) on the same Blockscout, or null. */
+ const blockscoutHost = async () => { const a = await blockscoutApi(); return a ? a.replace(/^https:\/\//, "").replace(/\/api\/v2$/, "") : null; };
+ 
++/** Sell-check self test for one token: its best Elysium pair on DexScreener, then the rehearsal. /api/scan?chaindiag=elysium&probe=<token> */
++async function probeDiag(token) {
++  const t = String(token || "").toLowerCase();
++  if (!/^0x[0-9a-f]{40}$/.test(t)) return { error: "not a token address" };
++  const ds = await jget("https://api.dexscreener.com/latest/dex/tokens/" + t, 6000);
++  const pair = ((ds.json && ds.json.pairs) || []).filter((p) => p.chainId === KEY && String(p.baseToken && p.baseToken.address).toLowerCase() === t).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
++  if (!pair) return { token: t, error: "no Elysium pair on DexScreener (status " + ds.status + ")" };
++  const t0 = Date.now(), r = await probeToken(t, pair).catch((e) => ({ findings: null, why: String(e && e.message).slice(0, 120) }));
++  return { token: t, symbol: pair.baseToken.symbol, pair: { id: pair.pairAddress, dex: pair.dexId, labels: pair.labels || [], quote: pair.quoteToken && pair.quoteToken.symbol, liquidityUsd: pair.liquidity && pair.liquidity.usd }, ms: Date.now() - t0, pool: r.pool || null, findings: r.findings, why: r.findings ? undefined : r.why };
++}
+ /** One-click health check after deploy: /api/scan?chaindiag=elysium */
+-async function diag() {
++async function diag(probeAddr) {
+   const call = (method, params) => jget(rpc(), 5000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params: params || [] }) });
+   const gtRetry = async (u) => { let r = await jget(u, 6000); if (r.status === 429) { await new Promise((z) => setTimeout(z, 1500)); r = await jget(u, 6000); } return r; };
+   const KNTQ = "0xe45a355d9e9cad2ad85f2d03e3ee3102a036acf0"; // a token every indexer has
+@@ -129,12 +184,13 @@ async function diag() {
+     indexer: { base: indexer(), token: { status: it.status, error: it.error, ok: !!parsed, parsed: parsed && { holders: parsed.holders, creator: parsed.creator, pad: parsed.pad, padId: parsed.padId, top10Share: parsed.top10Share } },
+       holders: Object.assign({ status: ih.status, error: ih.error, ok: !!nh, parsedRows: nh ? nh.items.length : 0 }, shape(ih.json)),
+       launchpads: Object.assign({ status: il.status, error: il.error }, shape(il.json)) },
++    sellCheck: await probeDiag(probeAddr || KNTQ),
+     kinetiqExplorer: { holders: { status: kh.status, error: kh.error, ok: !!(kh.json && Array.isArray(kh.json.items)), items: kh.json && kh.json.items ? kh.json.items.length : 0 },
+       tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
+     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
+     logRange: logRange(),
+-    hint: "rpc.ok must be true. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the wallet tracker needs it.",
++    hint: "rpc.ok must be true. sellCheck.findings should show honeypot false with taxes for a normal token (add &probe=<token address> to test another one); if it shows why instead, the rehearsal could not run. indexer (elysiumexplore.com) is the main source for holders, deployer and launchpad: token.ok and holders.ok should be true. kinetiqExplorer is a backup and usually refuses server requests (429). blockscout is optional (empty unless ELYSIUM_EXPLORER_API is set): only the wallet tracker needs it.",
+   };
+ }
+ 
+-module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, indexToken, indexHolders, indexSource, diag };
++module.exports = { ID, KEY, NAME, NATIVE, PUBLIC_RPC, rpc, EXPLORER, ADDR_URL, TX_URL, TOKEN_URL, WHYPE, apis, logRange, blockscoutApi, blockscoutHost, holders, holderCount, tokenScan, probeToken, probeDiag, indexToken, indexHolders, indexSource, diag };
+diff --git a/api/_lib/scanner.js b/api/_lib/scanner.js
+index d490d86..30d6ffc 100644
+--- a/api/_lib/scanner.js
++++ b/api/_lib/scanner.js
+@@ -104,7 +104,30 @@ async function runScan(caIn, selIn, opts) {
+       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
+     ]);
+     // Elysium: GoPlus and honeypot.is don't cover it. Kinetiq's explorer runs its own transfer test: blocked = can't sell, taxed = fee on transfer.
+-    if (chain === "elysium" && !hp) {
++    // First choice: our own rehearsal of a buy, a wallet transfer and a sell on the token's main pool (one eth_call, nothing is sent).
++    let probed = false;
++    if (chain === "elysium" && !hp && pair) {
++      const pr = await Promise.race([ELY.probeToken(low, pair), new Promise((ok) => setTimeout(() => ok(null), 7000))]).catch(() => null), f = pr && pr.findings;
++      if (f) {
++        probed = true; sources.probe = true;
++        const p1 = (n) => (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + "%", sevOf = (n) => (n >= 50 ? "critical" : n >= 20 ? "high" : n >= 10 ? "medium" : n >= 3 ? "low" : "info");
++        if (f.honeypot !== null) {
++          hp = { honeypotResult: { isHoneypot: f.honeypot, honeypotReason: f.reason || undefined }, simulationResult: {}, probe: f };
++          if (f.buyTax !== null) hp.simulationResult.buyTax = f.buyTax;
++          if (f.sellTax !== null) hp.simulationResult.sellTax = f.sellTax;
++          if (f.transferTax !== null) hp.simulationResult.transferTax = f.transferTax;
++        }
++        if (f.honeypot === false) {
++          const b = f.buyTax || 0, s = f.sellTax || 0, t = f.transferTax || 0;
++          if (Math.max(b, s) >= 0.05) extra.push({ sev: sevOf(Math.max(b, s)), title: `Buy tax ${p1(b)} · Sell tax ${p1(s)}`, detail: "Measured in a test buy and sell on the main pool." });
++          else extra.push({ sev: "ok", title: "Test buy and sell went through, no tax", detail: "" });
++          if (t >= 0.05) extra.push({ sev: sevOf(t), title: `Transfer tax ${p1(t)}`, detail: "Taken when tokens move between wallets." });
++          if (f.poolCost !== null && f.poolCost >= 15) extra.push({ sev: f.poolCost >= 50 ? "critical" : f.poolCost >= 30 ? "high" : "medium", title: `Buying and selling costs about ${p1(f.poolCost)} in pool fees`, detail: "Pool fee and hook fees for a buy plus a sell, on top of any token tax." });
++        } else if (f.honeypot === null && f.step === "transfer") extra.push({ sev: "high", title: "Tokens could not be moved between wallets in a test", detail: f.error ? `The token answered "${f.error}".` : "The transfer was refused." });
++        else if (f.honeypot === null) extra.push({ sev: "info", title: "Sell check not possible: the test buy failed", detail: f.error ? `The pool answered "${f.error}".` : "The pool may be paused, empty or restricted by its hook." });
++      }
++    }
++    if (chain === "elysium" && !hp && !probed) {
+       const ks = await Promise.race([ELY.tokenScan(low), new Promise((ok) => setTimeout(() => ok(null), 5500))]).catch(() => null);
+       if (ks) {
+         sources.kinetiq = true;
+diff --git a/api/_lib/tokenprobe.js b/api/_lib/tokenprobe.js
+new file mode 100644
+index 0000000..8f2f486
+--- /dev/null
++++ b/api/_lib/tokenprobe.js
+@@ -0,0 +1,73 @@
++// Buy -> wallet transfer -> sell rehearsal for one token on one pool, done with a single eth_call.
++// The call carries the creation code of contracts/CblTokenProbe.sol; its constructor runs the rehearsal against the
++// live pool and returns the measurements. Nothing is deployed, signed or paid: every state change is rolled back.
++// Works on Uniswap v4 (PoolManager and forks), v3 and v2 style pools on any EVM chain whose RPC allows eth_call without "to".
++const { AbiCoder, keccak256 } = require("ethers");
++const INITCODE = require("./tokenprobe.json").bytecode;
++const coder = AbiCoder.defaultAbiCoder();
++const ZERO = "0x0000000000000000000000000000000000000000", MAGIC = 0xcb1cb1cb1n;
++const KEY_T = "tuple(address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks)";
++const RES_T = "tuple(uint256 magic,uint256 failAt,uint256 quoteIn,uint256 buyOut,uint256 buyGot,uint256 xferSent,uint256 xferGot,uint256 sellSent,uint256 sellPaid,uint256 quoteOut,bytes err)";
++const STEP = { 1: "buy", 2: "receive", 3: "transfer", 4: "toPool", 5: "sell", 99: "noCallback" };
++
++const poolId = (k) => keccak256(coder.encode(["address", "address", "uint24", "int24", "address"], [k.currency0, k.currency1, k.fee, k.tickSpacing, k.hooks]));
++/** v4 pool ids hash the tick spacing too; indexers often omit it. Find the one that reproduces the id (common values first). */
++function findTickSpacing(k, id) {
++  const want = String(id).toLowerCase(), common = [60, 200, 10, 1, 100, 50, 20, 2, 5, 120, 400, 1000, 2000];
++  for (const ts of common) if (poolId(Object.assign({}, k, { tickSpacing: ts })).toLowerCase() === want) return ts;
++  for (let ts = 1; ts <= 32767; ts++) if (!common.includes(ts) && poolId(Object.assign({}, k, { tickSpacing: ts })).toLowerCase() === want) return ts;
++  return null;
++}
++function callData(o) {
++  const key = o.key || { currency0: ZERO, currency1: ZERO, fee: 0, tickSpacing: 0, hooks: ZERO };
++  return INITCODE + coder.encode(["uint8", "address", KEY_T, "address", "bool", "uint256"], [o.mode, o.pool, [key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks], o.token, !!o.tokenIs0, BigInt(o.amount)]).slice(2);
++}
++function decode(hex) {
++  if (typeof hex !== "string" || hex.length < 2 + 64 * 11) return null;
++  try {
++    const r = coder.decode([RES_T], hex)[0];
++    if (r.magic !== MAGIC) return null;
++    return { failAt: Number(r.failAt), quoteIn: r.quoteIn, buyOut: r.buyOut, buyGot: r.buyGot, xferSent: r.xferSent, xferGot: r.xferGot, sellSent: r.sellSent, sellPaid: r.sellPaid, quoteOut: r.quoteOut, err: r.err };
++  } catch (e) { return null; }
++}
++// Revert text of a failed step, when it is a plain Error(string)
++function errText(err) {
++  try { if (typeof err === "string" && err.startsWith("0x08c379a0")) return String(coder.decode(["string"], "0x" + err.slice(10).padEnd(64 * 3, "0"))[0]).replace(/[^\x20-\x7e]/g, "").slice(0, 60); } catch (e) {}
++  return null;
++}
++const pct = (lost, of) => (of > 0n ? Number((lost * 100000n) / of) / 1000 : null);
++/** Turn raw measurements into findings. honeypot: true = selling fails, false = a full sell worked, null = could not tell. */
++function interpret(r, mode) {
++  if (!r) return null;
++  const o = { mode, step: r.failAt ? STEP[r.failAt] || "unknown" : null, honeypot: null, reason: null, buyTax: null, sellTax: null, transferTax: null, poolCost: null, error: errText(r.err) };
++  if (r.buyOut > 0n && r.buyGot > 0n) o.buyTax = pct(r.buyOut - (r.buyGot > r.buyOut ? r.buyOut : r.buyGot), r.buyOut);
++  if (r.xferSent > 0n && r.failAt !== 3) o.transferTax = pct(r.xferSent - (r.xferGot > r.xferSent ? r.xferSent : r.xferGot), r.xferSent);
++  if (r.sellSent > 0n && r.sellPaid > 0n) o.sellTax = pct(r.sellSent - (r.sellPaid > r.sellSent ? r.sellSent : r.sellPaid), r.sellSent);
++  // v4 only: what a buy plus a sell costs in the pool itself (pool fee twice, hook fees, price impact), with the token's own
++  // taxes and the part set aside for the wallet transfer taken out: quote back per token sold vs quote paid per token bought.
++  if (mode === 4 && r.quoteIn > 0n && r.quoteOut > 0n && r.sellPaid > 0n && r.buyOut > 0n) {
++    const back = r.quoteOut * r.buyOut, paid = r.quoteIn * r.sellPaid;
++    o.poolCost = pct(paid - (back > paid ? paid : back), paid);
++  }
++  if (r.failAt === 4) { o.honeypot = true; o.reason = "Tokens could not be sent to the pool in a test sale" + (o.error ? ` ("${o.error}")` : ""); }
++  else if (r.failAt === 5) { o.honeypot = true; o.reason = "The pool rejected a test sale" + (o.error ? ` ("${o.error}")` : ""); }
++  else if (r.failAt === 0) o.honeypot = false;
++  // failAt 1 / 2 (could not buy) and 3 (wallet transfer refused) say nothing certain about selling: left as null for the caller to word
++  return o;
++}
++async function ethCall(rpc, data, ms) {
++  const c = new AbortController(), t = setTimeout(() => c.abort(), ms || 5000);
++  try {
++    const r = await fetch(rpc, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ data }, "latest"] }) });
++    const j = await r.json().catch(() => null);
++    if (j && typeof j.result === "string") return { hex: j.result };
++    return { hex: null, error: j && j.error ? String(j.error.message || "").slice(0, 120) : "http " + r.status };
++  } catch (e) { return { hex: null, error: String((e && e.message) || e).slice(0, 80) }; } finally { clearTimeout(t); }
++}
++/** One rehearsal. o: { mode: 4|3|2, pool, key?, token, tokenIs0, amount }. Returns { raw, findings } or { error }. */
++async function probe(rpc, o, ms) {
++  const res = await ethCall(rpc, callData(o), ms), raw = decode(res.hex);
++  if (!raw) return { error: res.error || "no measurements returned", findings: null };
++  return { raw, findings: interpret(raw, o.mode) };
++}
++module.exports = { probe, callData, decode, interpret, poolId, findTickSpacing, ZERO };
+diff --git a/api/_lib/tokenprobe.json b/api/_lib/tokenprobe.json
+new file mode 100644
+index 0000000..0667e05
+--- /dev/null
++++ b/api/_lib/tokenprobe.json
+@@ -0,0 +1 @@
++{"note":"Creation code of contracts/CblTokenProbe.sol (solc 0.8.26, optimizer 200 runs, evm shanghai). Sent in eth_call only; never deployed.","bytecode":"0x608060405234801561000f575f80fd5b5060405161155a38038061155a83398101604081905261002e916101a3565b5f60405161003b90610149565b604051809103905ff080158015610054573d5f803e3d5ffd5b506040805163279b18c560e11b815260ff8a1660048201526001600160a01b0389811660248301528851811660448301526020890151811660648301529188015162ffffff16608482015260608881015160020b60a48301526080890151831660c483015287831660e4830152861515610104830152610124820186905292935090831690634f36318a90610144015f604051808303815f87803b1580156100fa575f80fd5b505af192505050801561010b575060015b610141573d808015610138576040519150601f19603f3d011682016040523d82523d5f602084013e61013d565b606091505b5090505b805160208201f35b6112b2806102a883390190565b80516001600160a01b038116811461016c575f80fd5b919050565b805162ffffff8116811461016c575f80fd5b8051600281900b811461016c575f80fd5b8051801515811461016c575f80fd5b5f805f805f808688036101408112156101ba575f80fd5b875160ff811681146101ca575f80fd5b96506101d860208901610156565b955060a0603f19820112156101eb575f80fd5b5060405160a081016001600160401b038111828210171561021a57634e487b7160e01b5f52604160045260245ffd5b806040525061022b60408901610156565b815261023960608901610156565b602082015261024a60808901610171565b604082015261025b60a08901610183565b606082015261026c60c08901610156565b6080820152935061027f60e08801610156565b925061028e6101008801610194565b91505f610120880151905080915050929550929550929556fe6080604052348015600e575f80fd5b506112968061001c5f395ff3fe608060405234801561000f575f80fd5b5060043610610034575f3560e01c80634f36318a1461024a57806391dd73461461025d575b5f5461010090046001600160a01b03163314801561005757505f5460ff16600414155b61008f5760405162461bcd60e51b815260206004820152600560248201526470726f626560d81b604482015260640160405180910390fd5b5f610098610286565b5f5490915060ff1660030361013d575f806100b7604460043684610cd1565b8101906100c49190610cf8565b60015491935091505f90600160a01b900460ff166100e257816100e4565b825b6001549091505f90600160a01b900460ff166101005783610102565b825b90505f8113610111575f610113565b805b60408601525f8212610125575f61012e565b61012e82610d2c565b60608601525061014692505050565b60025460608201525b61014f306102e4565b608082018190525f036101765761017681600260405180602001604052805f8152506103b3565b61017f816103fd565b610188306102e4565b60e08201525f80546101a79061010090046001600160a01b03166102e4565b90505f806101cd5f60019054906101000a90046001600160a01b03168560e0015161047d565b91509150816101e2576101e2846004836103b3565b5f5483906101fd9061010090046001600160a01b03166102e4565b6102079190610d46565b61010085018190525f0361022f5761022f84600460405180602001604052805f8152506103b3565b610248845f60405180602001604052805f8152506103b3565b005b610248610258366004610d7d565b610559565b61027061026b366004610e03565b6107b0565b60405161027d9190610ebe565b60405180910390f35b6102d96040518061016001604052805f81526020015f81526020015f81526020015f81526020015f81526020015f81526020015f81526020015f81526020015f81526020015f8152602001606081525090565b640cb1cb1cb1815290565b600154604080516001600160a01b0384811660248084019190915283518084039091018152604490920183526020820180516001600160e01b03166370a0823160e01b17905291515f938493849391169161033f9190610ed7565b5f60405180830381855afa9150503d805f8114610377576040519150601f19603f3d011682016040523d82523d5f602084013e61037c565b606091505b509150915081801561039057506020815110155b156103ac57808060200190518101906103a99190610ef2565b92505b5050919050565b602083018290528051606010156103c957606081525b61014083018190526040515f906103e4908590602001610f09565b6040516020818303038152906040529050805160208201fd5b600a816080015161040e9190610f97565b60a082018190525f0361041e5750565b5f61042c63cb1c0de16102e4565b90505f8061044263cb1c0de18560a0015161047d565b915091508161045757610457846003836103b3565b8261046563cb1c0de16102e4565b61046f9190610d46565b60c090940193909352505050565b600154604080516001600160a01b038581166024830152604480830186905283518084039091018152606490920183526020820180516001600160e01b031663a9059cbb60e01b17905291515f9360609316916104d991610ed7565b5f604051808303815f865af19150503d805f8114610512576040519150601f19603f3d011682016040523d82523d5f602084013e610517565b606091505b50909250905081801561052c57506020815110155b80156105495750808060200190518101906105479190610fb6565b155b15610552575f91505b9250929050565b5f80546001600160a01b03808816610100026001600160a81b031992831660ff8b16171790925560018054851515600160a01b0292169286169290921717905560028190558360036105ab8282610ffd565b505060ff861660040361062e576040516348c8949160e01b8152602060048201525f60248201526001600160a01b038616906348c89491906044015f604051808303815f875af1158015610601573d5f803e3d5ffd5b505050506040513d5f823e601f3d908101601f1916820160405261062891908101906110c5565b50610787565b8560ff166003036107115781156001600160a01b03861663128acb083083858161066c5773fffd8963efd1fc6a506488495d951d5263988d25610673565b6401000276a45b60405160e086901b6001600160e01b03191681526001600160a01b03948516600482015292151560248401526044830191909152909116606482015260a06084820152600160a4820152600160f81b60c482015260e40160408051808303815f875af11580156106e5573d5f803e3d5ffd5b505050506040513d601f19601f820116820180604052508101906107099190611175565b505050610787565b846001600160a01b031663022c0d9f8361072b575f61072d565b825b84610738578361073a565b5f5b306040518463ffffffff1660e01b815260040161075993929190611197565b5f604051808303815f87803b158015610770575f80fd5b505af1158015610782573d5f803e3d5ffd5b505050505b6107a8610792610286565b606360405180602001604052805f8152506103b3565b505050505050565b60605f6107bb610286565b5f546001546002546040848101829052805160608101909152600160a01b90920460ff16158083529394506101009092046001600160a01b03169291839163f3cd914c9160039190602082019061081190610d2c565b8152602001856108355773fffd8963efd1fc6a506488495d951d5263988d2561083c565b6401000276a45b6001600160a01b03168152506040518363ffffffff1660e01b81526004016108659291906111d3565b6020604051808303815f875af192505050801561089f575060408051601f3d908101601f1916820190925261089c91810190610ef2565b60015b6108e4573d8080156108cc576040519150601f19603f3d011682016040523d82523d5f602084013e6108d1565b606091505b506108de846001836103b3565b50610933565b6001545f90600160a01b900460ff166109005781600f0b610909565b608082901d600f0b5b90505f811361092c5761092c85600160405180602001604052805f8152506103b3565b6060850152505b5f61093d306102e4565b6001546060860151604051630b0d9c0960e01b81526001600160a01b0392831660048201523060248201526044810191909152919250841690630b0d9c09906064015f604051808303815f87803b158015610996575f80fd5b505af19250505080156109a7575060015b6109e8573d8080156109d4576040519150601f19603f3d011682016040523d82523d5f602084013e6109d9565b606091505b506109e6856002836103b3565b505b806109f2306102e4565b6109fc9190610d46565b608085018190525f03610a2357610a2384600260405180602001604052805f8152506103b3565b610a2c846103fd565b610a35306102e4565b60e0850152600154604051632961046560e21b81526001600160a01b0391821660048201529084169063a5841194906024015f604051808303815f87803b158015610a7e575f80fd5b505af1158015610a90573d5f803e3d5ffd5b505050505f80610aa4858760e0015161047d565b9150915081610ab957610ab9866004836103b3565b846001600160a01b03166311da60b46040518163ffffffff1660e01b81526004016020604051808303815f875af1158015610af6573d5f803e3d5ffd5b505050506040513d601f19601f82011682018060405250810190610b1a9190610ef2565b61010087018190525f03610b4257610b4286600460405180602001604052805f8152506103b3565b846001600160a01b031663f3cd914c600360405180606001604052808815151581526020018a6101000151610b7690610d2c565b81526020018815610b9b5773fffd8963efd1fc6a506488495d951d5263988d25610ba2565b6401000276a45b6001600160a01b03168152506040518363ffffffff1660e01b8152600401610bcb9291906111d3565b6020604051808303815f875af1925050508015610c05575060408051601f3d908101601f19168201909252610c0291810190610ef2565b60015b610c4a573d808015610c32576040519150601f19603f3d011682016040523d82523d5f602084013e610c37565b606091505b50610c44876005836103b3565b50610c9a565b6001545f90600160a01b900460ff16610c6a57608082901d600f0b610c6f565b81600f0b5b90505f8113610c9257610c9288600560405180602001604052805f8152506103b3565b610120880152505b610cb3865f60405180602001604052805f8152506103b3565b60405180602001604052805f81525096505050505050505b92915050565b5f8085851115610cdf575f80fd5b83861115610ceb575f80fd5b5050820193919092039150565b5f8060408385031215610d09575f80fd5b50508035926020909101359150565b634e487b7160e01b5f52601160045260245ffd5b5f600160ff1b8201610d4057610d40610d18565b505f0390565b81810381811115610ccb57610ccb610d18565b6001600160a01b0381168114610d6d575f80fd5b50565b8015158114610d6d575f80fd5b5f805f805f80868803610140811215610d94575f80fd5b873560ff81168114610da4575f80fd5b96506020880135610db481610d59565b955060a0603f1982011215610dc7575f80fd5b5060408701935060e0870135610ddc81610d59565b9250610100870135610ded81610d70565b8092505061012087013590509295509295509295565b5f8060208385031215610e14575f80fd5b823567ffffffffffffffff811115610e2a575f80fd5b8301601f81018513610e3a575f80fd5b803567ffffffffffffffff811115610e50575f80fd5b856020828401011115610e61575f80fd5b6020919091019590945092505050565b5f5b83811015610e8b578181015183820152602001610e73565b50505f910152565b5f8151808452610eaa816020860160208601610e71565b601f01601f19169290920160200192915050565b602081525f610ed06020830184610e93565b9392505050565b5f8251610ee8818460208701610e71565b9190910192915050565b5f60208284031215610f02575f80fd5b5051919050565b6020815281516020820152602082015160408201526040820151606082015260608201516080820152608082015160a082015260a082015160c082015260c082015160e082015260e08201516101008201526101008201516101208201526101208201516101408201525f61014083015161016080840152610f8f610180840182610e93565b949350505050565b5f82610fb157634e487b7160e01b5f52601260045260245ffd5b500490565b5f60208284031215610fc6575f80fd5b8151610ed081610d70565b5f8135610ccb81610d59565b80546001600160a01b0319166001600160a01b0392909216919091179055565b813561100881610d59565b6110128183610fdd565b5060018101602083013561102581610d59565b61102f8183610fdd565b50604083013562ffffff81168114611045575f80fd5b815462ffffff60a01b191660a09190911b62ffffff60a01b161781555f6060840135600281900b8114611076575f80fd5b825462ffffff60b81b191662ffffff60b81b60b883901b16178355905050506110ad6110a460808401610fd1565b60028301610fdd565b5050565b634e487b7160e01b5f52604160045260245ffd5b5f602082840312156110d5575f80fd5b815167ffffffffffffffff8111156110eb575f80fd5b8201601f810184136110fb575f80fd5b805167ffffffffffffffff811115611115576111156110b1565b604051601f8201601f19908116603f0116810167ffffffffffffffff81118282101715611144576111446110b1565b60405281815282820160200186101561115b575f80fd5b61116c826020830160208601610e71565b95945050505050565b5f8060408385031215611186575f80fd5b505080516020909101519092909150565b838152602081018390526001600160a01b0382166040820152608060608201819052600190820152600160f81b60a08201525f60c0820161116c565b82546001600160a01b0390811682526001840154808216602084015260a081811c62ffffff16604085015260b89190911c600290810b606085015285015490911660808301525f9061124690830184805115158252602080820151908301526040908101516001600160a01b0316910152565b610120610100830152610f8f61012083015f81526020019056fea2646970667358221220ee206a1fd5f5b13e018c7b635afeea5c1b322f1c58ac3f1a75692ccafde694fa64736f6c634300081a0033"}
+\ No newline at end of file
+diff --git a/api/scan.js b/api/scan.js
+index 3e5610e..a7d8c52 100644
+--- a/api/scan.js
++++ b/api/scan.js
+@@ -33,7 +33,7 @@ module.exports = async (req, res) => {
+   // Elysium health check (RPC chain id, explorer API, DexScreener and GeckoTerminal coverage): /api/scan?chaindiag=elysium
+   if (url.searchParams.get("chaindiag") === "elysium") {
+     h.n += 5; res.setHeader("Cache-Control", "no-store");
+-    try { return res.status(200).json({ ok: true, ...(await require("./_lib/elysium").diag()) }); }
++    try { return res.status(200).json({ ok: true, ...(await require("./_lib/elysium").diag(url.searchParams.get("probe"))) }); }
+     catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
+   }
+   if (url.searchParams.get("curvesdiag")) {
+diff --git a/contracts/CblTokenProbe.sol b/contracts/CblTokenProbe.sol
+new file mode 100644
+index 0000000..690fce2
+--- /dev/null
++++ b/contracts/CblTokenProbe.sol
+@@ -0,0 +1,146 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.24;
++
++// CBL token probe: a buy -> wallet transfer -> sell rehearsal for one token on one pool.
++//
++// It is never deployed and never needs funds. The scanner sends its creation code in an eth_call (no "to"),
++// the constructor runs the rehearsal and hands the measurements back as the call's return data.
++// Uniswap v4 (and forks): swaps inside PoolManager.unlock() using flash accounting, then reverts.
++// Uniswap v3 / v2 (and forks): takes the tokens in a flash swap and measures inside the callback, then reverts.
++// Nothing is ever paid for, so every state change is rolled back.
++
++struct PoolKey { address currency0; address currency1; uint24 fee; int24 tickSpacing; address hooks; }
++struct SwapParams { bool zeroForOne; int256 amountSpecified; uint160 sqrtPriceLimitX96; }
++
++interface IPoolManager {
++    function unlock(bytes calldata data) external returns (bytes memory);
++    function swap(PoolKey memory key, SwapParams memory params, bytes calldata hookData) external returns (int256);
++    function take(address currency, address to, uint256 amount) external;
++    function sync(address currency) external;
++    function settle() external payable returns (uint256);
++}
++interface IV3Pool { function swap(address recipient, bool zeroForOne, int256 amountSpecified, uint160 sqrtPriceLimitX96, bytes calldata data) external returns (int256, int256); }
++interface IV2Pair { function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external; }
++
++struct Result {
++    uint256 magic;      // MAGIC: tells real measurements from an unrelated revert
++    uint256 failAt;     // 0 = everything worked, else the step that failed (see F_*)
++    uint256 quoteIn;    // quote spent on the buy (v4, v3)
++    uint256 buyOut;     // tokens the pool sent
++    uint256 buyGot;     // tokens that arrived
++    uint256 xferSent;   // wallet -> wallet
++    uint256 xferGot;
++    uint256 sellSent;   // wallet -> pool
++    uint256 sellPaid;   // what the pool was credited
++    uint256 quoteOut;   // quote returned by the sell swap (v4 only)
++    bytes err;          // revert data of the failed step (first 96 bytes)
++}
++
++contract CblProbeRunner {
++    uint256 constant MAGIC = 0xCB1CB1CB1;
++    uint256 constant F_BUY = 1; uint256 constant F_RECEIVE = 2; uint256 constant F_TRANSFER = 3; uint256 constant F_TO_POOL = 4; uint256 constant F_SELL = 5;
++    uint160 constant MIN_PRICE = 4295128739 + 1;
++    uint160 constant MAX_PRICE = 1461446703485210103287273052203988822378723970342 - 1;
++    address constant OTHER = 0x00000000000000000000000000000000cB1c0dE1; // stand-in for a second wallet
++
++    uint8 mode; address pool; address token; bool tokenIs0; uint256 amount; PoolKey key;
++
++    function run(uint8 mode_, address pool_, PoolKey calldata key_, address token_, bool tokenIs0_, uint256 amount_) external {
++        mode = mode_; pool = pool_; token = token_; tokenIs0 = tokenIs0_; amount = amount_; key = key_;
++        if (mode_ == 4) { IPoolManager(pool_).unlock(""); }
++        else if (mode_ == 3) { // buy = quote in, token out. Exact input of `amount` quote.
++            bool zeroForOne = !tokenIs0_; // selling quote: quote is token0 when the scanned token is token1
++            IV3Pool(pool_).swap(address(this), zeroForOne, int256(amount_), zeroForOne ? MIN_PRICE : MAX_PRICE, hex"01");
++        } else { // v2: ask for `amount` tokens out as a flash swap
++            IV2Pair(pool_).swap(tokenIs0_ ? amount_ : 0, tokenIs0_ ? 0 : amount_, address(this), hex"01");
++        }
++        _done(_blank(), 99, ""); // a pool that never called back
++    }
++
++    // ---- Uniswap v4 ----
++    function unlockCallback(bytes calldata) external returns (bytes memory) {
++        Result memory r = _blank();
++        IPoolManager pm = IPoolManager(pool);
++        bool buyZeroForOne = !tokenIs0;
++        r.quoteIn = amount;
++        try pm.swap(key, SwapParams(buyZeroForOne, -int256(amount), buyZeroForOne ? MIN_PRICE : MAX_PRICE), "") returns (int256 d) {
++            int256 t = tokenIs0 ? int256(int128(d >> 128)) : int256(int128(d));
++            if (t <= 0) _done(r, F_BUY, "");
++            r.buyOut = uint256(t);
++        } catch (bytes memory e) { _done(r, F_BUY, e); }
++        uint256 b0 = _bal(address(this));
++        try pm.take(token, address(this), r.buyOut) {} catch (bytes memory e) { _done(r, F_RECEIVE, e); }
++        r.buyGot = _bal(address(this)) - b0;
++        if (r.buyGot == 0) _done(r, F_RECEIVE, "");
++        _walletTransfer(r);
++        r.sellSent = _bal(address(this));
++        pm.sync(token);
++        (bool ok, bytes memory e2) = _send(address(pm), r.sellSent);
++        if (!ok) _done(r, F_TO_POOL, e2);
++        r.sellPaid = pm.settle();
++        if (r.sellPaid == 0) _done(r, F_TO_POOL, "");
++        try pm.swap(key, SwapParams(!buyZeroForOne, -int256(r.sellPaid), !buyZeroForOne ? MIN_PRICE : MAX_PRICE), "") returns (int256 d) {
++            int256 q = tokenIs0 ? int256(int128(d)) : int256(int128(d >> 128));
++            if (q <= 0) _done(r, F_SELL, "");
++            r.quoteOut = uint256(q);
++        } catch (bytes memory e) { _done(r, F_SELL, e); }
++        _done(r, 0, "");
++        return "";
++    }
++
++    // ---- Uniswap v3 / v2 callbacks under any name (uniswapV3SwapCallback, pancakeV3SwapCallback, uniswapV2Call, ...) ----
++    fallback() external {
++        require(msg.sender == pool && mode != 4, "probe");
++        Result memory r = _blank();
++        if (mode == 3) {
++            (int256 a0, int256 a1) = abi.decode(msg.data[4:68], (int256, int256));
++            int256 t = tokenIs0 ? a0 : a1; int256 q = tokenIs0 ? a1 : a0;
++            r.quoteIn = q > 0 ? uint256(q) : 0;
++            r.buyOut = t < 0 ? uint256(-t) : 0;
++        } else r.buyOut = amount;
++        r.buyGot = _bal(address(this));
++        if (r.buyGot == 0) _done(r, F_RECEIVE, "");
++        _walletTransfer(r);
++        r.sellSent = _bal(address(this));
++        uint256 p0 = _bal(pool);
++        (bool ok, bytes memory e) = _send(pool, r.sellSent);
++        if (!ok) _done(r, F_TO_POOL, e);
++        r.sellPaid = _bal(pool) - p0;
++        if (r.sellPaid == 0) _done(r, F_TO_POOL, "");
++        _done(r, 0, "");
++    }
++
++    function _walletTransfer(Result memory r) internal {
++        r.xferSent = r.buyGot / 10;
++        if (r.xferSent == 0) return;
++        uint256 o0 = _bal(OTHER);
++        (bool ok, bytes memory e) = _send(OTHER, r.xferSent);
++        if (!ok) _done(r, F_TRANSFER, e);
++        r.xferGot = _bal(OTHER) - o0;
++    }
++    function _bal(address a) internal view returns (uint256 b) {
++        (bool ok, bytes memory ret) = token.staticcall(abi.encodeWithSelector(0x70a08231, a));
++        if (ok && ret.length >= 32) b = abi.decode(ret, (uint256));
++    }
++    function _send(address to, uint256 amt) internal returns (bool ok, bytes memory ret) {
++        (ok, ret) = token.call(abi.encodeWithSelector(0xa9059cbb, to, amt));
++        if (ok && ret.length >= 32 && !abi.decode(ret, (bool))) ok = false; // returned false instead of reverting
++    }
++    function _blank() internal pure returns (Result memory r) { r.magic = MAGIC; }
++    function _done(Result memory r, uint256 failAt, bytes memory e) internal pure {
++        r.failAt = failAt;
++        if (e.length > 96) { assembly { mstore(e, 96) } }
++        r.err = e;
++        bytes memory out = abi.encode(r);
++        assembly { revert(add(out, 32), mload(out)) }
++    }
++}
++
++contract CblTokenProbe {
++    constructor(uint8 mode, address pool, PoolKey memory key, address token, bool tokenIs0, uint256 amount) {
++        CblProbeRunner runner = new CblProbeRunner();
++        bytes memory out;
++        try runner.run(mode, pool, key, token, tokenIs0, amount) {} catch (bytes memory e) { out = e; }
++        assembly { return(add(out, 32), mload(out)) } // returned as this call's "code": the scanner reads it, nothing is deployed
++    }
++}

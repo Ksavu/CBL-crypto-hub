@@ -104,7 +104,30 @@ async function runScan(caIn, selIn, opts) {
       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
     ]);
     // Elysium: GoPlus and honeypot.is don't cover it. Kinetiq's explorer runs its own transfer test: blocked = can't sell, taxed = fee on transfer.
-    if (chain === "elysium" && !hp) {
+    // First choice: our own rehearsal of a buy, a wallet transfer and a sell on the token's main pool (one eth_call, nothing is sent).
+    let probed = false;
+    if (chain === "elysium" && !hp && pair) {
+      const pr = await Promise.race([ELY.probeToken(low, pair), new Promise((ok) => setTimeout(() => ok(null), 7000))]).catch(() => null), f = pr && pr.findings;
+      if (f) {
+        probed = true; sources.probe = true;
+        const p1 = (n) => (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + "%", sevOf = (n) => (n >= 50 ? "critical" : n >= 20 ? "high" : n >= 10 ? "medium" : n >= 3 ? "low" : "info");
+        if (f.honeypot !== null) {
+          hp = { honeypotResult: { isHoneypot: f.honeypot, honeypotReason: f.reason || undefined }, simulationResult: {}, probe: f };
+          if (f.buyTax !== null) hp.simulationResult.buyTax = f.buyTax;
+          if (f.sellTax !== null) hp.simulationResult.sellTax = f.sellTax;
+          if (f.transferTax !== null) hp.simulationResult.transferTax = f.transferTax;
+        }
+        if (f.honeypot === false) {
+          const b = f.buyTax || 0, s = f.sellTax || 0, t = f.transferTax || 0;
+          if (Math.max(b, s) >= 0.05) extra.push({ sev: sevOf(Math.max(b, s)), title: `Buy tax ${p1(b)} · Sell tax ${p1(s)}`, detail: "Measured in a test buy and sell on the main pool." });
+          else extra.push({ sev: "ok", title: "Test buy and sell went through, no tax", detail: "" });
+          if (t >= 0.05) extra.push({ sev: sevOf(t), title: `Transfer tax ${p1(t)}`, detail: "Taken when tokens move between wallets." });
+          if (f.poolCost !== null && f.poolCost >= 15) extra.push({ sev: f.poolCost >= 50 ? "critical" : f.poolCost >= 30 ? "high" : "medium", title: `Buying and selling costs about ${p1(f.poolCost)} in pool fees`, detail: "Pool fee and hook fees for a buy plus a sell, on top of any token tax." });
+        } else if (f.honeypot === null && f.step === "transfer") extra.push({ sev: "high", title: "Tokens could not be moved between wallets in a test", detail: f.error ? `The token answered "${f.error}".` : "The transfer was refused." });
+        else if (f.honeypot === null) extra.push({ sev: "info", title: "Sell check not possible: the test buy failed", detail: f.error ? `The pool answered "${f.error}".` : "The pool may be paused, empty or restricted by its hook." });
+      }
+    }
+    if (chain === "elysium" && !hp && !probed) {
       const ks = await Promise.race([ELY.tokenScan(low), new Promise((ok) => setTimeout(() => ok(null), 5500))]).catch(() => null);
       if (ks) {
         sources.kinetiq = true;

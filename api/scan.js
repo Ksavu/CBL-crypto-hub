@@ -33,7 +33,7 @@ module.exports = async (req, res) => {
   // Elysium health check (RPC chain id, explorer API, DexScreener and GeckoTerminal coverage): /api/scan?chaindiag=elysium
   if (url.searchParams.get("chaindiag") === "elysium") {
     h.n += 5; res.setHeader("Cache-Control", "no-store");
-    try { return res.status(200).json({ ok: true, ...(await require("./_lib/elysium").diag()) }); }
+    try { return res.status(200).json({ ok: true, ...(await require("./_lib/elysium").diag(url.searchParams.get("probe"))) }); }
     catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
   }
   if (url.searchParams.get("curvesdiag")) {
