@@ -36,6 +36,12 @@ module.exports = async (req, res) => {
     try { return res.status(200).json({ ok: true, ...(await require("./_lib/elysium").diag(url.searchParams.get("probe"))) }); }
     catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
   }
+  // Sell-check self test on Robinhood Chain: /api/scan?chaindiag=robinhood&probe=<token address>
+  if (url.searchParams.get("chaindiag") === "robinhood") {
+    h.n += 5; res.setHeader("Cache-Control", "no-store");
+    try { return res.status(200).json({ ok: true, chain: "robinhood", sellCheck: await require("./_lib/tokenprobe").diagPair("robinhood", "https://rpc.mainnet.chain.robinhood.com", url.searchParams.get("probe")) }); }
+    catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
+  }
   if (url.searchParams.get("curvesdiag")) {
     h.n += 10; res.setHeader("Cache-Control", "no-store");
     try {

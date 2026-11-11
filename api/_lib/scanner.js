@@ -106,8 +106,10 @@ async function runScan(caIn, selIn, opts) {
     // Elysium: GoPlus and honeypot.is don't cover it. Kinetiq's explorer runs its own transfer test: blocked = can't sell, taxed = fee on transfer.
     // First choice: our own rehearsal of a buy, a wallet transfer and a sell on the token's main pool (one eth_call, nothing is sent).
     let probed = false;
-    if (chain === "elysium" && !hp && pair) {
-      const pr = await Promise.race([ELY.probeToken(low, pair), new Promise((ok) => setTimeout(() => ok(null), 7000))]).catch(() => null), f = pr && pr.findings;
+    // Robinhood Chain: v3 and v2 style pools only (no indexer there to supply v4 pool keys); curve tokens have no pool yet.
+    if ((chain === "elysium" || chain === "robinhood") && !hp && pair && !pair.curve) {
+      const run = chain === "elysium" ? ELY.probeToken(low, pair) : require("./tokenprobe").probePair({ rpc: CODE_RPC.robinhood, token: low, pair });
+      const pr = await Promise.race([run, new Promise((ok) => setTimeout(() => ok(null), 7000))]).catch(() => null), f = pr && pr.findings;
       if (f) {
         probed = true; sources.probe = true;
         const p1 = (n) => (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + "%", sevOf = (n) => (n >= 50 ? "critical" : n >= 20 ? "high" : n >= 10 ? "medium" : n >= 3 ? "low" : "info");

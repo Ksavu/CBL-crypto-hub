@@ -1,7 +1,8 @@
 # Elysium (Kinetiq's Hyperliquid L2)
 
-Elysium is in the scanner (site + CBLScannerBot), the Token Radar, the contract audit and the wallet tracker.
-Trading (Bartender), CBL Swap and the bridge are not wired yet.
+Elysium is in the scanner (site + CBLScannerBot), the Token Radar and the contract audit.
+Bartender trading is built and switches on once the router is deployed (see "Bartender trading" below).
+CBL Swap, the bridge and the wallet tracker are not wired yet.
 
 ## Network
 
@@ -61,6 +62,18 @@ deployed, signed or paid, and the chain rolls everything back. Logic and wording
   same-block sell cooldown or a no-contracts rule can fail the rehearsal without being honeypots.
 
 To rebuild the compiled copy: solc 0.8.26, optimizer 200 runs, EVM version shanghai, contract `CblTokenProbe`.
+
+## Bartender trading
+
+Trades go through `contracts/CblSwapRouter.sol` (deploy steps in `contracts/DEPLOY.md`). Set `ELYSIUM_ROUTER` to its
+address and Elysium appears as a chain in the Telegram bot and the web app: buy, sell, positions, take profit,
+stop loss and limit orders, referral earnings in HYPE. Copy trading is not offered on Elysium.
+
+- Routes (`api/_lib/elyroute.js`): the token's deepest pools on DexScreener; pools quoted in another token get a
+  first hop from HYPE. Each candidate is quoted from the user's own wallet with a static call and the best is used.
+- Before every buy the sell check runs on the same pool; a token that fails a test sale is refused.
+- The fee is taken by the router in the trade itself, so there is no second fee transfer on Elysium.
+- Users fund the same EVM address as on other chains, with HYPE on the Elysium network (not HyperEVM).
 
 ## Bot
 

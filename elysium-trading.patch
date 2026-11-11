@@ -1,0 +1,965 @@
+diff --git a/ELYSIUM_SETUP.md b/ELYSIUM_SETUP.md
+index e8c3656..7ec3984 100644
+--- a/ELYSIUM_SETUP.md
++++ b/ELYSIUM_SETUP.md
+@@ -1,7 +1,8 @@
+ # Elysium (Kinetiq's Hyperliquid L2)
+ 
+-Elysium is in the scanner (site + CBLScannerBot), the Token Radar, the contract audit and the wallet tracker.
+-Trading (Bartender), CBL Swap and the bridge are not wired yet.
++Elysium is in the scanner (site + CBLScannerBot), the Token Radar and the contract audit.
++Bartender trading is built and switches on once the router is deployed (see "Bartender trading" below).
++CBL Swap, the bridge and the wallet tracker are not wired yet.
+ 
+ ## Network
+ 
+@@ -62,6 +63,18 @@ deployed, signed or paid, and the chain rolls everything back. Logic and wording
+ 
+ To rebuild the compiled copy: solc 0.8.26, optimizer 200 runs, EVM version shanghai, contract `CblTokenProbe`.
+ 
++## Bartender trading
++
++Trades go through `contracts/CblSwapRouter.sol` (deploy steps in `contracts/DEPLOY.md`). Set `ELYSIUM_ROUTER` to its
++address and Elysium appears as a chain in the Telegram bot and the web app: buy, sell, positions, take profit,
++stop loss and limit orders, referral earnings in HYPE. Copy trading is not offered on Elysium.
++
++- Routes (`api/_lib/elyroute.js`): the token's deepest pools on DexScreener; pools quoted in another token get a
++  first hop from HYPE. Each candidate is quoted from the user's own wallet with a static call and the best is used.
++- Before every buy the sell check runs on the same pool; a token that fails a test sale is refused.
++- The fee is taken by the router in the trade itself, so there is no second fee transfer on Elysium.
++- Users fund the same EVM address as on other chains, with HYPE on the Elysium network (not HyperEVM).
++
+ ## Bot
+ 
+ `/scan <0x…> elysium` (or `ely`). Auto-detect also works once DexScreener or GeckoTerminal lists the token,
+diff --git a/api/_lib/elyroute.js b/api/_lib/elyroute.js
+new file mode 100644
+index 0000000..40d6874
+--- /dev/null
++++ b/api/_lib/elyroute.js
+@@ -0,0 +1,145 @@
++// Elysium trading for CBL Bartender: finds a route for a token and trades it through the CBL swap router
++// (contracts/CblSwapRouter.sol, deployed once; its address goes in ELYSIUM_ROUTER).
++//   Route = the token's deepest pools on DexScreener (Uniswap v4 and forks, v3 style, v2 style). A pool quoted in another
++//   token (KNTQ, USDC, ...) gets a first hop from HYPE into that token. Every candidate is quoted with a static call from
++//   the user's own wallet and the best one is used, so a route that cannot work is never sent.
++//   Fee: taken by the router inside the same transaction (HYPE in on buys, HYPE out on sells).
++const ELY = require("./elysium"), P = require("./tokenprobe");
++
++const ZERO = P.ZERO, WHYPE = ELY.WHYPE.toLowerCase();
++const HOP = "tuple(uint8 kind,address pool,address tokenIn,address tokenOut,uint24 fee,int24 tickSpacing,address hooks)[]";
++const ABI = [
++  `function buy(${HOP} hops,uint256 minOut,address to,uint256 deadline,uint256 feeBps) payable returns (uint256)`,
++  `function sell(${HOP} hops,uint256 amountIn,uint256 minOut,address to,uint256 deadline,uint256 feeBps) returns (uint256)`,
++  "function WNATIVE() view returns (address)", "function feeRecipient() view returns (address)",
++];
++const ERC = ["function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)"];
++const router = () => { const a = String(process.env.ELYSIUM_ROUTER || "").trim().replace(/^["']|["']$/g, ""); return /^0x[0-9a-fA-F]{40}$/.test(a) ? a.toLowerCase() : null; };
++const on = () => !!router();
++const isNative = (a) => a === ZERO || a === WHYPE;
++const isAddr = (a) => /^0x[0-9a-f]{40}$/.test(a);
++
++async function dsPairs(token) {
++  const c = new AbortController(), t = setTimeout(() => c.abort(), 6000);
++  try {
++    const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/" + token, { signal: c.signal, headers: { accept: "application/json" } }), j = r.ok ? await r.json().catch(() => null) : null;
++    return ((j && j.pairs) || []).filter((p) => p.chainId === ELY.KEY && p.pairAddress).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0));
++  } catch (e) { return []; } finally { clearTimeout(t); }
++}
++// Ways to swap `from` -> `to` on one DexScreener pair. Empty when the pair cannot be used (unknown v4 key, wrong tokens).
++function hopsFor(pair, from, to, pools) {
++  const id = String(pair.pairAddress).toLowerCase(), labels = (pair.labels || []).map((x) => String(x).toLowerCase());
++  const known = (pools || []).find((p) => String(p.pool || "").toLowerCase() === id);
++  if (id.length === 66) {
++    if (!known) return [];
++    const c0 = String(known.token0).toLowerCase(), c1 = String(known.token1).toLowerCase(), k = { currency0: c0, currency1: c1, fee: Number(known.fee), hooks: String(known.hooks || ZERO).toLowerCase() };
++    // the pool's own currencies decide: its native side is address(0), never the wrapper
++    const a = isNative(from) ? (c0 === ZERO ? ZERO : c0 === WHYPE || c1 === WHYPE ? WHYPE : null) : from, b = isNative(to) ? (c0 === ZERO ? ZERO : c0 === WHYPE || c1 === WHYPE ? WHYPE : null) : to;
++    if (a === null || b === null || ![c0, c1].includes(a) || ![c0, c1].includes(b) || a === b) return [];
++    const ts = P.findTickSpacing(k, id); if (ts === null) return [];
++    return [{ kind: 4, pool: String(known.dex).toLowerCase(), tokenIn: a, tokenOut: b, fee: k.fee, tickSpacing: ts, hooks: k.hooks }];
++  }
++  if (id.length !== 42) return [];
++  const pb = String(pair.baseToken && pair.baseToken.address).toLowerCase(), pq = String(pair.quoteToken && pair.quoteToken.address).toLowerCase();
++  const side = (x) => (x === ZERO ? WHYPE : x), a = isNative(from) ? WHYPE : from, b = isNative(to) ? WHYPE : to;
++  if (![side(pb), side(pq)].includes(a) || ![side(pb), side(pq)].includes(b) || a === b) return [];
++  const mk = (kind, fee) => ({ kind, pool: id, tokenIn: a, tokenOut: b, fee, tickSpacing: 0, hooks: ZERO });
++  const ver = labels.includes("v2") ? 2 : labels.includes("v3") ? 3 : known && String(known.version) === "v2" ? 2 : known && String(known.version) === "v3" ? 3 : 0;
++  const v2 = [mk(2, 0), mk(2, 10000)]; // 0.3% pairs first, then 1% forks; the static call tells which one the pair accepts
++  return ver === 2 ? v2 : ver === 3 ? [mk(3, 0)] : [mk(3, 0)].concat(v2);
++}
++const flip = (hops) => hops.slice().reverse().map((h) => Object.assign({}, h, { tokenIn: h.tokenOut, tokenOut: h.tokenIn }));
++const tuple = (hops) => hops.map((h) => [h.kind, h.pool, h.tokenIn, h.tokenOut, h.fee, h.tickSpacing, h.hooks]);
++const verName = (h) => (h.kind === 4 ? "v4" : h.kind === 3 ? "v3" : "v2");
++
++/** Candidate routes HYPE -> token, best pools first. Each: { buy: hops, sell: hops, label, pair }. */
++async function routes(token) {
++  const t = String(token).toLowerCase();
++  const [pairs, idx] = await Promise.all([dsPairs(t), ELY.indexToken(t).catch(() => null)]);
++  const pools = (idx && idx.pools) || [], out = [], conn = new Map();
++  for (const pair of pairs.slice(0, 4)) {
++    const id = String(pair.pairAddress).toLowerCase(), known = pools.find((p) => String(p.pool || "").toLowerCase() === id);
++    const pb = String(pair.baseToken && pair.baseToken.address).toLowerCase(), pq = String(pair.quoteToken && pair.quoteToken.address).toLowerCase();
++    let other = id.length === 66 ? (known ? (String(known.token0).toLowerCase() === t ? String(known.token1).toLowerCase() : String(known.token0).toLowerCase()) : null) : pb === t ? pq : pb;
++    if (other === null || !isAddr(other) || other === t) continue;
++    const dex = String(pair.dexId || "pool").replace(/^0x.*/, "pool"), sym = pb === t ? pair.quoteToken && pair.quoteToken.symbol : pair.baseToken && pair.baseToken.symbol;
++    if (isNative(other)) {
++      for (const h of hopsFor(pair, ZERO, t, pools)) out.push({ buy: [h], sell: flip([h]), label: `${dex} ${verName(h)}`, pair });
++      continue;
++    }
++    // quoted in another token: first hop HYPE -> that token, on its own deepest HYPE pools
++    if (!conn.has(other)) {
++      const [cp, ci] = await Promise.all([dsPairs(other), ELY.indexToken(other).catch(() => null)]), cpools = (ci && ci.pools) || [], list = [];
++      for (const p2 of cp.slice(0, 6)) { const hs = hopsFor(p2, ZERO, other, cpools); if (hs.length) list.push(hs); if (list.length >= 2) break; }
++      conn.set(other, list);
++    }
++    const second = hopsFor(pair, other, t, pools);
++    for (const firsts of conn.get(other)) for (const h1 of firsts) for (const h2 of second) out.push({ buy: [h1, h2], sell: flip([h1, h2]), label: `${dex} ${verName(h2)} via ${sym || "another token"}`, pair });
++  }
++  return { list: out.slice(0, 8), pools, pairs };
++}
++
++const deadline = () => Math.floor(Date.now() / 1000) + 300;
++async function best(list, quote) {
++  const res = await Promise.all(list.map((c) => quote(c).then((out) => ({ c, out }), () => null)));
++  return res.filter((x) => x && x.out > 0n).sort((a, b) => (b.out > a.out ? 1 : b.out < a.out ? -1 : 0))[0] || null;
++}
++
++/**
++ * Buy with `value` wei of HYPE (fee included). o: { ethers, signer, me, token, value, slipBps, feeBps, gas, fail, checkImpact }.
++ * Returns { tx, route, out } once the transaction is sent.
++ */
++async function buy(o) {
++  const e = o.ethers, R = new e.Contract(router(), ABI, o.signer), found = await routes(o.token);
++  if (!found.list.length) o.fail("No tradable pool found for this token on Elysium yet.");
++  const pick = await best(found.list, (c) => R.buy.staticCall(tuple(c.buy), 0, o.me, deadline(), o.feeBps, { value: o.value }));
++  if (!pick) o.fail("This token cannot be bought right now: every route failed in a test run. The pool may be paused, empty or restricted.");
++  // a test sale on the same pool first: do not buy what cannot be sold
++  const pr = await P.probePair({ rpc: ELY.rpc(), token: o.token, pair: pick.c.pair, wnative: WHYPE, pools: found.pools }).catch(() => null);
++  if (pr && pr.findings && pr.findings.honeypot === true) o.fail("Buy blocked: a test sale of this token failed, so you could not sell it afterwards (honeypot).");
++  // price impact: compare with the rate for a 50x smaller buy
++  const small = o.value / 50n;
++  if (small > 0n && o.checkImpact) {
++    const s = await R.buy.staticCall(tuple(pick.c.buy), 0, o.me, deadline(), o.feeBps, { value: small }).catch(() => 0n);
++    if (s > 0n) o.checkImpact(Math.max(0, 100 - Number((pick.out * small * 100000n) / (s * o.value)) / 1000));
++  }
++  const min = (pick.out * (10000n - o.slipBps)) / 10000n;
++  const tx = await R.buy(tuple(pick.c.buy), min, o.me, deadline(), o.feeBps, Object.assign({ value: o.value }, o.gas || {}));
++  return { tx, route: pick.c.label, out: pick.out };
++}
++
++/**
++ * Sell `amount` (raw units) of the token for HYPE. o: { ethers, signer, me, token, amount, slipBps, feeBps, gas, fail, checkImpact, wait }.
++ * Returns { tx, route, out (HYPE the user receives, after the fee), fee }.
++ */
++async function sell(o) {
++  const e = o.ethers, addr = router(), R = new e.Contract(addr, ABI, o.signer), T = new e.Contract(o.token, ERC, o.signer), found = await routes(o.token);
++  if (!found.list.length) o.fail("No tradable pool found for this token on Elysium.");
++  if ((await T.allowance(o.me, addr)) < o.amount) await o.wait(await T.approve(addr, e.MaxUint256, o.gas || {}));
++  const pick = await best(found.list, (c) => R.sell.staticCall(tuple(c.sell), o.amount, 0, o.me, deadline(), o.feeBps));
++  if (!pick) o.fail("This token cannot be sold right now: every route failed in a test run. If this keeps happening the token may block sells.");
++  const small = o.amount / 50n;
++  if (small > 0n && o.checkImpact) {
++    const s = await R.sell.staticCall(tuple(pick.c.sell), small, 0, o.me, deadline(), o.feeBps).catch(() => 0n);
++    if (s > 0n) o.checkImpact(Math.max(0, 100 - Number((pick.out * small * 100000n) / (s * o.amount)) / 1000));
++  }
++  const min = (pick.out * (10000n - o.slipBps)) / 10000n, fb = BigInt(o.feeBps);
++  const tx = await R.sell(tuple(pick.c.sell), o.amount, min, o.me, deadline(), o.feeBps, o.gas || {});
++  return { tx, route: pick.c.label, out: pick.out, fee: fb > 0n && fb < 10000n ? (pick.out * fb) / (10000n - fb) : 0n };
++}
++
++/** Health check for /api/scan?chaindiag=elysium: is the router set, deployed, and wired to the right wrapper? */
++async function diag(ethers) {
++  const addr = router();
++  if (!addr) {
++    const sym = await new ethers.Contract(WHYPE, ["function symbol() view returns (string)"], new ethers.JsonRpcProvider(ELY.rpc(), ELY.ID, { staticNetwork: true })).symbol().catch(() => null);
++    return { configured: false, wrapper: WHYPE, wrapperSymbol: sym, hint: "Set ELYSIUM_ROUTER to the deployed CblSwapRouter address to switch Elysium trading on (contracts/DEPLOY.md)." };
++  }
++  try {
++    const p = new ethers.JsonRpcProvider(ELY.rpc(), ELY.ID, { staticNetwork: true }), R = new ethers.Contract(addr, ABI, p);
++    const [code, wn, to, sym] = await Promise.all([p.getCode(addr), R.WNATIVE().catch(() => null), R.feeRecipient().catch(() => null), new ethers.Contract(WHYPE, ["function symbol() view returns (string)"], p).symbol().catch(() => null)]);
++    return { configured: true, router: addr, deployed: code.length > 2, wrapperOk: !!wn && wn.toLowerCase() === WHYPE, wrapper: WHYPE, wrapperSymbol: sym, feeRecipient: to };
++  } catch (err) { return { configured: true, router: addr, error: String(err && err.message).slice(0, 120) }; }
++}
++
++module.exports = { on, router, routes, buy, sell, diag, hopsFor, flip, tuple, ABI };
+diff --git a/api/_lib/elysium.js b/api/_lib/elysium.js
+index ec4b2d6..7b79bdc 100644
+--- a/api/_lib/elysium.js
++++ b/api/_lib/elysium.js
+@@ -100,36 +100,8 @@ async function indexSource(addr) {
+ // pair = the DexScreener pair the scan uses; idx = indexToken() result if the caller already has it.
+ // Returns { findings, pool: { version, address } } or { findings: null, why }.
+ async function probeToken(token, pair, idx) {
+-  const P = require("./tokenprobe"), low = String(token).toLowerCase();
+-  if (!pair || !pair.pairAddress) return { findings: null, why: "no pool" };
+-  const id = String(pair.pairAddress).toLowerCase(), labels = (pair.labels || []).map((x) => String(x).toLowerCase());
+-  const one = (to, data) => jget(rpc(), 4000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) }).then((r) => (r.json && typeof r.json.result === "string" ? r.json.result : null));
+-  const decimals = async (a) => { if (!a || a === P.ZERO || a === WHYPE) return 18; const h = await one(a, "0x313ce567"); const n = h && h.length > 2 ? parseInt(h, 16) : NaN; return n >= 0 && n <= 36 ? n : null; };
+-  const units = (x, dec) => (x > 0 && Number.isFinite(x) ? (BigInt(Math.max(1, Math.floor(x * 1e9))) * 10n ** BigInt(dec)) / 1000000000n : 0n);
+-  // about $1 of the quote token, less on thin pools so the rehearsal itself barely moves the price
+-  const liq = Number(pair.liquidity && pair.liquidity.usd) || 0, usd = Math.min(1, Math.max(0.05, liq / 2000));
+-  const priceUsd = parseFloat(pair.priceUsd), priceNative = parseFloat(pair.priceNative), quoteUsd = priceUsd > 0 && priceNative > 0 ? priceUsd / priceNative : null;
+-  if (!idx) idx = await indexToken(low).catch(() => null);
+-  const known = ((idx && idx.pools) || []).find((p) => String(p.pool || "").toLowerCase() === id);
+-  if (id.length === 66) { // Uniswap v4 style: the id is a hash, the pool key comes from the indexer
+-    if (!known) return { findings: null, why: "pool key unknown" };
+-    const k = { currency0: String(known.token0).toLowerCase(), currency1: String(known.token1).toLowerCase(), fee: Number(known.fee), hooks: String(known.hooks || P.ZERO).toLowerCase() };
+-    if (![k.currency0, k.currency1].includes(low)) return { findings: null, why: "pool does not hold this token" };
+-    k.tickSpacing = P.findTickSpacing(k, id);
+-    if (k.tickSpacing === null) return { findings: null, why: "pool key does not match its id" };
+-    const quote = k.currency0 === low ? k.currency1 : k.currency0, dec = await decimals(quote);
+-    if (dec === null || !quoteUsd) return { findings: null, why: "quote price unknown" };
+-    const r = await P.probe(rpc(), { mode: 4, pool: String(known.dex).toLowerCase(), key: k, token: low, tokenIs0: k.currency0 === low, amount: units(usd / quoteUsd, dec) }, 5000);
+-    return { findings: r.findings, why: r.error, pool: { version: "v4", id, manager: String(known.dex).toLowerCase(), hooks: k.hooks !== P.ZERO } };
+-  }
+-  if (id.length !== 42) return { findings: null, why: "unknown pool type" };
+-  const quote = String((pair.quoteToken && pair.quoteToken.address) || "").toLowerCase(), q = /^0x[0-9a-f]{40}$/.test(quote) && quote !== P.ZERO ? quote : WHYPE;
+-  const tokenIs0 = BigInt(low) < BigInt(q), ver = labels.includes("v2") ? "v2" : labels.includes("v3") ? "v3" : known && /^v[23]$/.test(String(known.version)) ? known.version : null;
+-  const v3 = async () => { const dec = await decimals(q); if (dec === null || !quoteUsd) return { findings: null, error: "quote price unknown" }; return P.probe(rpc(), { mode: 3, pool: id, token: low, tokenIs0, amount: units(usd / quoteUsd, dec) }, 5000); };
+-  const v2 = async () => { const dec = await decimals(low); if (dec === null || !(priceUsd > 0)) return { findings: null, error: "token price unknown" }; return P.probe(rpc(), { mode: 2, pool: id, token: low, tokenIs0, amount: units(usd / priceUsd, dec) }, 5000); };
+-  let r = ver === "v2" ? await v2() : await v3(), used = ver === "v2" ? "v2" : "v3";
+-  if (!r.findings && !ver) { r = await v2(); used = "v2"; } // unlabelled pool: a v2 pair does not answer a v3 swap
+-  return { findings: r.findings, why: r.error, pool: { version: used, address: id } };
++  if (!idx && pair && String(pair.pairAddress || "").length === 66) idx = await indexToken(String(token).toLowerCase()).catch(() => null); // v4 pool keys come from the indexer
++  return require("./tokenprobe").probePair({ rpc: rpc(), token, pair, wnative: WHYPE, pools: (idx && idx.pools) || [] });
+ }
+ /** Top holders, Blockscout shape: { items: [{ address: { hash, is_contract }, value }] } or null. */
+ const holders = (addr) => jget(`${KAPI}/lists/token-holders?address=${addr}`, 4000).then((r) => (r.json && Array.isArray(r.json.items) ? r.json : null));
+@@ -185,6 +157,7 @@ async function diag(probeAddr) {
+       holders: Object.assign({ status: ih.status, error: ih.error, ok: !!nh, parsedRows: nh ? nh.items.length : 0 }, shape(ih.json)),
+       launchpads: Object.assign({ status: il.status, error: il.error }, shape(il.json)) },
+     sellCheck: await probeDiag(probeAddr || KNTQ),
++    trading: await (async () => { try { return await require("./elyroute").diag(require("ethers")); } catch (e) { return { error: String(e && e.message).slice(0, 120) }; } })(),
+     kinetiqExplorer: { holders: { status: kh.status, error: kh.error, ok: !!(kh.json && Array.isArray(kh.json.items)), items: kh.json && kh.json.items ? kh.json.items.length : 0 },
+       tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
+     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),
+diff --git a/api/_lib/refs.js b/api/_lib/refs.js
+index d5037d1..adc6d75 100644
+--- a/api/_lib/refs.js
++++ b/api/_lib/refs.js
+@@ -10,9 +10,9 @@ const V = require("./vault");
+ const { b58dec } = require("./devstats");
+ const X = T._;
+ 
+-const KEY = { s: "solana", b: "bsc", e: "base", r: "robinhood" };
+-const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
+-const MIN = { s: "0.01", b: "0.002", e: "0.0005", r: "0.0005" }; // smallest claim per coin
++const KEY = { s: "solana", b: "bsc", e: "base", r: "robinhood", y: "elysium" };
++const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r", elysium: "y" };
++const MIN = { s: "0.01", b: "0.002", e: "0.0005", r: "0.0005", y: "0.02" }; // smallest claim per coin
+ const share = () => Math.min(50, Math.max(0, Number(process.env.REF_SHARE_PCT) || 25));
+ const env = (k) => X.clean(process.env[k]);
+ 
+@@ -32,7 +32,7 @@ async function attach(uid, refBy) {
+ async function stats(uid) {
+   const refs = (await db.select("bot_refs", `ref_by=eq.${uid}&select=tg_id,created_at`).catch(() => [])) || [];
+   const since = {}; refs.forEach((r) => { since[r.tg_id] = Date.parse(r.created_at) || 0; });
+-  const earned = { s: 0n, b: 0n, e: 0n, r: 0n }, claimed = { s: 0n, b: 0n, e: 0n, r: 0n };
++  const earned = { s: 0n, b: 0n, e: 0n, r: 0n, y: 0n }, claimed = { s: 0n, b: 0n, e: 0n, r: 0n, y: 0n };
+   let trades = 0;
+   for (let i = 0; i < refs.length; i += 100) {
+     const ids = refs.slice(i, i + 100).map((r) => r.tg_id).join(",");
+diff --git a/api/_lib/scanner.js b/api/_lib/scanner.js
+index 30d6ffc..8c91dea 100644
+--- a/api/_lib/scanner.js
++++ b/api/_lib/scanner.js
+@@ -106,8 +106,10 @@ async function runScan(caIn, selIn, opts) {
+     // Elysium: GoPlus and honeypot.is don't cover it. Kinetiq's explorer runs its own transfer test: blocked = can't sell, taxed = fee on transfer.
+     // First choice: our own rehearsal of a buy, a wallet transfer and a sell on the token's main pool (one eth_call, nothing is sent).
+     let probed = false;
+-    if (chain === "elysium" && !hp && pair) {
+-      const pr = await Promise.race([ELY.probeToken(low, pair), new Promise((ok) => setTimeout(() => ok(null), 7000))]).catch(() => null), f = pr && pr.findings;
++    // Robinhood Chain: v3 and v2 style pools only (no indexer there to supply v4 pool keys); curve tokens have no pool yet.
++    if ((chain === "elysium" || chain === "robinhood") && !hp && pair && !pair.curve) {
++      const run = chain === "elysium" ? ELY.probeToken(low, pair) : require("./tokenprobe").probePair({ rpc: CODE_RPC.robinhood, token: low, pair });
++      const pr = await Promise.race([run, new Promise((ok) => setTimeout(() => ok(null), 7000))]).catch(() => null), f = pr && pr.findings;
+       if (f) {
+         probed = true; sources.probe = true;
+         const p1 = (n) => (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + "%", sevOf = (n) => (n >= 50 ? "critical" : n >= 20 ? "high" : n >= 10 ? "medium" : n >= 3 ? "low" : "info");
+diff --git a/api/_lib/tokenprobe.js b/api/_lib/tokenprobe.js
+index 8f2f486..9681c52 100644
+--- a/api/_lib/tokenprobe.js
++++ b/api/_lib/tokenprobe.js
+@@ -2,6 +2,7 @@
+ // The call carries the creation code of contracts/CblTokenProbe.sol; its constructor runs the rehearsal against the
+ // live pool and returns the measurements. Nothing is deployed, signed or paid: every state change is rolled back.
+ // Works on Uniswap v4 (PoolManager and forks), v3 and v2 style pools on any EVM chain whose RPC allows eth_call without "to".
++// Used for Elysium and Robinhood Chain, which GoPlus and honeypot.is do not cover.
+ const { AbiCoder, keccak256 } = require("ethers");
+ const INITCODE = require("./tokenprobe.json").bytecode;
+ const coder = AbiCoder.defaultAbiCoder();
+@@ -70,4 +71,56 @@ async function probe(rpc, o, ms) {
+   if (!raw) return { error: res.error || "no measurements returned", findings: null };
+   return { raw, findings: interpret(raw, o.mode) };
+ }
+-module.exports = { probe, callData, decode, interpret, poolId, findTickSpacing, ZERO };
++async function rpcCall(rpc, to, data) {
++  const c = new AbortController(), t = setTimeout(() => c.abort(), 4000);
++  try { const r = await fetch(rpc, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) }); const j = await r.json().catch(() => null); return j && typeof j.result === "string" ? j.result : null; }
++  catch (e) { return null; } finally { clearTimeout(t); }
++}
++/**
++ * Rehearsal on the pair a scan already picked. o: { rpc, token, pair (DexScreener pair), wnative?, pools? }.
++ * pools = [{ pool, version, dex, token0, token1, fee, hooks }] from an indexer; needed for v4 pools (their id is a hash of the pool key).
++ * Returns { findings, pool } or { findings: null, why }.
++ */
++async function probePair(o) {
++  const low = String(o.token).toLowerCase(), pair = o.pair, wn = o.wnative ? String(o.wnative).toLowerCase() : null;
++  if (!pair || !pair.pairAddress) return { findings: null, why: "no pool" };
++  const id = String(pair.pairAddress).toLowerCase(), labels = (pair.labels || []).map((x) => String(x).toLowerCase());
++  const decimals = async (a) => { if (!a || a === ZERO || a === wn) return 18; const h = await rpcCall(o.rpc, a, "0x313ce567"); const n = h && h.length > 2 ? parseInt(h, 16) : NaN; return n >= 0 && n <= 36 ? n : null; };
++  const units = (x, dec) => (x > 0 && Number.isFinite(x) ? (BigInt(Math.max(1, Math.floor(x * 1e9))) * 10n ** BigInt(dec)) / 1000000000n : 0n);
++  // about $1 of the quote token, less on thin pools so the rehearsal itself barely moves the price
++  const liq = Number(pair.liquidity && pair.liquidity.usd) || 0, usd = Math.min(1, Math.max(0.05, liq / 2000));
++  const priceUsd = parseFloat(pair.priceUsd), priceNative = parseFloat(pair.priceNative), quoteUsd = priceUsd > 0 && priceNative > 0 ? priceUsd / priceNative : null;
++  const known = (o.pools || []).find((p) => String(p.pool || "").toLowerCase() === id);
++  if (id.length === 66) { // Uniswap v4 style
++    if (!known) return { findings: null, why: "pool key unknown" };
++    const k = { currency0: String(known.token0).toLowerCase(), currency1: String(known.token1).toLowerCase(), fee: Number(known.fee), hooks: String(known.hooks || ZERO).toLowerCase() };
++    if (![k.currency0, k.currency1].includes(low)) return { findings: null, why: "pool does not hold this token" };
++    k.tickSpacing = findTickSpacing(k, id);
++    if (k.tickSpacing === null) return { findings: null, why: "pool key does not match its id" };
++    const quote = k.currency0 === low ? k.currency1 : k.currency0, dec = await decimals(quote);
++    if (dec === null || !quoteUsd) return { findings: null, why: "quote price unknown" };
++    const r = await probe(o.rpc, { mode: 4, pool: String(known.dex).toLowerCase(), key: k, token: low, tokenIs0: k.currency0 === low, amount: units(usd / quoteUsd, dec) }, 5000);
++    return { findings: r.findings, why: r.error, pool: { version: "v4", id, manager: String(known.dex).toLowerCase(), hooks: k.hooks !== ZERO } };
++  }
++  if (id.length !== 42) return { findings: null, why: "unknown pool type" };
++  const quote = String((pair.quoteToken && pair.quoteToken.address) || "").toLowerCase(), q = /^0x[0-9a-f]{40}$/.test(quote) && quote !== ZERO ? quote : wn;
++  if (!q || q === low) return { findings: null, why: "quote token unknown" };
++  const tokenIs0 = BigInt(low) < BigInt(q), ver = labels.includes("v2") ? "v2" : labels.includes("v3") ? "v3" : known && /^v[23]$/.test(String(known.version)) ? known.version : null;
++  const v3 = async () => { const dec = await decimals(q); if (dec === null || !quoteUsd) return { findings: null, error: "quote price unknown" }; return probe(o.rpc, { mode: 3, pool: id, token: low, tokenIs0, amount: units(usd / quoteUsd, dec) }, 5000); };
++  const v2 = async () => { const dec = await decimals(low); if (dec === null || !(priceUsd > 0)) return { findings: null, error: "token price unknown" }; return probe(o.rpc, { mode: 2, pool: id, token: low, tokenIs0, amount: units(usd / priceUsd, dec) }, 5000); };
++  let r = ver === "v2" ? await v2() : await v3(), used = ver === "v2" ? "v2" : "v3";
++  if (!r.findings && !ver) { r = await v2(); used = "v2"; } // unlabelled pool: a v2 pair does not answer a v3 swap
++  return { findings: r.findings, why: r.error, pool: { version: used, address: id } };
++}
++/** Self test on any chain DexScreener covers: the token's deepest pair there, then the rehearsal. */
++async function diagPair(dsChain, rpc, token) {
++  const t = String(token || "").toLowerCase();
++  if (!/^0x[0-9a-f]{40}$/.test(t)) return { error: "add &probe=<token address>" };
++  let pairs = [];
++  try { const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/" + t, { headers: { accept: "application/json" } }); pairs = ((await r.json()) || {}).pairs || []; } catch (e) {}
++  const pair = pairs.filter((p) => p.chainId === dsChain && String(p.baseToken && p.baseToken.address).toLowerCase() === t).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
++  if (!pair) return { token: t, error: "no pair for this token on " + dsChain + " at DexScreener" };
++  const t0 = Date.now(), r = await probePair({ rpc, token: t, pair }).catch((e) => ({ findings: null, why: String(e && e.message).slice(0, 120) }));
++  return { token: t, symbol: pair.baseToken.symbol, pair: { id: pair.pairAddress, dex: pair.dexId, labels: pair.labels || [], quote: pair.quoteToken && pair.quoteToken.symbol, liquidityUsd: pair.liquidity && pair.liquidity.usd }, ms: Date.now() - t0, pool: r.pool || null, findings: r.findings, why: r.findings ? undefined : r.why };
++}
++module.exports = { probe, probePair, diagPair, callData, decode, interpret, poolId, findTickSpacing, ZERO };
+diff --git a/api/_lib/trade.js b/api/_lib/trade.js
+index ca126e1..422baf8 100644
+--- a/api/_lib/trade.js
++++ b/api/_lib/trade.js
+@@ -1,8 +1,11 @@
+-// CBL trading bot engine: custodial wallets per Telegram user, buy/sell/withdraw on Solana, BNB Chain, Base and Robinhood Chain.
++// CBL trading bot engine: custodial wallets per Telegram user, buy/sell/withdraw on Solana, BNB Chain, Base, Robinhood Chain and Elysium.
+ //   Solana: Jupiter Swap V2 (order + execute, needs JUP_API_KEY) — covers pump.fun & other curves.
+ //   EVM: LI.FI quotes; Four.meme (BNB) and Pons (Robinhood) bonding-curve tokens trade on the launchpad contract directly.
++//   Elysium: no aggregator covers it yet, so trades go through our own router contract (./elyroute.js, contracts/CblSwapRouter.sol).
++//            The chain only appears once ELYSIUM_ROUTER holds the deployed router address.
+ //   Fee: BOT_FEE_BPS (default 100 = 1%), sent as a separate native transfer after a successful trade
+ //        to BOT_SOL_FEE_ACCOUNT (Solana) / BOT_EVM_FEE_ACCOUNT or EVM_FEE_ACCOUNT (EVM).
++//        On Elysium the router takes the fee inside the trade itself and pays it to the router's feeRecipient.
+ const db = require("./db");
+ const V = require("./vault");
+ 
+@@ -16,8 +19,13 @@ const CH = {
+   r: { key: "robinhood", name: "Robinhood", id: 4663, nat: "ETH", dec: 18, presets: [0.01, 0.05, 0.1], reserve: 0.0002, rpc: () => clean(process.env.ROBINHOOD_RPC) || "https://rpc.mainnet.chain.robinhood.com", exp: "https://robinhoodchain.blockscout.com/tx/" },
+ };
+ const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
++// Elysium ("y"): switched on by ELYSIUM_ROUTER. router: true = the swap contract collects the fee, no separate fee transfer.
++if (/^0x[0-9a-fA-F]{40}$/.test(clean(process.env.ELYSIUM_ROUTER))) {
++  CH.y = { key: "elysium", name: "Elysium", id: 99901, nat: "HYPE", dec: 18, presets: [0.02, 0.1, 0.5], reserve: 0.001, rpc: () => require("./elysium").rpc(), exp: "https://elysium.kinetiq.xyz/tx/", router: true };
++  CODE.elysium = "y";
++}
+ const feeBps = () => { const b = parseInt(clean(process.env.BOT_FEE_BPS) || "100", 10); return Number.isFinite(b) ? Math.min(Math.max(b, 0), 300) : 100; };
+-const feeTo = (c) => (c === "s" ? clean(process.env.BOT_SOL_FEE_ACCOUNT) : clean(process.env.BOT_EVM_FEE_ACCOUNT) || clean(process.env.EVM_FEE_ACCOUNT));
++const feeTo = (c) => (CH[c] && CH[c].router ? "router" : c === "s" ? clean(process.env.BOT_SOL_FEE_ACCOUNT) : clean(process.env.BOT_EVM_FEE_ACCOUNT) || clean(process.env.EVM_FEE_ACCOUNT));
+ const on = () => V.on() && db.on();
+ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+ class UserErr extends Error {}
+@@ -37,8 +45,8 @@ async function ensure(uid) {
+   return { row: await getRow(uid), created: true };
+ }
+ // BonkBot-style settings (stored in bot_wallets.settings)
+-const DEFAULTS = { slipBuy: 10, slipSell: 10, maxImpact: 25, minPos: 0.5, sort: "val", autoBuy: false, autoAmt: { s: 0.1, b: 0.05, e: 0.01, r: 0.01 },
+-  presets: { s: [0.1, 0.5, 1], b: [0.05, 0.1, 0.5], e: [0.01, 0.05, 0.1], r: [0.01, 0.05, 0.1] }, sellP: [25, 50, 100], mev: true, prio: "fast", sellConfirm: true,
++const DEFAULTS = { slipBuy: 10, slipSell: 10, maxImpact: 25, minPos: 0.5, sort: "val", autoBuy: false, autoAmt: { s: 0.1, b: 0.05, e: 0.01, r: 0.01, y: 0.05 },
++  presets: { s: [0.1, 0.5, 1], b: [0.05, 0.1, 0.5], e: [0.01, 0.05, 0.1], r: [0.01, 0.05, 0.1], y: [0.02, 0.1, 0.5] }, sellP: [25, 50, 100], mev: true, prio: "fast", sellConfirm: true,
+   autoTp: { on: false, pct: 100, sell: 50 }, autoSl: { on: false, pct: 30, sell: 100 }, bundle: false, bundleTip: 0.001 };
+ function settings(row) {
+   const s = Object.assign({}, DEFAULTS, (row && row.settings) || {});
+@@ -196,7 +204,10 @@ function ponsSellOut(S, a) { const sc = a * 10000n, g = sc * S.q / (S.t * 10000n
+ async function evmBuy(row, c, ca, wei, st) {
+   const slip = st.slipBuy, s = signer(row, c, st), me = row.evm_addr, cv = await curveOf(c, ca), sb = BigInt(Math.round(slip * 100)), e = V.ethers(), g = await gasOv(c, st);
+   let tx, route;
+-  if (cv && cv.pad === "Four.meme") {
++  if (CH[c].router) { // Elysium: wei is the full amount, the router keeps the fee
++    const r = await require("./elyroute").buy({ ethers: e, signer: s, me, token: ca.toLowerCase(), value: wei, slipBps: sb, feeBps: feeBps(), gas: g, fail, checkImpact: (imp) => checkImpact(imp, st) });
++    tx = r.tx; route = r.route;
++  } else if (cv && cv.pad === "Four.meme") {
+     const r = await new e.Contract(H3, H3ABI, prov(c)).tryBuy(ca, 0, wei);
+     const min = r.estimatedAmount * (10000n - sb) / 10000n, M = new e.Contract(cv.tm, FMABI, s), fn = cv.v === 1 ? "purchaseTokenAMAP(address,uint256,uint256)" : "buyTokenAMAP(address,uint256,uint256)";
+     const val = r.amountMsgValue > 0n ? r.amountMsgValue : wei, funds = r.amountFunds > 0n ? r.amountFunds : wei;
+@@ -216,8 +227,11 @@ async function evmBuy(row, c, ca, wei, st) {
+ async function evmSell(row, c, ca, amt, st) {
+   const slip = st.slipSell, s = signer(row, c, st), me = row.evm_addr, cv = await curveOf(c, ca), sb = BigInt(Math.round(slip * 100)), e = V.ethers(), g = await gasOv(c, st);
+   const approve = async (spender) => { const al = await erc(c, ca).allowance(me, spender); if (al < amt) await waitTx(await erc(c, ca, s).approve(spender, e.MaxUint256, g), c); };
+-  let tx, est, route;
+-  if (cv && cv.pad === "Four.meme") {
++  let tx, est, route, feeTaken;
++  if (CH[c].router) { // Elysium: est is what the user receives, the router already kept the fee
++    const r = await require("./elyroute").sell({ ethers: e, signer: s, me, token: ca.toLowerCase(), amount: amt, slipBps: sb, feeBps: feeBps(), gas: g, fail, checkImpact: (imp) => checkImpact(imp, st), wait: (t) => waitTx(t, c) });
++    tx = r.tx; est = r.out; route = r.route; feeTaken = r.fee;
++  } else if (cv && cv.pad === "Four.meme") {
+     const r = await new e.Contract(H3, H3ABI, prov(c)).trySell(ca, amt); est = r.funds > r.fee ? r.funds - r.fee : r.funds;
+     await approve(cv.tm);
+     const M = new e.Contract(cv.tm, FMABI, s), min = est * (10000n - sb) / 10000n;
+@@ -238,7 +252,7 @@ async function evmSell(row, c, ca, amt, st) {
+     route = (q.toolDetails && q.toolDetails.name) || q.tool || "LI.FI";
+   }
+   await waitTx(tx, c);
+-  return { hash: tx.hash, out: est, route };
++  return { hash: tx.hash, out: est, route, feeTaken };
+ }
+ async function evmSend(row, c, to, wei) { const tx = await signer(row, c).sendTransaction({ to, value: wei }); await waitTx(tx, c); return tx.hash; }
+ 
+@@ -252,7 +266,7 @@ async function nativeBal(row, c) { return c === "s" ? solBal(row.sol_pub) : prov
+ async function buy(uid, c, ca, amount) {
+   if (!CH[c]) fail("Unsupported chain");
+   const row = await getRow(uid); if (!row) fail("Open /trade first to create your wallet.");
+-  const st = settings(row), total = toUnits(amount, CH[c].dec), bps = BigInt(feeBps()), to = feeTo(c), fee = to ? total * bps / 10000n : 0n, swapIn = total - fee;
++  const st = settings(row), total = toUnits(amount, CH[c].dec), bps = BigInt(feeBps()), to = feeTo(c), fee = to ? total * bps / 10000n : 0n, viaRouter = !!CH[c].router, swapIn = viaRouter ? total : total - fee;
+   if (swapIn <= 0n) fail("Amount too small.");
+   const bal = await nativeBal(row, c), need = total + toUnits(CH[c].reserve, CH[c].dec);
+   if (bal < need) fail(`Not enough ${CH[c].nat}. You have ${fromUnits(bal, CH[c].dec)} ${CH[c].nat}; this buy needs about ${fromUnits(need, CH[c].dec)} incl. fee and gas.\nDeposit to your ${CH[c].name} address in /trade.`);
+@@ -262,7 +276,8 @@ async function buy(uid, c, ca, amount) {
+     if (c === "s") { dec = await solDecimals(ca); const r = await solSwap(row, SOL_MINT, ca, swapIn, st); res = { hash: r.sig, route: "Jupiter" }; out = r.out; }
+     else { const before = await evmTokenBal(c, ca, row.evm_addr); res = await evmBuy(row, c, ca, swapIn, st); const after = await evmTokenBal(c, ca, row.evm_addr); dec = after.dec; out = after.raw - before.raw; }
+     let feeHash = null;
+-    if (fee > 0n) { try { feeHash = c === "s" ? await solSend(row, to, fee) : await evmSend(row, c, to, fee); } catch (e) { console.error("fee transfer failed", e.message); } }
++    if (fee > 0n && viaRouter) feeHash = res.hash; // collected by the router in the same transaction
++    else if (fee > 0n) { try { feeHash = c === "s" ? await solSend(row, to, fee) : await evmSend(row, c, to, fee); } catch (e) { console.error("fee transfer failed", e.message); } }
+     await record({ tg_id: uid, chain: CH[c].key, token: c === "s" ? ca : ca.toLowerCase(), side: "buy", native_raw: total.toString(), token_raw: out.toString(), decimals: dec, tx: res.hash, fee_raw: feeHash ? fee.toString() : "0" });
+     return { ok: true, c, ca, hash: res.hash, route: res.route, spent: total, fee: feeHash ? fee : 0n, out, dec };
+   } finally { await unlock(uid); }
+@@ -285,6 +300,11 @@ async function sell(uid, c, ca, pct) {
+     let res, out;
+     if (c === "s") { const r = await solSwap(row, ca, SOL_MINT, amt, st); res = { hash: r.sig, route: "Jupiter" }; out = r.out; }
+     else { res = await evmSell(row, c, ca, amt, st); out = res.out; }
++    if (CH[c].router) { // the router paid the fee out of the proceeds; res.out is already the user's share
++      const fee = res.feeTaken || 0n;
++      await record({ tg_id: uid, chain: CH[c].key, token: ca.toLowerCase(), side: "sell", native_raw: out.toString(), token_raw: amt.toString(), decimals: dec, tx: res.hash, fee_raw: fee.toString() });
++      return { ok: true, c, ca, hash: res.hash, route: res.route, sold: amt, dec, out, fee, pct };
++    }
+     const to = feeTo(c), fee = to ? out * BigInt(feeBps()) / 10000n : 0n; let feeHash = null;
+     if (fee > 0n) { try { feeHash = c === "s" ? await solSend(row, to, fee) : await evmSend(row, c, to, fee); } catch (e) { console.error("fee transfer failed", e.message); } }
+     await record({ tg_id: uid, chain: CH[c].key, token: c === "s" ? ca : ca.toLowerCase(), side: "sell", native_raw: (out - (feeHash ? fee : 0n)).toString(), token_raw: amt.toString(), decimals: dec, tx: res.hash, fee_raw: feeHash ? fee.toString() : "0" });
+diff --git a/api/_lib/tradebot.js b/api/_lib/tradebot.js
+index 241d488..714b691 100644
+--- a/api/_lib/tradebot.js
++++ b/api/_lib/tradebot.js
+@@ -12,6 +12,7 @@ const CA_RE = /0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/;
+ const NOTE = "🔐 This is a custodial wallet: CBL keeps its keys encrypted on the server so the bot can trade for you. Only deposit what you're willing to risk.";
+ const nat = (c) => T.CH[c].nat;
+ const DS_CHAIN = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
++if (T.CH.y) DS_CHAIN.elysium = "y"; // Elysium trading is on only when its router is configured
+ 
+ function chainOf(ca, hint) {
+   if (hint && T.CODE[hint]) return T.CODE[hint];
+@@ -68,7 +69,7 @@ async function menuMsg(row) {
+   const L = ["<b>🍸 CBL Bartender</b> · what are you having?", ""];
+   if (empty) L.push("You have no funds yet. To start trading, deposit to your wallets:", "");
+   L.push(`◎ <b>Solana</b> · ${line("s")}`, `<code>${row.sol_pub}</code> (tap to copy)`, "",
+-    `⬡ <b>EVM</b> · BNB ${line("b").replace(" BNB", "")} · Base ${line("e")} · Robinhood ${line("r")}`, `<code>${row.evm_addr}</code> (tap to copy)`);
++    `⬡ <b>EVM</b> · BNB ${line("b").replace(" BNB", "")} · Base ${line("e")} · Robinhood ${line("r")}${T.CH.y ? " · Elysium " + line("y") : ""}`, `<code>${row.evm_addr}</code> (tap to copy)`);
+   const top = sortList(pos.list || [], st).slice(0, 5);
+   if (top.length) {
+     L.push("", "<b>Positions</b>");
+@@ -156,8 +157,8 @@ async function ordersMsg(uid, c, ca) {
+ 
+ function settingsMsg(row) {
+   const s = T.settings(row), onoff = (v) => (v ? "🟢 On" : "🔴 Off");
+-  const pres = Object.keys(T.CH).map((c) => `${nat(c)}${c === "e" ? " (Base)" : c === "r" ? " (RH)" : ""} ${s.presets[c].join(" / ")}`).join(" · ");
+-  const auto = Object.keys(T.CH).map((c) => `${s.autoAmt[c]} ${nat(c)}${c === "e" ? " (Base)" : c === "r" ? " (RH)" : ""}`).join(" · ");
++  const pres = Object.keys(T.CH).map((c) => `${nat(c)}${c === "e" ? " (Base)" : c === "r" ? " (RH)" : ""} ${(s.presets[c] || T.CH[c].presets).join(" / ")}`).join(" · ");
++  const auto = Object.keys(T.CH).map((c) => `${s.autoAmt[c] != null ? s.autoAmt[c] : T.CH[c].presets[0]} ${nat(c)}${c === "e" ? " (Base)" : c === "r" ? " (RH)" : ""}`).join(" · ");
+   return { text: `<b>⚙️ Settings</b>
+ 
+ <b>GENERAL</b>
+@@ -192,7 +193,7 @@ Sell: ${s.sellP.join("% / ")}%
+       [{ text: "⬅️ Menu", callback_data: "Tm" }],
+     ] } };
+ }
+-const chainPick = (prefix, title) => ({ text: title, reply_markup: { inline_keyboard: [[{ text: "SOL", callback_data: prefix + "s" }, { text: "BNB", callback_data: prefix + "b" }], [{ text: "ETH · Base", callback_data: prefix + "e" }, { text: "ETH · Robinhood", callback_data: prefix + "r" }], [{ text: "⬅️ Settings", callback_data: "Ts" }]] } });
++const chainPick = (prefix, title) => ({ text: title, reply_markup: { inline_keyboard: [[{ text: "SOL", callback_data: prefix + "s" }, { text: "BNB", callback_data: prefix + "b" }], [{ text: "ETH · Base", callback_data: prefix + "e" }, { text: "ETH · Robinhood", callback_data: prefix + "r" }]].concat(T.CH.y ? [[{ text: "HYPE · Elysium", callback_data: prefix + "y" }]] : [], [[{ text: "⬅️ Settings", callback_data: "Ts" }]]) } });
+ 
+ function errText(e) {
+   if (e instanceof T.UserErr) return "⚠️ " + esc(e.message);
+@@ -210,7 +211,7 @@ async function fromLink(text) {
+   const host = url.hostname.replace(/^www\./, ""), parts = url.pathname.split("/").filter(Boolean), addr = parts.find((x) => CA_RE.test(x) && x.match(CA_RE)[0] === x);
+   if (!addr) return null;
+   const evm = /^0x/.test(addr);
+-  const hintRaw = (url.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood)$/i.test(x)) || "").toLowerCase();
++  const hintRaw = (url.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood|elysium)$/i.test(x)) || "").toLowerCase();
+   const hint = { sol: "solana", bnb: "bsc" }[hintRaw] || hintRaw || (evm ? null : "solana");
+   if (/dexscreener\.com$/.test(host) || /photon/.test(host)) { // these links are usually pair addresses: resolve the token
+     const ch = hint || parts[0];
+@@ -280,9 +281,9 @@ function make(tg) {
+     const V = require("./vault");
+     await send(chat, `🔑 <b>${first ? "Save your private keys now" : "Your private keys"}</b>\nTap to reveal. Store them somewhere safe (password manager or offline), then <b>delete this message</b>. Anyone with these keys controls your funds.\n\n◎ Solana (import into Phantom/Solflare):\n<tg-spoiler><code>${V.solExport(V.solSeed(row))}</code></tg-spoiler>\n\n⬡ EVM (MetaMask/Rabby, same on BNB/Base/Robinhood):\n<tg-spoiler><code>${V.evmPk(row)}</code></tg-spoiler>${await B.exportKeys(row.tg_id).then((l) => l.map((w) => `\n\n◎ Solana W${w.idx} <code>${w.pub}</code>:\n<tg-spoiler><code>${w.key}</code></tg-spoiler>`).join("")).catch(() => "")}${first ? "\n\nYou can show them again any time: 👛 Wallet → 🔑 Export." : ""}`, { protect_content: true });
+   }
+-  const depositMsg = (row) => `<b>📥 Fund your wallet</b>\n\nSend <b>SOL</b> (Solana network) to:\n<code>${row.sol_pub}</code>\n\nSend <b>BNB</b> (BNB Chain) or <b>ETH</b> (Base / Robinhood Chain) to:\n<code>${row.evm_addr}</code>\n\nTap an address to copy it. Buy crypto on any exchange (Binance, Bybit, OKX…) and withdraw to these addresses on the matching network. Then tap 🔄 Refresh.`;
++  const depositMsg = (row) => `<b>📥 Fund your wallet</b>\n\nSend <b>SOL</b> (Solana network) to:\n<code>${row.sol_pub}</code>\n\nSend <b>BNB</b> (BNB Chain)${T.CH.y ? ", <b>ETH</b> (Base / Robinhood Chain) or <b>HYPE</b> (Elysium network, not HyperEVM)" : " or <b>ETH</b> (Base / Robinhood Chain)"} to:\n<code>${row.evm_addr}</code>\n\nTap an address to copy it. Buy crypto on any exchange (Binance, Bybit, OKX…) and withdraw to these addresses on the matching network. Then tap 🔄 Refresh.`;
+   const exportAsk = () => ({ text: "🔑 <b>Export private keys</b>\n\nAnyone with these keys controls your funds. Never share them, and delete the message after saving them.\n\nShow keys now?", reply_markup: { inline_keyboard: [[{ text: "Yes, show my keys", callback_data: "Tkk" }, { text: "Cancel", callback_data: "TA" }]] } });
+-  const withdrawPick = () => ({ text: "<b>📤 Withdraw</b>\nWhich coin?", reply_markup: { inline_keyboard: [[{ text: "SOL", callback_data: "Tws" }, { text: "BNB", callback_data: "Twb" }], [{ text: "ETH · Base", callback_data: "Twe" }, { text: "ETH · Robinhood", callback_data: "Twr" }], [{ text: "⬅️ Wallet", callback_data: "TA" }]] } });
++  const withdrawPick = () => ({ text: "<b>📤 Withdraw</b>\nWhich coin?", reply_markup: { inline_keyboard: [[{ text: "SOL", callback_data: "Tws" }, { text: "BNB", callback_data: "Twb" }], [{ text: "ETH · Base", callback_data: "Twe" }, { text: "ETH · Robinhood", callback_data: "Twr" }]].concat(T.CH.y ? [[{ text: "HYPE · Elysium", callback_data: "Twy" }]] : [], [[{ text: "⬅️ Wallet", callback_data: "TA" }]]) } });
+   const dmOnly = (msg) => msg.chat.type !== "private";
+ 
+   /** Commands. Returns true when handled. */
+@@ -298,10 +299,10 @@ function make(tg) {
+     if (name === "settings") { await send(chat, settingsMsg(row)); return true; }
+     if (name === "export") { await send(chat, exportAsk()); return true; }
+     if (name === "withdraw") { await send(chat, withdrawPick()); return true; }
+-    const ca = (args.find((a) => CA_RE.test(a)) || "").match(CA_RE), chainArg = args.map((a) => ({ sol: "solana", solana: "solana", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood" })[a.toLowerCase()]).find(Boolean);
++    const ca = (args.find((a) => CA_RE.test(a)) || "").match(CA_RE), chainArg = args.map((a) => ({ sol: "solana", solana: "solana", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", ely: "elysium", elysium: "elysium" })[a.toLowerCase()]).find(Boolean);
+     const num = args.find((a) => /^\d*\.?\d+%?$/.test(a));
+     if (!ca || !num) { await send(chat, name === "buy" ? "Usage: <code>/buy &lt;token&gt; &lt;amount&gt; [chain]</code>\nExample: <code>/buy 0xabc… 0.05 bsc</code>" : "Usage: <code>/sell &lt;token&gt; &lt;percent&gt; [chain]</code>\nExample: <code>/sell 7GCi…pump 50</code>"); return true; }
+-    const c = chainOf(ca[0], chainArg); if (!c) { await send(chat, "Add the chain for EVM tokens: <code>bsc</code>, <code>base</code> or <code>robinhood</code>."); return true; }
++    const c = chainOf(ca[0], chainArg); if (!c) { await send(chat, `Add the chain for EVM tokens: <code>bsc</code>, <code>base</code>${T.CH.y ? ", <code>robinhood</code> or <code>elysium</code>" : " or <code>robinhood</code>"}.`); return true; }
+     if (name === "buy") await doBuy(chat, uid, c, ca[0], num.replace("%", ""));
+     else await doSell(chat, uid, c, ca[0], Number(num.replace("%", "")));
+     return true;
+@@ -310,7 +311,7 @@ function make(tg) {
+   /** /start tr_<c>_<ca> and /start trade deep links. */
+   async function refMsg(uid) {
+     const R = require("./refs"), s = await R.stats(uid), bot = String(process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
+-    const link = `https://t.me/${bot}?start=ref_${uid}`, coins = ["s", "b", "e", "r"];
++    const link = `https://t.me/${bot}?start=ref_${uid}`, coins = ["s", "b", "e", "r"].concat(T.CH.y ? ["y"] : []);
+     const L = [`🤝 <b>Referrals</b>`, ``, `Invite friends and earn <b>${s.share}%</b> of their trading fees, forever. Earnings build up here; tap Claim to send them to your Bartender wallet.`, ``,
+       `🔗 Your link:\n<code>${link}</code>`, ``, `👥 Invited: <b>${s.invited}</b> · their trades: <b>${s.trades}</b>`, ``, `<b>Earnings</b> (available / total)`];
+     coins.forEach((c) => { if (s.earned[c] > 0n) L.push(`• ${T.CH[c].name}: <b>${fmt(s.avail[c], c)}</b> / ${fmt(s.earned[c], c)} ${T.CH[c].nat}`); });
+@@ -360,7 +361,7 @@ function make(tg) {
+       return true;
+     }
+     if (arg === "trade") { const nr = notReady(); if (nr) await send(msg.chat.id, nr); else await openMenu(msg.chat.id, msg.from.id); return true; }
+-    const m = /^tr_([sber])_(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(arg || "");
++    const m = /^tr_([sbery])_(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(arg || "");
+     if (!m) return false;
+     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
+     if (!(await T.getRow(msg.from.id))) { await send(msg.chat.id, introMsg()); return true; }
+@@ -490,7 +491,7 @@ function make(tg) {
+     if (d === "Ti") { await ack("Collecting…"); try { const r = await B.collect(uid); await send(chat, `🧲 Moved ${fmt(r.total, "s")} SOL back to W1.`); } catch (e) { await send(chat, errText(e)); } await edit(chat, mid, await walletMsg(await T.getRow(uid))); return true; }
+     if (d === "To") { await ack(); await edit(chat, mid, await ordersMsg(uid)); return true; }
+     if (k === "r" && /^\d+$/.test(d.slice(2))) { await O.cancel(uid, d.slice(2)); await ack("Order cancelled"); await edit(chat, mid, await ordersMsg(uid)); return true; }
+-    const om = /^T([otjl])([sber]):(.+)$/.exec(d);
++    const om = /^T([otjl])([sbery]):(.+)$/.exec(d);
+     if (om) {
+       const [, oa, oc, oca] = om; await ack();
+       if (oa === "o") { await edit(chat, mid, await ordersMsg(uid, oc, oca)); return true; }
+@@ -499,7 +500,7 @@ function make(tg) {
+       await prompt(chat, `🛑 <b>Stop loss</b>\nToken: <code>${oca}</code> · ${T.CH[oc].name}\nReply with the loss % (and optionally how much to sell), e.g. <code>30</code> = when it's down 30% from your entry, sell everything.`, "sl:" + oc, "30"); return true;
+     }
+     // token actions: Tv/TV<c>:<ca> (panel)  Tb<c><i|x>:<ca> (buy)  Tx<c><i|x>:<ca> (sell)  Tz<c><i>:<ca> (confirmed 100% sell)
+-    const m = /^T([vVbxz])([sber])([0-9x]?):(.+)$/.exec(d);
++    const m = /^T([vVbxz])([sbery])([0-9x]?):(.+)$/.exec(d);
+     if (!m) { await ack(); return true; }
+     const [, act, c, opt, ca] = m, isPanel = /Wallet:/.test(q.message.text || "");
+     if (act === "v" || act === "V") { await ack(); const pm = await panelMsg(uid, c, ca); if (isPanel && act === "v") await edit(chat, mid, pm); else await send(chat, pm); return true; }
+@@ -520,7 +521,7 @@ function make(tg) {
+   /** Replies to the bot's ✏️ prompts. Returns true when handled. Find-token replies return { ca, chain } to scan. */
+   async function replyPrompt(msg) {
+     const r = msg.reply_to_message; if (!r || !r.from || !r.from.is_bot || msg.chat.type !== "private") return false;
+-    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
++    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread)(?::([a-z]+))?(?::([sbery]))?\s*$/.exec(r.text || ""); if (!tag) return false;
+     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
+     const [, kind, a1, a2] = tag, uid = msg.from.id, chat = msg.chat.id, txt = (msg.text || "").trim();
+     if (kind === "find") {
+diff --git a/api/app.js b/api/app.js
+index c8784c4..968f7dc 100644
+--- a/api/app.js
++++ b/api/app.js
+@@ -40,7 +40,7 @@ const nat = (c) => T.CH[c].nat, fmt = (v, c) => (v == null ? null : T.fromUnits(
+ function codeOf(ca, chain) {
+   if (chain && T.CODE[chain]) return T.CODE[chain];
+   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca)) return "s";
+-  throw new T.UserErr("Choose the chain for this 0x token (BNB Chain, Base or Robinhood).");
++  throw new T.UserErr(`Choose the chain for this 0x token (BNB Chain, Base${T.CH.y ? ", Robinhood or Elysium" : " or Robinhood"}).`);
+ }
+ const chainsInfo = () => Object.fromEntries(Object.entries(T.CH).map(([c, x]) => [c, { key: x.key, name: x.name, nat: x.nat, exp: x.exp }]));
+ 
+@@ -85,7 +85,7 @@ module.exports = async (req, res) => {
+   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
+   res.setHeader("Cache-Control", "no-store");
+   let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body); } catch (e) { body = {}; } } body = body || {};
+-  if (body.action === "config") return res.status(200).json({ ok: true, bot: String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, ""), on: T.on(), fee: T.feeBps() / 100 });
++  if (body.action === "config") return res.status(200).json({ ok: true, bot: String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, ""), on: T.on(), fee: T.feeBps() / 100, chains: chainsInfo() });
+   if (!T.on()) return res.status(503).json({ ok: false, error: "Trading isn't switched on yet." });
+ 
+   const u = verify(body.auth);
+diff --git a/api/scan.js b/api/scan.js
+index a7d8c52..31e15cb 100644
+--- a/api/scan.js
++++ b/api/scan.js
+@@ -36,6 +36,12 @@ module.exports = async (req, res) => {
+     try { return res.status(200).json({ ok: true, ...(await require("./_lib/elysium").diag(url.searchParams.get("probe"))) }); }
+     catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
+   }
++  // Sell-check self test on Robinhood Chain: /api/scan?chaindiag=robinhood&probe=<token address>
++  if (url.searchParams.get("chaindiag") === "robinhood") {
++    h.n += 5; res.setHeader("Cache-Control", "no-store");
++    try { return res.status(200).json({ ok: true, chain: "robinhood", sellCheck: await require("./_lib/tokenprobe").diagPair("robinhood", "https://rpc.mainnet.chain.robinhood.com", url.searchParams.get("probe")) }); }
++    catch (e) { return res.status(200).json({ ok: false, error: String(e && e.message).slice(0, 200) }); }
++  }
+   if (url.searchParams.get("curvesdiag")) {
+     h.n += 10; res.setHeader("Cache-Control", "no-store");
+     try {
+diff --git a/bartender.html b/bartender.html
+index 3b3d86a..234cfa0 100644
+--- a/bartender.html
++++ b/bartender.html
+@@ -118,6 +118,9 @@ const E = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&
+ const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
+ const CH = { s: { key: "solana", name: "Solana", nat: "SOL" }, b: { key: "bsc", name: "BNB Chain", nat: "BNB" }, e: { key: "base", name: "Base", nat: "ETH" }, r: { key: "robinhood", name: "Robinhood", nat: "ETH" } };
+ const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
++const EXP = { s: "https://solscan.io/tx/", b: "https://bscscan.com/tx/", e: "https://basescan.org/tx/", r: "https://robinhoodchain.blockscout.com/tx/" };
++// The server says which chains are live (Elysium appears once its router is configured)
++function syncChains(m) { for (const c in (m || {})) { const x = m[c]; if (!x || !x.key) continue; CH[c] = CH[c] || { key: x.key, name: x.name, nat: x.nat }; CODE[x.key] = c; if (x.exp) EXP[c] = x.exp; } }
+ const usd = (x) => x == null ? "–" : x >= 1e9 ? "$" + (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? "$" + (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? "$" + (x / 1e3).toFixed(1) + "K" : "$" + Number(x).toFixed(x < 1 ? 4 : 2);
+ const num = (x) => x == null ? "–" : x >= 1e9 ? (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? (x / 1e3).toFixed(1) + "K" : Number(x).toPrecision(4);
+ const nat = (x) => x == null ? "–" : Math.abs(x) >= 1 ? Number(x).toFixed(3) : Number(x).toPrecision(3);
+@@ -295,7 +298,7 @@ async function find(q) {
+   if (link) {
+     try {
+       const u = new URL(link[0]), parts = u.pathname.split("/").filter(Boolean), a = parts.find((x) => /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.test(x));
+-      const hint = (u.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood)$/i.test(x)) || "").toLowerCase();
++      const hint = (u.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood|elysium)$/i.test(x)) || "").toLowerCase();
+       chain = { sol: "solana", bnb: "bsc" }[hint] || hint || null; ca = a;
+       if (a && /dexscreener\.com$/.test(u.hostname.replace(/^www\./, ""))) { const j = await jget(`https://api.dexscreener.com/latest/dex/pairs/${chain || parts[0]}/${a}`); const p = j && (j.pair || (j.pairs && j.pairs[0])); if (p) { ca = p.baseToken.address; chain = p.chainId; } }
+     } catch (e) {}
+@@ -312,7 +315,7 @@ async function find(q) {
+   if (!c && /^0x/.test(ca)) { // detect the EVM chain from DEX Screener
+     const j = await jget(`https://api.dexscreener.com/latest/dex/tokens/${ca}`); const p = ((j && j.pairs) || []).filter((x) => CODE[x.chainId]).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
+     if (p) c = CODE[p.chainId];
+-    else { view.innerHTML = `<h2>Which chain?</h2><p class="muted small">${E(short(ca))} isn't listed yet. Pick where it lives.</p><div class="pills">${["b", "e", "r"].map((k) => `<button class="pill" data-open="${E(ca)}" data-c="${k}">${CH[k].name}</button>`).join("")}</div>`; return bindCommon(); }
++    else { view.innerHTML = `<h2>Which chain?</h2><p class="muted small">${E(short(ca))} isn't listed yet. Pick where it lives.</p><div class="pills">${["b", "e", "r"].concat(CH.y ? ["y"] : []).map((k) => `<button class="pill" data-open="${E(ca)}" data-c="${k}">${CH[k].name}</button>`).join("")}</div>`; return bindCommon(); }
+   }
+   tokenView(ca, c || "s");
+ }
+@@ -369,7 +372,7 @@ async function tokenView(ca, c) {
+   $("#lbf").onsubmit = (ev) => { ev.preventDefault(); const v = $("#lbv").value, a = $("#lba").value.trim(); if (!v || !a) return toast("Enter the drop % and amount", true);
+     busy(ev.submitter, async () => { const r = await api("addOrder", { ca, chain: CH[cc].key, kind: "lb", pct: Number(v), amount: a }); toast(`Limit buy set at −${v}%`); $("#ol").innerHTML = ordersList(r.orders); bindOrders(); }); };
+   bindOrders();
+-  function txLinks(r) { const exp = { s: "https://solscan.io/tx/", b: "https://bscscan.com/tx/", e: "https://basescan.org/tx/", r: "https://robinhoodchain.blockscout.com/tx/" }[cc]; return (r.txs || [r.tx]).filter(Boolean).map((x) => exp + x); }
++  function txLinks(r) { const exp = EXP[cc] || ""; return (r.txs || [r.tx]).filter(Boolean).map((x) => exp + x); }
+   async function doBuy(btn, amt) {
+     if (!(Number(amt) > 0)) return toast("Enter an amount", true);
+     await busy(btn, async () => { const r = await api("buy", { ca, chain: CH[cc].key, amount: amt }); toast(`Bought ${r.out ? num(Number(r.out)) + " tokens" : ""} for ${amt} ${CH[cc].nat}${r.bundle ? ` with ${r.wallets} wallets` : ""}`); S.home = null; lastTx(txLinks(r)); tokenView(ca, cc); });
+@@ -470,10 +473,11 @@ new MutationObserver(photos).observe(view, { childList: true });
+ /* ---------- start ---------- */
+ async function start() {
+   try { S.cfg = await (await fetch("/api/app", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "config" }) })).json(); } catch (e) { S.cfg = {}; }
++  syncChains(S.cfg && S.cfg.chains);
+   if (S.cfg && S.cfg.on === false) { view.innerHTML = '<p class="empty">Trading isn\'t switched on yet. Check back soon.</p>'; return; }
+   if (location.hash === "#install") return installPage();
+   if (!auth()) return showLogin();
+-  const q = new URLSearchParams(location.search), ca = q.get("ca") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param && tg.initDataUnsafe.start_param.replace(/^tr_[sber]_/, ""));
++  const q = new URLSearchParams(location.search), ca = q.get("ca") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param && tg.initDataUnsafe.start_param.replace(/^tr_[sbery]_/, ""));
+   if (ca) { $("#tabs").hidden = false; return find(ca); }
+   go("home");
+ }
+diff --git a/contracts/CblSwapRouter.sol b/contracts/CblSwapRouter.sol
+new file mode 100644
+index 0000000..342a9d6
+--- /dev/null
++++ b/contracts/CblSwapRouter.sol
+@@ -0,0 +1,201 @@
++// SPDX-License-Identifier: MIT
++pragma solidity ^0.8.24;
++
++// CBL swap router: native coin <-> token swaps through Uniswap v4 style pool managers (any fork), v3 style pools and
++// v2 style pairs, in up to four hops, with a small fee paid in the native coin.
++//   buy : native in  -> token out. The fee is taken from the native sent.
++//   sell: token in   -> native out. The fee is taken from the native received.
++// The router holds nothing between transactions, only ever pulls tokens from the caller of sell(), and accepts
++// pool callbacks only from the pool it is calling at that moment.
++
++interface IERC20 { function balanceOf(address) external view returns (uint256); }
++interface IWNative { function deposit() external payable; function withdraw(uint256) external; }
++struct PoolKey { address currency0; address currency1; uint24 fee; int24 tickSpacing; address hooks; }
++struct SwapParams { bool zeroForOne; int256 amountSpecified; uint160 sqrtPriceLimitX96; }
++interface IPoolManager {
++    function unlock(bytes calldata data) external returns (bytes memory);
++    function swap(PoolKey memory key, SwapParams memory params, bytes calldata hookData) external returns (int256);
++    function take(address currency, address to, uint256 amount) external;
++    function sync(address currency) external;
++    function settle() external payable returns (uint256);
++}
++interface IV3Pool { function swap(address recipient, bool zeroForOne, int256 amountSpecified, uint160 sqrtPriceLimitX96, bytes calldata data) external returns (int256, int256); }
++interface IV2Pair { function getReserves() external view returns (uint112, uint112, uint32); function swap(uint256 amount0Out, uint256 amount1Out, address to, bytes calldata data) external; }
++
++/// One step of a route.
++///  kind 4: `pool` is the pool manager; tokenIn/tokenOut are the pool's currencies (address(0) = native); fee, tickSpacing, hooks complete the pool key.
++///  kind 3: `pool` is a v3 style pool. kind 2: `pool` is a v2 style pair; `fee` is its swap fee in millionths (0 = 3000 = 0.3%).
++///  For kinds 3 and 2 the native coin is used through its wrapper (WNATIVE); the router wraps and unwraps between hops.
++struct Hop { uint8 kind; address pool; address tokenIn; address tokenOut; uint24 fee; int24 tickSpacing; address hooks; }
++
++contract CblSwapRouter {
++    uint256 public constant MAX_FEE_BPS = 300; // hard cap 3%
++    uint160 private constant MIN_PRICE = 4295128739 + 1;
++    uint160 private constant MAX_PRICE = 1461446703485210103287273052203988822378723970342 - 1;
++
++    address public immutable WNATIVE;
++    address public owner;
++    address public feeRecipient;
++
++    uint256 private _lock = 1;   // 2 while a swap is running
++    address private _pool;       // the only address allowed to call back right now
++    address private _payToken;   // v3: token owed to the pool in its callback
++    uint256 private _paid;       // v3: what the callback paid
++
++    event Swap(address indexed user, address indexed token, bool isBuy, uint256 amountIn, uint256 amountOut, uint256 fee);
++    event FeeRecipientChanged(address feeRecipient);
++    event OwnerChanged(address owner);
++
++    modifier nonReentrant() { require(_lock == 1, "reentrant"); _lock = 2; _; _lock = 1; }
++    modifier onlyOwner() { require(msg.sender == owner, "owner"); _; }
++
++    constructor(address wnative, address feeRecipient_) {
++        require(wnative != address(0) && feeRecipient_ != address(0), "bad args");
++        WNATIVE = wnative; owner = msg.sender; feeRecipient = feeRecipient_;
++    }
++
++    /// Native coin arrives only mid-swap: from the wrapper (unwrap) or from a pool manager (take).
++    receive() external payable { require(_lock == 2, "no direct deposits"); }
++
++    /// Buy: send native, receive the last hop's tokenOut at `to`. Returns the amount that arrived at `to`.
++    function buy(Hop[] calldata hops, uint256 minOut, address to, uint256 deadline, uint256 feeBps) external payable nonReentrant returns (uint256 out) {
++        _check(hops, to, deadline, feeBps);
++        address token = hops[hops.length - 1].tokenOut;
++        require(token != address(0) && token != WNATIVE && msg.value > 0, "bad buy");
++        uint256 fee = (msg.value * feeBps) / 10000;
++        (uint256 got, address cur) = _run(hops, msg.value - fee, address(0));
++        require(cur == token, "path");
++        uint256 before = IERC20(token).balanceOf(to);
++        _send(token, to, got);
++        out = IERC20(token).balanceOf(to) - before;
++        require(out >= minOut && out > 0, "slippage");
++        if (fee > 0) _sendNative(feeRecipient, fee);
++        emit Swap(msg.sender, token, true, msg.value, out, fee);
++    }
++
++    /// Sell: pull `amountIn` of the first hop's tokenIn from the caller (needs approval), send native to `to`. Returns the native paid out.
++    function sell(Hop[] calldata hops, uint256 amountIn, uint256 minOut, address to, uint256 deadline, uint256 feeBps) external nonReentrant returns (uint256 out) {
++        _check(hops, to, deadline, feeBps);
++        address token = hops[0].tokenIn;
++        require(token != address(0) && token != WNATIVE && amountIn > 0, "bad sell");
++        uint256 before = IERC20(token).balanceOf(address(this));
++        _call(token, abi.encodeWithSelector(0x23b872dd, msg.sender, address(this), amountIn), "transferFrom");
++        uint256 pulled = IERC20(token).balanceOf(address(this)) - before; // what really arrived (transfer taxes)
++        (uint256 got, address cur) = _run(hops, pulled, token);
++        if (cur == WNATIVE) { IWNative(WNATIVE).withdraw(got); cur = address(0); }
++        require(cur == address(0), "path");
++        uint256 fee = (got * feeBps) / 10000;
++        out = got - fee;
++        require(out >= minOut && out > 0, "slippage");
++        if (fee > 0) _sendNative(feeRecipient, fee);
++        _sendNative(to, out);
++        emit Swap(msg.sender, token, false, amountIn, out, fee);
++    }
++
++    // ---- route ----
++    function _check(Hop[] calldata hops, address to, uint256 deadline, uint256 feeBps) private view {
++        require(block.timestamp <= deadline, "expired");
++        require(hops.length > 0 && hops.length <= 4 && to != address(0) && feeBps <= MAX_FEE_BPS, "bad args");
++    }
++    function _run(Hop[] calldata hops, uint256 amt, address cur) private returns (uint256, address) {
++        for (uint256 i = 0; i < hops.length; i++) {
++            Hop calldata h = hops[i];
++            require(h.tokenIn != h.tokenOut && h.pool != address(0), "bad hop");
++            if (cur != h.tokenIn) { // native <-> wrapper between hops
++                if (cur == address(0) && h.tokenIn == WNATIVE) IWNative(WNATIVE).deposit{value: amt}();
++                else if (cur == WNATIVE && h.tokenIn == address(0)) IWNative(WNATIVE).withdraw(amt);
++                else revert("path");
++            }
++            if (h.kind == 4) amt = _v4(h, amt);
++            else if (h.kind == 3) amt = _v3(h, amt);
++            else if (h.kind == 2) amt = _v2(h, amt);
++            else revert("bad hop");
++            require(amt > 0, "no output");
++            cur = h.tokenOut;
++        }
++        return (amt, cur);
++    }
++
++    // ---- Uniswap v4 style ----
++    function _v4(Hop calldata h, uint256 amt) private returns (uint256) {
++        _pool = h.pool;
++        bytes memory ret = IPoolManager(h.pool).unlock(abi.encode(h, amt));
++        _pool = address(0);
++        return abi.decode(ret, (uint256));
++    }
++    function unlockCallback(bytes calldata data) external returns (bytes memory) {
++        require(msg.sender == _pool && _lock == 2, "callback");
++        (Hop memory h, uint256 amt) = abi.decode(data, (Hop, uint256));
++        IPoolManager pm = IPoolManager(msg.sender);
++        // pay first, then swap exactly what the manager was credited (a taxed token credits less than was sent)
++        pm.sync(h.tokenIn);
++        uint256 paid;
++        if (h.tokenIn == address(0)) paid = pm.settle{value: amt}();
++        else { _send(h.tokenIn, msg.sender, amt); paid = pm.settle(); }
++        require(paid > 0 && paid <= uint256(type(int256).max), "not credited");
++        bool zeroForOne = h.tokenIn < h.tokenOut;
++        PoolKey memory key = zeroForOne ? PoolKey(h.tokenIn, h.tokenOut, h.fee, h.tickSpacing, h.hooks) : PoolKey(h.tokenOut, h.tokenIn, h.fee, h.tickSpacing, h.hooks);
++        int256 d = pm.swap(key, SwapParams(zeroForOne, -int256(paid), zeroForOne ? MIN_PRICE : MAX_PRICE), "");
++        int256 d0 = int256(int128(d >> 128)); int256 d1 = int256(int128(d));
++        (int256 spent, int256 bought) = zeroForOne ? (d0, d1) : (d1, d0);
++        require(spent == -int256(paid), "partial fill");
++        require(bought > 0, "no output");
++        uint256 b0 = _bal(h.tokenOut);
++        pm.take(h.tokenOut, address(this), uint256(bought));
++        return abi.encode(_bal(h.tokenOut) - b0);
++    }
++
++    // ---- v3 style: the pool sends the output, then calls back for the input (uniswapV3SwapCallback, pancakeV3SwapCallback, ...) ----
++    function _v3(Hop calldata h, uint256 amt) private returns (uint256) {
++        require(h.tokenIn != address(0) && h.tokenOut != address(0) && amt <= uint256(type(int256).max), "bad hop");
++        bool zeroForOne = h.tokenIn < h.tokenOut;
++        uint256 b0 = _bal(h.tokenOut);
++        _pool = h.pool; _payToken = h.tokenIn; _paid = 0;
++        IV3Pool(h.pool).swap(address(this), zeroForOne, int256(amt), zeroForOne ? MIN_PRICE : MAX_PRICE, "");
++        _pool = address(0); _payToken = address(0);
++        require(_paid == amt, "partial fill");
++        return _bal(h.tokenOut) - b0;
++    }
++    fallback() external {
++        require(msg.sender == _pool && _lock == 2 && _payToken != address(0) && msg.data.length >= 68, "callback");
++        (int256 a0, int256 a1) = abi.decode(msg.data[4:68], (int256, int256));
++        uint256 owed = a0 > 0 ? uint256(a0) : a1 > 0 ? uint256(a1) : 0;
++        require(owed > 0, "callback");
++        _paid += owed;
++        _send(_payToken, msg.sender, owed);
++    }
++
++    // ---- v2 style ----
++    function _v2(Hop calldata h, uint256 amt) private returns (uint256) {
++        require(h.tokenIn != address(0) && h.tokenOut != address(0) && h.fee < 1000000, "bad hop");
++        bool inIs0 = h.tokenIn < h.tokenOut;
++        (uint112 r0, uint112 r1, ) = IV2Pair(h.pool).getReserves();
++        (uint256 rIn, uint256 rOut) = inIs0 ? (uint256(r0), uint256(r1)) : (uint256(r1), uint256(r0));
++        _send(h.tokenIn, h.pool, amt);
++        uint256 actualIn = IERC20(h.tokenIn).balanceOf(h.pool) - rIn; // what the pair really received
++        uint256 keep = 1000000 - (h.fee == 0 ? 3000 : h.fee);
++        uint256 out = (actualIn * keep * rOut) / (rIn * 1000000 + actualIn * keep);
++        uint256 b0 = _bal(h.tokenOut);
++        IV2Pair(h.pool).swap(inIs0 ? 0 : out, inIs0 ? out : 0, address(this), "");
++        return _bal(h.tokenOut) - b0;
++    }
++
++    // ---- helpers ----
++    function _bal(address currency) private view returns (uint256) { return currency == address(0) ? address(this).balance : IERC20(currency).balanceOf(address(this)); }
++    function _send(address token, address to, uint256 amount) private { _call(token, abi.encodeWithSelector(0xa9059cbb, to, amount), "transfer"); }
++    function _call(address token, bytes memory data, string memory what) private {
++        require(token.code.length > 0, "not a token");
++        (bool ok, bytes memory ret) = token.call(data);
++        if (!ok) { if (ret.length > 0) { assembly { revert(add(ret, 32), mload(ret)) } } revert(what); }
++        require(ret.length == 0 || abi.decode(ret, (bool)), what);
++    }
++    function _sendNative(address to, uint256 amount) private { (bool ok, ) = payable(to).call{value: amount}(""); require(ok, "native send"); }
++
++    // ---- owner ----
++    function setFeeRecipient(address a) external onlyOwner { require(a != address(0), "zero"); feeRecipient = a; emit FeeRecipientChanged(a); }
++    function setOwner(address a) external onlyOwner { require(a != address(0), "zero"); owner = a; emit OwnerChanged(a); }
++    /// Recover anything left behind (dust, tokens sent by mistake). The router never holds user funds between transactions.
++    function rescue(address token, address to, uint256 amount) external onlyOwner nonReentrant {
++        if (token == address(0)) _sendNative(to, amount); else _send(token, to, amount);
++    }
++}
+diff --git a/contracts/DEPLOY.md b/contracts/DEPLOY.md
+index 18ea76b..364db9b 100644
+--- a/contracts/DEPLOY.md
++++ b/contracts/DEPLOY.md
+@@ -12,3 +12,29 @@
+ 
+ Later: `setFee(bps)` and `setFeeRecipient(addr)` (owner only). If the contract misbehaves, set `FEE_ROUTER=""` and the site goes back to the direct Pancake route (no fee).
+ Fees arrive as BNB or USDT/USDC at the fee recipient, never in project tokens.
++
++
++# CblSwapRouter: Bartender trading on Elysium
++
++No aggregator covers Elysium yet, so Bartender trades there through this router. It swaps HYPE for a token and back
++on Uniswap v4 style pool managers (including the launchpads' own), v3 style pools and v2 style pairs, in up to four
++hops, and takes the trading fee inside the same transaction. It holds nothing between transactions.
++The contract is tested on a local chain against the real Uniswap v4, v3 and v2 builds but has not been audited.
++
++1. Add Elysium to your wallet: chain ID `99901`, RPC `https://rpc.elysium.kinetiq.xyz`, currency `HYPE`,
++   explorer `https://elysium.kinetiq.xyz`. Bridge a little HYPE over for gas.
++2. Open remix.ethereum.org, create `CblSwapRouter.sol`, paste the file from this folder.
++3. Compiler 0.8.26, optimizer on (200 runs), EVM version `shanghai` or `cancun`. Compile, and choose the contract
++   `CblSwapRouter` (not one of the interfaces).
++4. Deploy (Injected Provider, wallet on Elysium) with constructor args:
++   - `wnative`: `0xbA876237B0F021A6c6D852d6c26E107997cC5E81` (wrapped HYPE). Check it first: the health check
++     `/api/scan?chaindiag=elysium` shows `trading.wrapperSymbol`, which should read `WHYPE`.
++   - `feeRecipient_`: the wallet that receives the trading fees (HYPE).
++5. In Vercel set `ELYSIUM_ROUTER` to the deployed address and redeploy. Elysium then appears in Bartender (Telegram
++   and web). Without the variable nothing changes for users.
++6. Open `/api/scan?chaindiag=elysium`: `trading` should show `deployed: true`, `wrapperOk: true` and your fee wallet.
++7. Test with a tiny buy and sell of a liquid token (for example KNTQ) from your own Bartender wallet.
++
++The fee rate is the bot's `BOT_FEE_BPS` (default 1%), passed with each trade; the contract refuses anything above 3%.
++Owner only: `setFeeRecipient(addr)`, `setOwner(addr)`, `rescue(token, to, amount)` for dust or tokens sent by mistake.
++To switch Elysium trading off again, remove `ELYSIUM_ROUTER` and redeploy.
+diff --git a/sniper.html b/sniper.html
+index aaad45d..2b01bb9 100644
+--- a/sniper.html
++++ b/sniper.html
+@@ -113,6 +113,9 @@ const E = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&
+ const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
+ const CH = { s: { key: "solana", name: "Solana", nat: "SOL" }, b: { key: "bsc", name: "BNB Chain", nat: "BNB" }, e: { key: "base", name: "Base", nat: "ETH" }, r: { key: "robinhood", name: "Robinhood", nat: "ETH" } };
+ const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
++const EXP = { s: "https://solscan.io/tx/", b: "https://bscscan.com/tx/", e: "https://basescan.org/tx/", r: "https://robinhoodchain.blockscout.com/tx/" };
++// The server says which chains are live (Elysium appears once its router is configured)
++function syncChains(m) { for (const c in (m || {})) { const x = m[c]; if (!x || !x.key) continue; CH[c] = CH[c] || { key: x.key, name: x.name, nat: x.nat }; CODE[x.key] = c; if (x.exp) EXP[c] = x.exp; } }
+ const usd = (x) => x == null ? "–" : x >= 1e9 ? "$" + (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? "$" + (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? "$" + (x / 1e3).toFixed(1) + "K" : "$" + Number(x).toFixed(x < 1 ? 4 : 2);
+ const num = (x) => x == null ? "–" : x >= 1e9 ? (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? (x / 1e3).toFixed(1) + "K" : Number(x).toPrecision(4);
+ const nat = (x) => x == null ? "–" : Math.abs(x) >= 1 ? Number(x).toFixed(3) : Number(x).toPrecision(3);
+@@ -220,7 +223,7 @@ async function find(q) {
+   if (link) {
+     try {
+       const u = new URL(link[0]), parts = u.pathname.split("/").filter(Boolean), a = parts.find((x) => /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.test(x));
+-      const hint = (u.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood)$/i.test(x)) || "").toLowerCase();
++      const hint = (u.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood|elysium)$/i.test(x)) || "").toLowerCase();
+       chain = { sol: "solana", bnb: "bsc" }[hint] || hint || null; ca = a;
+       if (a && /dexscreener\.com$/.test(u.hostname.replace(/^www\./, ""))) { const j = await jget(`https://api.dexscreener.com/latest/dex/pairs/${chain || parts[0]}/${a}`); const p = j && (j.pair || (j.pairs && j.pairs[0])); if (p) { ca = p.baseToken.address; chain = p.chainId; } }
+     } catch (e) {}
+@@ -237,7 +240,7 @@ async function find(q) {
+   if (!c && /^0x/.test(ca)) { // detect the EVM chain from DEX Screener
+     const j = await jget(`https://api.dexscreener.com/latest/dex/tokens/${ca}`); const p = ((j && j.pairs) || []).filter((x) => CODE[x.chainId]).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
+     if (p) c = CODE[p.chainId];
+-    else { view.innerHTML = `<h2>Which chain?</h2><p class="muted small">${E(short(ca))} isn't listed yet. Pick where it lives.</p><div class="pills">${["b", "e", "r"].map((k) => `<button class="pill" data-open="${E(ca)}" data-c="${k}">${CH[k].name}</button>`).join("")}</div>`; return bindCommon(); }
++    else { view.innerHTML = `<h2>Which chain?</h2><p class="muted small">${E(short(ca))} isn't listed yet. Pick where it lives.</p><div class="pills">${["b", "e", "r"].concat(CH.y ? ["y"] : []).map((k) => `<button class="pill" data-open="${E(ca)}" data-c="${k}">${CH[k].name}</button>`).join("")}</div>`; return bindCommon(); }
+   }
+   tokenView(ca, c || "s");
+ }
+@@ -291,7 +294,7 @@ async function tokenView(ca, c) {
+   $("#tpf").onsubmit = (ev) => { ev.preventDefault(); addOrder(ev.submitter, "tp", $("#tpv").value, $("#tps").value); };
+   $("#slf").onsubmit = (ev) => { ev.preventDefault(); addOrder(ev.submitter, "sl", $("#slv").value, $("#sls").value); };
+   bindOrders();
+-  function txLinks(r) { const exp = { s: "https://solscan.io/tx/", b: "https://bscscan.com/tx/", e: "https://basescan.org/tx/", r: "https://robinhoodchain.blockscout.com/tx/" }[cc]; return (r.txs || [r.tx]).filter(Boolean).map((x) => exp + x); }
++  function txLinks(r) { const exp = EXP[cc] || ""; return (r.txs || [r.tx]).filter(Boolean).map((x) => exp + x); }
+   async function doBuy(btn, amt) {
+     if (!(Number(amt) > 0)) return toast("Enter an amount", true);
+     await busy(btn, async () => { const r = await api("buy", { ca, chain: CH[cc].key, amount: amt }); toast(`Bought ${r.out ? num(Number(r.out)) + " tokens" : ""} for ${amt} ${CH[cc].nat}${r.bundle ? ` with ${r.wallets} wallets` : ""}`); S.home = null; lastTx(txLinks(r)); tokenView(ca, cc); });
+@@ -387,9 +390,10 @@ async function settingsSheet() {
+ /* ---------- start ---------- */
+ async function start() {
+   try { S.cfg = await (await fetch("/api/app", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "config" }) })).json(); } catch (e) { S.cfg = {}; }
++  syncChains(S.cfg && S.cfg.chains);
+   if (S.cfg && S.cfg.on === false) { view.innerHTML = '<p class="empty">Trading isn\'t switched on yet. Check back soon.</p>'; return; }
+   if (!auth()) return showLogin();
+-  const q = new URLSearchParams(location.search), ca = q.get("ca") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param && tg.initDataUnsafe.start_param.replace(/^tr_[sber]_/, ""));
++  const q = new URLSearchParams(location.search), ca = q.get("ca") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param && tg.initDataUnsafe.start_param.replace(/^tr_[sbery]_/, ""));
+   if (ca) { $("#tabs").hidden = false; return find(ca); }
+   go("home");
+ }

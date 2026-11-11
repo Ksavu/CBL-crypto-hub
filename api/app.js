@@ -40,7 +40,7 @@ const nat = (c) => T.CH[c].nat, fmt = (v, c) => (v == null ? null : T.fromUnits(
 function codeOf(ca, chain) {
   if (chain && T.CODE[chain]) return T.CODE[chain];
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca)) return "s";
-  throw new T.UserErr("Choose the chain for this 0x token (BNB Chain, Base or Robinhood).");
+  throw new T.UserErr(`Choose the chain for this 0x token (BNB Chain, Base${T.CH.y ? ", Robinhood or Elysium" : " or Robinhood"}).`);
 }
 const chainsInfo = () => Object.fromEntries(Object.entries(T.CH).map(([c, x]) => [c, { key: x.key, name: x.name, nat: x.nat, exp: x.exp }]));
 
@@ -85,7 +85,7 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
   res.setHeader("Cache-Control", "no-store");
   let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body); } catch (e) { body = {}; } } body = body || {};
-  if (body.action === "config") return res.status(200).json({ ok: true, bot: String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, ""), on: T.on(), fee: T.feeBps() / 100 });
+  if (body.action === "config") return res.status(200).json({ ok: true, bot: String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, ""), on: T.on(), fee: T.feeBps() / 100, chains: chainsInfo() });
   if (!T.on()) return res.status(503).json({ ok: false, error: "Trading isn't switched on yet." });
 
   const u = verify(body.auth);

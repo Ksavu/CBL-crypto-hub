@@ -1,8 +1,11 @@
-// CBL trading bot engine: custodial wallets per Telegram user, buy/sell/withdraw on Solana, BNB Chain, Base and Robinhood Chain.
+// CBL trading bot engine: custodial wallets per Telegram user, buy/sell/withdraw on Solana, BNB Chain, Base, Robinhood Chain and Elysium.
 //   Solana: Jupiter Swap V2 (order + execute, needs JUP_API_KEY) — covers pump.fun & other curves.
 //   EVM: LI.FI quotes; Four.meme (BNB) and Pons (Robinhood) bonding-curve tokens trade on the launchpad contract directly.
+//   Elysium: no aggregator covers it yet, so trades go through our own router contract (./elyroute.js, contracts/CblSwapRouter.sol).
+//            The chain only appears once ELYSIUM_ROUTER holds the deployed router address.
 //   Fee: BOT_FEE_BPS (default 100 = 1%), sent as a separate native transfer after a successful trade
 //        to BOT_SOL_FEE_ACCOUNT (Solana) / BOT_EVM_FEE_ACCOUNT or EVM_FEE_ACCOUNT (EVM).
+//        On Elysium the router takes the fee inside the trade itself and pays it to the router's feeRecipient.
 const db = require("./db");
 const V = require("./vault");
 
@@ -16,8 +19,13 @@ const CH = {
   r: { key: "robinhood", name: "Robinhood", id: 4663, nat: "ETH", dec: 18, presets: [0.01, 0.05, 0.1], reserve: 0.0002, rpc: () => clean(process.env.ROBINHOOD_RPC) || "https://rpc.mainnet.chain.robinhood.com", exp: "https://robinhoodchain.blockscout.com/tx/" },
 };
 const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
+// Elysium ("y"): switched on by ELYSIUM_ROUTER. router: true = the swap contract collects the fee, no separate fee transfer.
+if (/^0x[0-9a-fA-F]{40}$/.test(clean(process.env.ELYSIUM_ROUTER))) {
+  CH.y = { key: "elysium", name: "Elysium", id: 99901, nat: "HYPE", dec: 18, presets: [0.02, 0.1, 0.5], reserve: 0.001, rpc: () => require("./elysium").rpc(), exp: "https://elysium.kinetiq.xyz/tx/", router: true };
+  CODE.elysium = "y";
+}
 const feeBps = () => { const b = parseInt(clean(process.env.BOT_FEE_BPS) || "100", 10); return Number.isFinite(b) ? Math.min(Math.max(b, 0), 300) : 100; };
-const feeTo = (c) => (c === "s" ? clean(process.env.BOT_SOL_FEE_ACCOUNT) : clean(process.env.BOT_EVM_FEE_ACCOUNT) || clean(process.env.EVM_FEE_ACCOUNT));
+const feeTo = (c) => (CH[c] && CH[c].router ? "router" : c === "s" ? clean(process.env.BOT_SOL_FEE_ACCOUNT) : clean(process.env.BOT_EVM_FEE_ACCOUNT) || clean(process.env.EVM_FEE_ACCOUNT));
 const on = () => V.on() && db.on();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 class UserErr extends Error {}
@@ -37,8 +45,8 @@ async function ensure(uid) {
   return { row: await getRow(uid), created: true };
 }
 // BonkBot-style settings (stored in bot_wallets.settings)
-const DEFAULTS = { slipBuy: 10, slipSell: 10, maxImpact: 25, minPos: 0.5, sort: "val", autoBuy: false, autoAmt: { s: 0.1, b: 0.05, e: 0.01, r: 0.01 },
-  presets: { s: [0.1, 0.5, 1], b: [0.05, 0.1, 0.5], e: [0.01, 0.05, 0.1], r: [0.01, 0.05, 0.1] }, sellP: [25, 50, 100], mev: true, prio: "fast", sellConfirm: true,
+const DEFAULTS = { slipBuy: 10, slipSell: 10, maxImpact: 25, minPos: 0.5, sort: "val", autoBuy: false, autoAmt: { s: 0.1, b: 0.05, e: 0.01, r: 0.01, y: 0.05 },
+  presets: { s: [0.1, 0.5, 1], b: [0.05, 0.1, 0.5], e: [0.01, 0.05, 0.1], r: [0.01, 0.05, 0.1], y: [0.02, 0.1, 0.5] }, sellP: [25, 50, 100], mev: true, prio: "fast", sellConfirm: true,
   autoTp: { on: false, pct: 100, sell: 50 }, autoSl: { on: false, pct: 30, sell: 100 }, bundle: false, bundleTip: 0.001 };
 function settings(row) {
   const s = Object.assign({}, DEFAULTS, (row && row.settings) || {});
@@ -196,7 +204,10 @@ function ponsSellOut(S, a) { const sc = a * 10000n, g = sc * S.q / (S.t * 10000n
 async function evmBuy(row, c, ca, wei, st) {
   const slip = st.slipBuy, s = signer(row, c, st), me = row.evm_addr, cv = await curveOf(c, ca), sb = BigInt(Math.round(slip * 100)), e = V.ethers(), g = await gasOv(c, st);
   let tx, route;
-  if (cv && cv.pad === "Four.meme") {
+  if (CH[c].router) { // Elysium: wei is the full amount, the router keeps the fee
+    const r = await require("./elyroute").buy({ ethers: e, signer: s, me, token: ca.toLowerCase(), value: wei, slipBps: sb, feeBps: feeBps(), gas: g, fail, checkImpact: (imp) => checkImpact(imp, st) });
+    tx = r.tx; route = r.route;
+  } else if (cv && cv.pad === "Four.meme") {
     const r = await new e.Contract(H3, H3ABI, prov(c)).tryBuy(ca, 0, wei);
     const min = r.estimatedAmount * (10000n - sb) / 10000n, M = new e.Contract(cv.tm, FMABI, s), fn = cv.v === 1 ? "purchaseTokenAMAP(address,uint256,uint256)" : "buyTokenAMAP(address,uint256,uint256)";
     const val = r.amountMsgValue > 0n ? r.amountMsgValue : wei, funds = r.amountFunds > 0n ? r.amountFunds : wei;
@@ -216,8 +227,11 @@ async function evmBuy(row, c, ca, wei, st) {
 async function evmSell(row, c, ca, amt, st) {
   const slip = st.slipSell, s = signer(row, c, st), me = row.evm_addr, cv = await curveOf(c, ca), sb = BigInt(Math.round(slip * 100)), e = V.ethers(), g = await gasOv(c, st);
   const approve = async (spender) => { const al = await erc(c, ca).allowance(me, spender); if (al < amt) await waitTx(await erc(c, ca, s).approve(spender, e.MaxUint256, g), c); };
-  let tx, est, route;
-  if (cv && cv.pad === "Four.meme") {
+  let tx, est, route, feeTaken;
+  if (CH[c].router) { // Elysium: est is what the user receives, the router already kept the fee
+    const r = await require("./elyroute").sell({ ethers: e, signer: s, me, token: ca.toLowerCase(), amount: amt, slipBps: sb, feeBps: feeBps(), gas: g, fail, checkImpact: (imp) => checkImpact(imp, st), wait: (t) => waitTx(t, c) });
+    tx = r.tx; est = r.out; route = r.route; feeTaken = r.fee;
+  } else if (cv && cv.pad === "Four.meme") {
     const r = await new e.Contract(H3, H3ABI, prov(c)).trySell(ca, amt); est = r.funds > r.fee ? r.funds - r.fee : r.funds;
     await approve(cv.tm);
     const M = new e.Contract(cv.tm, FMABI, s), min = est * (10000n - sb) / 10000n;
@@ -238,7 +252,7 @@ async function evmSell(row, c, ca, amt, st) {
     route = (q.toolDetails && q.toolDetails.name) || q.tool || "LI.FI";
   }
   await waitTx(tx, c);
-  return { hash: tx.hash, out: est, route };
+  return { hash: tx.hash, out: est, route, feeTaken };
 }
 async function evmSend(row, c, to, wei) { const tx = await signer(row, c).sendTransaction({ to, value: wei }); await waitTx(tx, c); return tx.hash; }
 
@@ -252,7 +266,7 @@ async function nativeBal(row, c) { return c === "s" ? solBal(row.sol_pub) : prov
 async function buy(uid, c, ca, amount) {
   if (!CH[c]) fail("Unsupported chain");
   const row = await getRow(uid); if (!row) fail("Open /trade first to create your wallet.");
-  const st = settings(row), total = toUnits(amount, CH[c].dec), bps = BigInt(feeBps()), to = feeTo(c), fee = to ? total * bps / 10000n : 0n, swapIn = total - fee;
+  const st = settings(row), total = toUnits(amount, CH[c].dec), bps = BigInt(feeBps()), to = feeTo(c), fee = to ? total * bps / 10000n : 0n, viaRouter = !!CH[c].router, swapIn = viaRouter ? total : total - fee;
   if (swapIn <= 0n) fail("Amount too small.");
   const bal = await nativeBal(row, c), need = total + toUnits(CH[c].reserve, CH[c].dec);
   if (bal < need) fail(`Not enough ${CH[c].nat}. You have ${fromUnits(bal, CH[c].dec)} ${CH[c].nat}; this buy needs about ${fromUnits(need, CH[c].dec)} incl. fee and gas.\nDeposit to your ${CH[c].name} address in /trade.`);
@@ -262,7 +276,8 @@ async function buy(uid, c, ca, amount) {
     if (c === "s") { dec = await solDecimals(ca); const r = await solSwap(row, SOL_MINT, ca, swapIn, st); res = { hash: r.sig, route: "Jupiter" }; out = r.out; }
     else { const before = await evmTokenBal(c, ca, row.evm_addr); res = await evmBuy(row, c, ca, swapIn, st); const after = await evmTokenBal(c, ca, row.evm_addr); dec = after.dec; out = after.raw - before.raw; }
     let feeHash = null;
-    if (fee > 0n) { try { feeHash = c === "s" ? await solSend(row, to, fee) : await evmSend(row, c, to, fee); } catch (e) { console.error("fee transfer failed", e.message); } }
+    if (fee > 0n && viaRouter) feeHash = res.hash; // collected by the router in the same transaction
+    else if (fee > 0n) { try { feeHash = c === "s" ? await solSend(row, to, fee) : await evmSend(row, c, to, fee); } catch (e) { console.error("fee transfer failed", e.message); } }
     await record({ tg_id: uid, chain: CH[c].key, token: c === "s" ? ca : ca.toLowerCase(), side: "buy", native_raw: total.toString(), token_raw: out.toString(), decimals: dec, tx: res.hash, fee_raw: feeHash ? fee.toString() : "0" });
     return { ok: true, c, ca, hash: res.hash, route: res.route, spent: total, fee: feeHash ? fee : 0n, out, dec };
   } finally { await unlock(uid); }
@@ -285,6 +300,11 @@ async function sell(uid, c, ca, pct) {
     let res, out;
     if (c === "s") { const r = await solSwap(row, ca, SOL_MINT, amt, st); res = { hash: r.sig, route: "Jupiter" }; out = r.out; }
     else { res = await evmSell(row, c, ca, amt, st); out = res.out; }
+    if (CH[c].router) { // the router paid the fee out of the proceeds; res.out is already the user's share
+      const fee = res.feeTaken || 0n;
+      await record({ tg_id: uid, chain: CH[c].key, token: ca.toLowerCase(), side: "sell", native_raw: out.toString(), token_raw: amt.toString(), decimals: dec, tx: res.hash, fee_raw: fee.toString() });
+      return { ok: true, c, ca, hash: res.hash, route: res.route, sold: amt, dec, out, fee, pct };
+    }
     const to = feeTo(c), fee = to ? out * BigInt(feeBps()) / 10000n : 0n; let feeHash = null;
     if (fee > 0n) { try { feeHash = c === "s" ? await solSend(row, to, fee) : await evmSend(row, c, to, fee); } catch (e) { console.error("fee transfer failed", e.message); } }
     await record({ tg_id: uid, chain: CH[c].key, token: c === "s" ? ca : ca.toLowerCase(), side: "sell", native_raw: (out - (feeHash ? fee : 0n)).toString(), token_raw: amt.toString(), decimals: dec, tx: res.hash, fee_raw: feeHash ? fee.toString() : "0" });

@@ -100,36 +100,8 @@ async function indexSource(addr) {
 // pair = the DexScreener pair the scan uses; idx = indexToken() result if the caller already has it.
 // Returns { findings, pool: { version, address } } or { findings: null, why }.
 async function probeToken(token, pair, idx) {
-  const P = require("./tokenprobe"), low = String(token).toLowerCase();
-  if (!pair || !pair.pairAddress) return { findings: null, why: "no pool" };
-  const id = String(pair.pairAddress).toLowerCase(), labels = (pair.labels || []).map((x) => String(x).toLowerCase());
-  const one = (to, data) => jget(rpc(), 4000, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) }).then((r) => (r.json && typeof r.json.result === "string" ? r.json.result : null));
-  const decimals = async (a) => { if (!a || a === P.ZERO || a === WHYPE) return 18; const h = await one(a, "0x313ce567"); const n = h && h.length > 2 ? parseInt(h, 16) : NaN; return n >= 0 && n <= 36 ? n : null; };
-  const units = (x, dec) => (x > 0 && Number.isFinite(x) ? (BigInt(Math.max(1, Math.floor(x * 1e9))) * 10n ** BigInt(dec)) / 1000000000n : 0n);
-  // about $1 of the quote token, less on thin pools so the rehearsal itself barely moves the price
-  const liq = Number(pair.liquidity && pair.liquidity.usd) || 0, usd = Math.min(1, Math.max(0.05, liq / 2000));
-  const priceUsd = parseFloat(pair.priceUsd), priceNative = parseFloat(pair.priceNative), quoteUsd = priceUsd > 0 && priceNative > 0 ? priceUsd / priceNative : null;
-  if (!idx) idx = await indexToken(low).catch(() => null);
-  const known = ((idx && idx.pools) || []).find((p) => String(p.pool || "").toLowerCase() === id);
-  if (id.length === 66) { // Uniswap v4 style: the id is a hash, the pool key comes from the indexer
-    if (!known) return { findings: null, why: "pool key unknown" };
-    const k = { currency0: String(known.token0).toLowerCase(), currency1: String(known.token1).toLowerCase(), fee: Number(known.fee), hooks: String(known.hooks || P.ZERO).toLowerCase() };
-    if (![k.currency0, k.currency1].includes(low)) return { findings: null, why: "pool does not hold this token" };
-    k.tickSpacing = P.findTickSpacing(k, id);
-    if (k.tickSpacing === null) return { findings: null, why: "pool key does not match its id" };
-    const quote = k.currency0 === low ? k.currency1 : k.currency0, dec = await decimals(quote);
-    if (dec === null || !quoteUsd) return { findings: null, why: "quote price unknown" };
-    const r = await P.probe(rpc(), { mode: 4, pool: String(known.dex).toLowerCase(), key: k, token: low, tokenIs0: k.currency0 === low, amount: units(usd / quoteUsd, dec) }, 5000);
-    return { findings: r.findings, why: r.error, pool: { version: "v4", id, manager: String(known.dex).toLowerCase(), hooks: k.hooks !== P.ZERO } };
-  }
-  if (id.length !== 42) return { findings: null, why: "unknown pool type" };
-  const quote = String((pair.quoteToken && pair.quoteToken.address) || "").toLowerCase(), q = /^0x[0-9a-f]{40}$/.test(quote) && quote !== P.ZERO ? quote : WHYPE;
-  const tokenIs0 = BigInt(low) < BigInt(q), ver = labels.includes("v2") ? "v2" : labels.includes("v3") ? "v3" : known && /^v[23]$/.test(String(known.version)) ? known.version : null;
-  const v3 = async () => { const dec = await decimals(q); if (dec === null || !quoteUsd) return { findings: null, error: "quote price unknown" }; return P.probe(rpc(), { mode: 3, pool: id, token: low, tokenIs0, amount: units(usd / quoteUsd, dec) }, 5000); };
-  const v2 = async () => { const dec = await decimals(low); if (dec === null || !(priceUsd > 0)) return { findings: null, error: "token price unknown" }; return P.probe(rpc(), { mode: 2, pool: id, token: low, tokenIs0, amount: units(usd / priceUsd, dec) }, 5000); };
-  let r = ver === "v2" ? await v2() : await v3(), used = ver === "v2" ? "v2" : "v3";
-  if (!r.findings && !ver) { r = await v2(); used = "v2"; } // unlabelled pool: a v2 pair does not answer a v3 swap
-  return { findings: r.findings, why: r.error, pool: { version: used, address: id } };
+  if (!idx && pair && String(pair.pairAddress || "").length === 66) idx = await indexToken(String(token).toLowerCase()).catch(() => null); // v4 pool keys come from the indexer
+  return require("./tokenprobe").probePair({ rpc: rpc(), token, pair, wnative: WHYPE, pools: (idx && idx.pools) || [] });
 }
 /** Top holders, Blockscout shape: { items: [{ address: { hash, is_contract }, value }] } or null. */
 const holders = (addr) => jget(`${KAPI}/lists/token-holders?address=${addr}`, 4000).then((r) => (r.json && Array.isArray(r.json.items) ? r.json : null));
@@ -185,6 +157,7 @@ async function diag(probeAddr) {
       holders: Object.assign({ status: ih.status, error: ih.error, ok: !!nh, parsedRows: nh ? nh.items.length : 0 }, shape(ih.json)),
       launchpads: Object.assign({ status: il.status, error: il.error }, shape(il.json)) },
     sellCheck: await probeDiag(probeAddr || KNTQ),
+    trading: await (async () => { try { return await require("./elyroute").diag(require("ethers")); } catch (e) { return { error: String(e && e.message).slice(0, 120) }; } })(),
     kinetiqExplorer: { holders: { status: kh.status, error: kh.error, ok: !!(kh.json && Array.isArray(kh.json.items)), items: kh.json && kh.json.items ? kh.json.items.length : 0 },
       tokenScans: { status: ks.status, error: ks.error, ok: !!(ks.json && Array.isArray(ks.json.tokens)), tokens: ks.json && ks.json.tokens ? ks.json.tokens.length : 0, results: ks.json && ks.json.tokens ? [...new Set(ks.json.tokens.map((x) => x.result))].slice(0, 10) : [] } },
     blockscout: apis().map((a, i) => ({ api: a, status: bs[i].status, error: bs[i].error, ok: bs[i].ok, rateLimited: bs[i].limited || undefined })),

@@ -10,9 +10,9 @@ const V = require("./vault");
 const { b58dec } = require("./devstats");
 const X = T._;
 
-const KEY = { s: "solana", b: "bsc", e: "base", r: "robinhood" };
-const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
-const MIN = { s: "0.01", b: "0.002", e: "0.0005", r: "0.0005" }; // smallest claim per coin
+const KEY = { s: "solana", b: "bsc", e: "base", r: "robinhood", y: "elysium" };
+const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r", elysium: "y" };
+const MIN = { s: "0.01", b: "0.002", e: "0.0005", r: "0.0005", y: "0.02" }; // smallest claim per coin
 const share = () => Math.min(50, Math.max(0, Number(process.env.REF_SHARE_PCT) || 25));
 const env = (k) => X.clean(process.env[k]);
 
@@ -32,7 +32,7 @@ async function attach(uid, refBy) {
 async function stats(uid) {
   const refs = (await db.select("bot_refs", `ref_by=eq.${uid}&select=tg_id,created_at`).catch(() => [])) || [];
   const since = {}; refs.forEach((r) => { since[r.tg_id] = Date.parse(r.created_at) || 0; });
-  const earned = { s: 0n, b: 0n, e: 0n, r: 0n }, claimed = { s: 0n, b: 0n, e: 0n, r: 0n };
+  const earned = { s: 0n, b: 0n, e: 0n, r: 0n, y: 0n }, claimed = { s: 0n, b: 0n, e: 0n, r: 0n, y: 0n };
   let trades = 0;
   for (let i = 0; i < refs.length; i += 100) {
     const ids = refs.slice(i, i + 100).map((r) => r.tg_id).join(",");

@@ -2,6 +2,7 @@
 // The call carries the creation code of contracts/CblTokenProbe.sol; its constructor runs the rehearsal against the
 // live pool and returns the measurements. Nothing is deployed, signed or paid: every state change is rolled back.
 // Works on Uniswap v4 (PoolManager and forks), v3 and v2 style pools on any EVM chain whose RPC allows eth_call without "to".
+// Used for Elysium and Robinhood Chain, which GoPlus and honeypot.is do not cover.
 const { AbiCoder, keccak256 } = require("ethers");
 const INITCODE = require("./tokenprobe.json").bytecode;
 const coder = AbiCoder.defaultAbiCoder();
@@ -70,4 +71,56 @@ async function probe(rpc, o, ms) {
   if (!raw) return { error: res.error || "no measurements returned", findings: null };
   return { raw, findings: interpret(raw, o.mode) };
 }
-module.exports = { probe, callData, decode, interpret, poolId, findTickSpacing, ZERO };
+async function rpcCall(rpc, to, data) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), 4000);
+  try { const r = await fetch(rpc, { method: "POST", signal: c.signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) }); const j = await r.json().catch(() => null); return j && typeof j.result === "string" ? j.result : null; }
+  catch (e) { return null; } finally { clearTimeout(t); }
+}
+/**
+ * Rehearsal on the pair a scan already picked. o: { rpc, token, pair (DexScreener pair), wnative?, pools? }.
+ * pools = [{ pool, version, dex, token0, token1, fee, hooks }] from an indexer; needed for v4 pools (their id is a hash of the pool key).
+ * Returns { findings, pool } or { findings: null, why }.
+ */
+async function probePair(o) {
+  const low = String(o.token).toLowerCase(), pair = o.pair, wn = o.wnative ? String(o.wnative).toLowerCase() : null;
+  if (!pair || !pair.pairAddress) return { findings: null, why: "no pool" };
+  const id = String(pair.pairAddress).toLowerCase(), labels = (pair.labels || []).map((x) => String(x).toLowerCase());
+  const decimals = async (a) => { if (!a || a === ZERO || a === wn) return 18; const h = await rpcCall(o.rpc, a, "0x313ce567"); const n = h && h.length > 2 ? parseInt(h, 16) : NaN; return n >= 0 && n <= 36 ? n : null; };
+  const units = (x, dec) => (x > 0 && Number.isFinite(x) ? (BigInt(Math.max(1, Math.floor(x * 1e9))) * 10n ** BigInt(dec)) / 1000000000n : 0n);
+  // about $1 of the quote token, less on thin pools so the rehearsal itself barely moves the price
+  const liq = Number(pair.liquidity && pair.liquidity.usd) || 0, usd = Math.min(1, Math.max(0.05, liq / 2000));
+  const priceUsd = parseFloat(pair.priceUsd), priceNative = parseFloat(pair.priceNative), quoteUsd = priceUsd > 0 && priceNative > 0 ? priceUsd / priceNative : null;
+  const known = (o.pools || []).find((p) => String(p.pool || "").toLowerCase() === id);
+  if (id.length === 66) { // Uniswap v4 style
+    if (!known) return { findings: null, why: "pool key unknown" };
+    const k = { currency0: String(known.token0).toLowerCase(), currency1: String(known.token1).toLowerCase(), fee: Number(known.fee), hooks: String(known.hooks || ZERO).toLowerCase() };
+    if (![k.currency0, k.currency1].includes(low)) return { findings: null, why: "pool does not hold this token" };
+    k.tickSpacing = findTickSpacing(k, id);
+    if (k.tickSpacing === null) return { findings: null, why: "pool key does not match its id" };
+    const quote = k.currency0 === low ? k.currency1 : k.currency0, dec = await decimals(quote);
+    if (dec === null || !quoteUsd) return { findings: null, why: "quote price unknown" };
+    const r = await probe(o.rpc, { mode: 4, pool: String(known.dex).toLowerCase(), key: k, token: low, tokenIs0: k.currency0 === low, amount: units(usd / quoteUsd, dec) }, 5000);
+    return { findings: r.findings, why: r.error, pool: { version: "v4", id, manager: String(known.dex).toLowerCase(), hooks: k.hooks !== ZERO } };
+  }
+  if (id.length !== 42) return { findings: null, why: "unknown pool type" };
+  const quote = String((pair.quoteToken && pair.quoteToken.address) || "").toLowerCase(), q = /^0x[0-9a-f]{40}$/.test(quote) && quote !== ZERO ? quote : wn;
+  if (!q || q === low) return { findings: null, why: "quote token unknown" };
+  const tokenIs0 = BigInt(low) < BigInt(q), ver = labels.includes("v2") ? "v2" : labels.includes("v3") ? "v3" : known && /^v[23]$/.test(String(known.version)) ? known.version : null;
+  const v3 = async () => { const dec = await decimals(q); if (dec === null || !quoteUsd) return { findings: null, error: "quote price unknown" }; return probe(o.rpc, { mode: 3, pool: id, token: low, tokenIs0, amount: units(usd / quoteUsd, dec) }, 5000); };
+  const v2 = async () => { const dec = await decimals(low); if (dec === null || !(priceUsd > 0)) return { findings: null, error: "token price unknown" }; return probe(o.rpc, { mode: 2, pool: id, token: low, tokenIs0, amount: units(usd / priceUsd, dec) }, 5000); };
+  let r = ver === "v2" ? await v2() : await v3(), used = ver === "v2" ? "v2" : "v3";
+  if (!r.findings && !ver) { r = await v2(); used = "v2"; } // unlabelled pool: a v2 pair does not answer a v3 swap
+  return { findings: r.findings, why: r.error, pool: { version: used, address: id } };
+}
+/** Self test on any chain DexScreener covers: the token's deepest pair there, then the rehearsal. */
+async function diagPair(dsChain, rpc, token) {
+  const t = String(token || "").toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(t)) return { error: "add &probe=<token address>" };
+  let pairs = [];
+  try { const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/" + t, { headers: { accept: "application/json" } }); pairs = ((await r.json()) || {}).pairs || []; } catch (e) {}
+  const pair = pairs.filter((p) => p.chainId === dsChain && String(p.baseToken && p.baseToken.address).toLowerCase() === t).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
+  if (!pair) return { token: t, error: "no pair for this token on " + dsChain + " at DexScreener" };
+  const t0 = Date.now(), r = await probePair({ rpc, token: t, pair }).catch((e) => ({ findings: null, why: String(e && e.message).slice(0, 120) }));
+  return { token: t, symbol: pair.baseToken.symbol, pair: { id: pair.pairAddress, dex: pair.dexId, labels: pair.labels || [], quote: pair.quoteToken && pair.quoteToken.symbol, liquidityUsd: pair.liquidity && pair.liquidity.usd }, ms: Date.now() - t0, pool: r.pool || null, findings: r.findings, why: r.findings ? undefined : r.why };
+}
+module.exports = { probe, probePair, diagPair, callData, decode, interpret, poolId, findTickSpacing, ZERO };

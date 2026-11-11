@@ -118,6 +118,9 @@ const E = (t) => String(t == null ? "" : t).replace(/[&<>"]/g, (c) => ({ "&": "&
 const store = { get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
 const CH = { s: { key: "solana", name: "Solana", nat: "SOL" }, b: { key: "bsc", name: "BNB Chain", nat: "BNB" }, e: { key: "base", name: "Base", nat: "ETH" }, r: { key: "robinhood", name: "Robinhood", nat: "ETH" } };
 const CODE = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
+const EXP = { s: "https://solscan.io/tx/", b: "https://bscscan.com/tx/", e: "https://basescan.org/tx/", r: "https://robinhoodchain.blockscout.com/tx/" };
+// The server says which chains are live (Elysium appears once its router is configured)
+function syncChains(m) { for (const c in (m || {})) { const x = m[c]; if (!x || !x.key) continue; CH[c] = CH[c] || { key: x.key, name: x.name, nat: x.nat }; CODE[x.key] = c; if (x.exp) EXP[c] = x.exp; } }
 const usd = (x) => x == null ? "–" : x >= 1e9 ? "$" + (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? "$" + (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? "$" + (x / 1e3).toFixed(1) + "K" : "$" + Number(x).toFixed(x < 1 ? 4 : 2);
 const num = (x) => x == null ? "–" : x >= 1e9 ? (x / 1e9).toFixed(2) + "B" : x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? (x / 1e3).toFixed(1) + "K" : Number(x).toPrecision(4);
 const nat = (x) => x == null ? "–" : Math.abs(x) >= 1 ? Number(x).toFixed(3) : Number(x).toPrecision(3);
@@ -295,7 +298,7 @@ async function find(q) {
   if (link) {
     try {
       const u = new URL(link[0]), parts = u.pathname.split("/").filter(Boolean), a = parts.find((x) => /^(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.test(x));
-      const hint = (u.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood)$/i.test(x)) || "").toLowerCase();
+      const hint = (u.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood|elysium)$/i.test(x)) || "").toLowerCase();
       chain = { sol: "solana", bnb: "bsc" }[hint] || hint || null; ca = a;
       if (a && /dexscreener\.com$/.test(u.hostname.replace(/^www\./, ""))) { const j = await jget(`https://api.dexscreener.com/latest/dex/pairs/${chain || parts[0]}/${a}`); const p = j && (j.pair || (j.pairs && j.pairs[0])); if (p) { ca = p.baseToken.address; chain = p.chainId; } }
     } catch (e) {}
@@ -312,7 +315,7 @@ async function find(q) {
   if (!c && /^0x/.test(ca)) { // detect the EVM chain from DEX Screener
     const j = await jget(`https://api.dexscreener.com/latest/dex/tokens/${ca}`); const p = ((j && j.pairs) || []).filter((x) => CODE[x.chainId]).sort((a, b) => ((b.liquidity && b.liquidity.usd) || 0) - ((a.liquidity && a.liquidity.usd) || 0))[0];
     if (p) c = CODE[p.chainId];
-    else { view.innerHTML = `<h2>Which chain?</h2><p class="muted small">${E(short(ca))} isn't listed yet. Pick where it lives.</p><div class="pills">${["b", "e", "r"].map((k) => `<button class="pill" data-open="${E(ca)}" data-c="${k}">${CH[k].name}</button>`).join("")}</div>`; return bindCommon(); }
+    else { view.innerHTML = `<h2>Which chain?</h2><p class="muted small">${E(short(ca))} isn't listed yet. Pick where it lives.</p><div class="pills">${["b", "e", "r"].concat(CH.y ? ["y"] : []).map((k) => `<button class="pill" data-open="${E(ca)}" data-c="${k}">${CH[k].name}</button>`).join("")}</div>`; return bindCommon(); }
   }
   tokenView(ca, c || "s");
 }
@@ -369,7 +372,7 @@ async function tokenView(ca, c) {
   $("#lbf").onsubmit = (ev) => { ev.preventDefault(); const v = $("#lbv").value, a = $("#lba").value.trim(); if (!v || !a) return toast("Enter the drop % and amount", true);
     busy(ev.submitter, async () => { const r = await api("addOrder", { ca, chain: CH[cc].key, kind: "lb", pct: Number(v), amount: a }); toast(`Limit buy set at −${v}%`); $("#ol").innerHTML = ordersList(r.orders); bindOrders(); }); };
   bindOrders();
-  function txLinks(r) { const exp = { s: "https://solscan.io/tx/", b: "https://bscscan.com/tx/", e: "https://basescan.org/tx/", r: "https://robinhoodchain.blockscout.com/tx/" }[cc]; return (r.txs || [r.tx]).filter(Boolean).map((x) => exp + x); }
+  function txLinks(r) { const exp = EXP[cc] || ""; return (r.txs || [r.tx]).filter(Boolean).map((x) => exp + x); }
   async function doBuy(btn, amt) {
     if (!(Number(amt) > 0)) return toast("Enter an amount", true);
     await busy(btn, async () => { const r = await api("buy", { ca, chain: CH[cc].key, amount: amt }); toast(`Bought ${r.out ? num(Number(r.out)) + " tokens" : ""} for ${amt} ${CH[cc].nat}${r.bundle ? ` with ${r.wallets} wallets` : ""}`); S.home = null; lastTx(txLinks(r)); tokenView(ca, cc); });
@@ -470,10 +473,11 @@ new MutationObserver(photos).observe(view, { childList: true });
 /* ---------- start ---------- */
 async function start() {
   try { S.cfg = await (await fetch("/api/app", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "config" }) })).json(); } catch (e) { S.cfg = {}; }
+  syncChains(S.cfg && S.cfg.chains);
   if (S.cfg && S.cfg.on === false) { view.innerHTML = '<p class="empty">Trading isn\'t switched on yet. Check back soon.</p>'; return; }
   if (location.hash === "#install") return installPage();
   if (!auth()) return showLogin();
-  const q = new URLSearchParams(location.search), ca = q.get("ca") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param && tg.initDataUnsafe.start_param.replace(/^tr_[sber]_/, ""));
+  const q = new URLSearchParams(location.search), ca = q.get("ca") || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param && tg.initDataUnsafe.start_param.replace(/^tr_[sbery]_/, ""));
   if (ca) { $("#tabs").hidden = false; return find(ca); }
   go("home");
 }
