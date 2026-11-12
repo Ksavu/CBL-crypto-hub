@@ -149,6 +149,18 @@ async function runScan(caIn, selIn, opts) {
     const hi = await LP.higherOf([ca]).catch(() => new Set()); if (hi.has(ca)) launchpad = "higher.fun";
   }
   let onCurve = pair ? !!pair.curve || (lpGuess && lpGuess.g === false) : !!launchpad;
+  // pump.fun token still on its curve: the curve IS the market. Take MC / price / liquidity from the chain, not from a side pool.
+  if (kind === "sol" && lpGuess && lpGuess.k === "pump") {
+    const pc = await require("./solmarket").pumpChain(ca).catch(() => null);
+    if (pc && pc.curve) {
+      onCurve = true;
+      const gt = await require("./solmarket")._gecko(ca).catch(() => null), gPump = gt && /pump/i.test(gt.dexId || ""); // GeckoTerminal's pump.fun pool = curve volume / 24h change
+      const v = gPump && gt.volume && gt.volume.h24 ? gt.volume.h24 : Math.max((pair && pair.volume && pair.volume.h24) || 0, (gt && gt.volume && gt.volume.h24) || 0);
+      pair = Object.assign({}, pair || { baseToken: { address: ca }, quoteToken: { symbol: "SOL" } }, { dexId: "pumpfun", curve: true, curveProgress: pc.progress, curveSol: pc.curveSol,
+        priceUsd: String(pc.priceUsd), marketCap: pc.marketCap, fdv: pc.fdv, liquidity: pc.liquidity, volume: Object.assign({}, pair && pair.volume, { h24: v }), priceChange: gPump && gt.priceChange && typeof gt.priceChange.h24 === "number" ? Object.assign({}, pair && pair.priceChange, { h24: gt.priceChange.h24 }) : pair && pair.priceChange,
+        url: (pair && pair.url) || "https://dexscreener.com/solana/" + ca });
+    } else if (pc && pc.curve === false) onCurve = false;
+  }
   // Meteora DBC: DexScreener tags the curve pool "DBC"; after graduation a DAMM pool appears. Only a DBC pool = still on the curve.
   let dbc = null;
   if (lpGuess && lpGuess.k === "dbc") {

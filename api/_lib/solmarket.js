@@ -103,4 +103,18 @@ async function fillSol(ca, pair, budgetMs = 4500, o = {}) {
   return out;
 }
 
-module.exports = { fillSol, _gecko: gecko, _pumpfun: pumpfun };
+/** pump.fun curve read straight from chain (no API needed): MC, price, curve liquidity, progress. null if no live curve. */
+async function pumpChain(ca) {
+  const D = require("./devstats"), srpc = require("./trade")._.srpc;
+  const key = D.pda([Buffer.from("bonding-curve"), D.b58dec(ca)], D.PUMP);
+  const [r, sol] = await Promise.all([srpc("getMultipleAccounts", [[key], { encoding: "base64" }]), solUsd()]);
+  const a = r && r.value && r.value[0]; if (!a || !a.data || !sol) return null;
+  const b = Buffer.from(a.data[0], "base64"); if (b.length < 49) return null;
+  const vTok = Number(b.readBigUInt64LE(8)), vSol = Number(b.readBigUInt64LE(16)), realSol = Number(b.readBigUInt64LE(32)), complete = b[48] === 1;
+  if (complete || !vTok) return { curve: false, progress: 100 };
+  const price = (vSol / 1e9) / (vTok / 1e6) * sol, mc = price * 1e9;
+  return { curve: true, priceUsd: price, marketCap: mc, fdv: mc, liquidity: { usd: realSol / 1e9 * sol }, curveSol: realSol / 1e9,
+    progress: Math.max(0, Math.min(100, (1 - (vTok / 1e6 - 279.9e6) / 793.1e6) * 100)) };
+}
+
+module.exports = { pumpChain, fillSol, _gecko: gecko, _pumpfun: pumpfun };
