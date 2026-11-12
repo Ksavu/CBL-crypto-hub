@@ -159,10 +159,12 @@ function solGoPlus(s, add, skipHolders) {
   if (s.non_transferable === "1") add("critical", "Non-transferable token");
   if (s.transfer_fee && typeof s.transfer_fee === "object" && Object.keys(s.transfer_fee).length) add("medium", "Token has a transfer fee");
   if (s.transfer_hook && s.transfer_hook.length) add("medium", "Transfer hook present");
-  const h = (s.holders || []).map((x) => pc(x.percent) || 0).sort((a, b) => b - a);
+  // Owners that are program addresses (pools, bonding-curve vaults) are not wallets: leave them out.
+  const D = require("./devstats"), isWallet = (x) => { const a = String(x.account || x.address || ""); try { const b = D.b58dec(a); return b.length !== 32 || D.onCurve(b); } catch (e) { return true; } };
+  const hs = s.holders || [], h = hs.filter(isWallet).map((x) => pc(x.percent) || 0).sort((a, b) => b - a), dropped = hs.length - h.length;
   if (h.length && !skipHolders) {
     const t10 = h.slice(0, 10).reduce((a, b) => a + b, 0);
-    add(t10 >= 60 ? "high" : t10 >= 30 ? "medium" : "ok", `Top 10 wallets hold ${t10.toFixed(1)}%`, "May include liquidity pool accounts");
+    add(t10 >= 60 ? "high" : t10 >= 30 ? "medium" : "ok", `Top 10 wallets hold ${t10.toFixed(1)}%`, dropped ? "Pool and bonding-curve accounts excluded" : "May include liquidity pool accounts");
   }
   const n = parseInt(s.holder_count, 10);
   if (n) add(n < 50 ? "medium" : n < 200 ? "low" : "ok", `${n.toLocaleString("en-US")} holders`);

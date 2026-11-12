@@ -71,10 +71,10 @@ async function pumpfun(ca) {
  * Returns a DexScreener-shaped pair with as many market fields filled as possible.
  * `pair` is the DexScreener pair the scanner already found (may be null).
  */
-async function fillSol(ca, pair, budgetMs = 4500) {
+async function fillSol(ca, pair, budgetMs = 4500, o = {}) {
   const need = (p) => !p || !has(liqOf(p)) || !has((p.volume || {}).h24) || !p.pairCreatedAt;
-  if (!need(pair)) return pair;
-  const isPump = /pump$/i.test(ca) || (pair && /pump/i.test(pair.dexId || ""));
+  const isPump = o.pump || /pump$/i.test(ca) || (pair && /pump/i.test(pair.dexId || ""));
+  if (!need(pair) && !isPump) return pair; // pump.fun tokens: always ask pump.fun whether the curve is still live
   const within = (pr) => Promise.race([pr.catch(() => null), new Promise((ok) => setTimeout(() => ok(null), budgetMs))]);
   const [v1, gt, pf] = await Promise.all([
     pair ? Promise.resolve(null) : within(dexV1(ca)),

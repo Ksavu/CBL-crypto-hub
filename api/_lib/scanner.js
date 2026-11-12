@@ -87,10 +87,14 @@ async function runScan(caIn, selIn, opts) {
     if (f) { chain = chain || f.chain; if (f.pair) pairs = [f.pair]; sources.geckoterminal = !!f.pair; }
   }
   if (!chain) throw fail(404, "No trading pair found. Choose the network and try again.");
-  pairs = pairs.filter((p) => p.chainId === chain).sort((a, b) => liq(b) - liq(a));
+  // Main pair = where the trading really is: liquidity plus a share of 24h volume. A dust pool someone made ($24 liquidity)
+  // must not beat the pump.fun curve (which DexScreener lists with no liquidity but all the volume).
+  const vol24 = (p) => (p.volume && p.volume.h24) || 0, rank = (p) => liq(p) + 0.3 * vol24(p);
+  pairs = pairs.filter((p) => p.chainId === chain).sort((a, b) => rank(b) - rank(a));
   let pair = pairs[0] || null;
   // Solana: DexScreener often has no liquidity/volume/age for new and pump.fun tokens; fill from other sources.
-  if (kind === "sol") pair = await fillSol(ca, pair).catch(() => pair);
+  const pumpish = kind === "sol" && (/pump$/i.test(ca) || pairs.some((p) => /pump/i.test(p.dexId || "")));
+  if (kind === "sol") pair = await fillSol(ca, pair, 4500, { pump: pumpish }).catch(() => pair);
 
   // DexScreener paid orders (profile, community takeover, ads). Hype info only, never affects the score.
   const ordersP = getOrders(chain, ca);
@@ -138,7 +142,8 @@ async function runScan(caIn, selIn, opts) {
   const links = extractLinks(pair);
   // Launchpad origin: deployer contract (EVM), else DEX ids + vanity address endings (pump, bonk, LoL, 4444, b07...).
   const lpHit = (kind === "evm" && EF.launchpadByCreator(chain, ex && ex.creator)) || null;
-  const lpGuess = LP.launchpadOf(chain, ca, pairs.map((p) => p.dexId).concat(pair && pair.curve ? ["pumpfun"] : []), [].concat(...pairs.map((p) => p.labels || [])));
+  // only real pools count as "trades elsewhere = graduated" (dust pools under $1K are ignored)
+  const lpGuess = LP.launchpadOf(chain, ca, pairs.filter((p) => liq(p) >= 1000 || /pumpfun|dbc|launchlab/i.test(p.dexId || "")).map((p) => p.dexId).concat(pair && pair.curve ? ["pumpfun"] : []), [].concat(...pairs.map((p) => p.labels || [])));
   let launchpad = lpHit || (lpGuess && lpGuess.n) || null;
   if (chain === "solana" && !/pump$|bonk$|LoL$/.test(ca) && (!launchpad || launchpad === "LaunchLab" || pairs.some((p) => /launchlab|raydium/i.test(p.dexId || "")))) {
     const hi = await LP.higherOf([ca]).catch(() => new Set()); if (hi.has(ca)) launchpad = "higher.fun";
