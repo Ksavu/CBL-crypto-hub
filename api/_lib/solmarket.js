@@ -113,7 +113,9 @@ async function pumpChain(ca) {
   const vTok = Number(b.readBigUInt64LE(8)), vSol = Number(b.readBigUInt64LE(16)), realSol = Number(b.readBigUInt64LE(32)), complete = b[48] === 1;
   if (complete || !vTok) return { curve: false, progress: 100 };
   const price = (vSol / 1e9) / (vTok / 1e6) * sol, mc = price * 1e9;
-  return { curve: true, priceUsd: price, marketCap: mc, fdv: mc, liquidity: { usd: realSol / 1e9 * sol }, curveSol: realSol / 1e9,
+  // Standard SOL curve: virtual SOL = 30 SOL × 1.073B / virtual tokens (constant product). If not, it's paired with another token.
+  const sane = Math.abs(vSol * (vTok / 1e6) / (30e9 * 1073e6) - 1) < 0.05;
+  return { curve: true, sane, priceUsd: price, marketCap: mc, fdv: mc, liquidity: { usd: realSol / 1e9 * sol }, curveSol: realSol / 1e9,
     progress: Math.max(0, Math.min(100, (1 - (vTok / 1e6 - 279.9e6) / 793.1e6) * 100)) };
 }
 

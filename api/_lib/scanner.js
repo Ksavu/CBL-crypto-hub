@@ -156,8 +156,14 @@ async function runScan(caIn, selIn, opts) {
       onCurve = true;
       const gt = await require("./solmarket")._gecko(ca).catch(() => null), gPump = gt && /pump/i.test(gt.dexId || ""); // GeckoTerminal's pump.fun pool = curve volume / 24h change
       const v = gPump && gt.volume && gt.volume.h24 ? gt.volume.h24 : Math.max((pair && pair.volume && pair.volume.h24) || 0, (gt && gt.volume && gt.volume.h24) || 0);
-      pair = Object.assign({}, pair || { baseToken: { address: ca }, quoteToken: { symbol: "SOL" } }, { dexId: "pumpfun", curve: true, curveProgress: pc.progress, curveSol: pc.curveSol,
-        priceUsd: String(pc.priceUsd), marketCap: pc.marketCap, fdv: pc.fdv, liquidity: pc.liquidity, volume: Object.assign({}, pair && pair.volume, { h24: v }), priceChange: gPump && gt.priceChange && typeof gt.priceChange.h24 === "number" ? Object.assign({}, pair && pair.priceChange, { h24: gt.priceChange.h24 }) : pair && pair.priceChange,
+      // Price / MC / liquidity: GeckoTerminal's pump pool first (it knows the quote token: pump.fun curves can be paired with
+      // other tokens, not only SOL), then pump.fun's API; the on-chain SOL maths only as a last resort. Progress is always on-chain.
+      const pf = gPump ? null : await require("./solmarket")._pumpfun(ca).catch(() => null);
+      const src = gPump && gt.fdv ? { priceUsd: gt.priceUsd, marketCap: gt.marketCap || gt.fdv, fdv: gt.fdv, liquidity: gt.liquidity }
+        : pf && pf.marketCap ? { priceUsd: pf.marketCap / 1e9, marketCap: pf.marketCap, fdv: pf.fdv, liquidity: pc.sane ? pf.liquidity : (gt && gt.liquidity) || undefined }
+        : pc.sane ? pc : { priceUsd: pair && pair.priceUsd, marketCap: pair && pair.marketCap, fdv: pair && pair.fdv, liquidity: pair && pair.liquidity };
+      pair = Object.assign({}, pair || { baseToken: { address: ca }, quoteToken: { symbol: "SOL" } }, { dexId: "pumpfun", curve: true, curveProgress: pc.progress, curveSol: pc.sane ? pc.curveSol : null,
+        priceUsd: src.priceUsd != null ? String(src.priceUsd) : undefined, marketCap: src.marketCap, fdv: src.fdv, liquidity: src.liquidity, volume: Object.assign({}, pair && pair.volume, { h24: v }), priceChange: gPump && gt.priceChange && typeof gt.priceChange.h24 === "number" ? Object.assign({}, pair && pair.priceChange, { h24: gt.priceChange.h24 }) : pair && pair.priceChange,
         url: (pair && pair.url) || "https://dexscreener.com/solana/" + ca });
     } else if (pc && pc.curve === false) onCurve = false;
   }
