@@ -12,7 +12,6 @@ const CA_RE = /0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/;
 const NOTE = "🔐 This is a custodial wallet: CBL keeps its keys encrypted on the server so the bot can trade for you. Only deposit what you're willing to risk.";
 const nat = (c) => T.CH[c].nat;
 const DS_CHAIN = { solana: "s", bsc: "b", base: "e", robinhood: "r" };
-if (T.CH.y) DS_CHAIN.elysium = "y"; // Elysium trading is on only when its router is configured
 
 function chainOf(ca, hint) {
   if (hint && T.CODE[hint]) return T.CODE[hint];
@@ -54,7 +53,7 @@ function sortList(list, st) {
 }
 
 const HOME_KB = [
-  [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📥 Fund", callback_data: "Td" }],
+  [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📈 Stocks", callback_data: "TX" }, { text: "📥 Fund", callback_data: "Td" }],
   [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 Orders (TP/SL/limit)", callback_data: "To" }],
   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
@@ -69,7 +68,7 @@ async function menuMsg(row) {
   const L = ["<b>🍸 CBL Bartender</b> · what are you having?", ""];
   if (empty) L.push("You have no funds yet. To start trading, deposit to your wallets:", "");
   L.push(`◎ <b>Solana</b> · ${line("s")}`, `<code>${row.sol_pub}</code> (tap to copy)`, "",
-    `⬡ <b>EVM</b> · BNB ${line("b").replace(" BNB", "")} · Base ${line("e")} · Robinhood ${line("r")}${T.CH.y ? " · Elysium " + line("y") : ""}`, `<code>${row.evm_addr}</code> (tap to copy)`);
+    `⬡ <b>EVM</b> · BNB ${line("b").replace(" BNB", "")} · Base ${line("e")} · Robinhood ${line("r")}`, `<code>${row.evm_addr}</code> (tap to copy)`);
   const top = sortList(pos.list || [], st).slice(0, 5);
   if (top.length) {
     L.push("", "<b>Positions</b>");
@@ -157,8 +156,8 @@ async function ordersMsg(uid, c, ca) {
 
 function settingsMsg(row) {
   const s = T.settings(row), onoff = (v) => (v ? "🟢 On" : "🔴 Off");
-  const pres = Object.keys(T.CH).map((c) => `${nat(c)}${c === "e" ? " (Base)" : c === "r" ? " (RH)" : ""} ${(s.presets[c] || T.CH[c].presets).join(" / ")}`).join(" · ");
-  const auto = Object.keys(T.CH).map((c) => `${s.autoAmt[c] != null ? s.autoAmt[c] : T.CH[c].presets[0]} ${nat(c)}${c === "e" ? " (Base)" : c === "r" ? " (RH)" : ""}`).join(" · ");
+  const pres = Object.keys(T.CH).map((c) => `${nat(c)}${c === "e" ? " (Base)" : c === "r" ? " (RH)" : ""} ${s.presets[c].join(" / ")}`).join(" · ");
+  const auto = Object.keys(T.CH).map((c) => `${s.autoAmt[c]} ${nat(c)}${c === "e" ? " (Base)" : c === "r" ? " (RH)" : ""}`).join(" · ");
   return { text: `<b>⚙️ Settings</b>
 
 <b>GENERAL</b>
@@ -193,7 +192,7 @@ Sell: ${s.sellP.join("% / ")}%
       [{ text: "⬅️ Menu", callback_data: "Tm" }],
     ] } };
 }
-const chainPick = (prefix, title) => ({ text: title, reply_markup: { inline_keyboard: [[{ text: "SOL", callback_data: prefix + "s" }, { text: "BNB", callback_data: prefix + "b" }], [{ text: "ETH · Base", callback_data: prefix + "e" }, { text: "ETH · Robinhood", callback_data: prefix + "r" }]].concat(T.CH.y ? [[{ text: "HYPE · Elysium", callback_data: prefix + "y" }]] : [], [[{ text: "⬅️ Settings", callback_data: "Ts" }]]) } });
+const chainPick = (prefix, title) => ({ text: title, reply_markup: { inline_keyboard: [[{ text: "SOL", callback_data: prefix + "s" }, { text: "BNB", callback_data: prefix + "b" }], [{ text: "ETH · Base", callback_data: prefix + "e" }, { text: "ETH · Robinhood", callback_data: prefix + "r" }], [{ text: "⬅️ Settings", callback_data: "Ts" }]] } });
 
 function errText(e) {
   if (e instanceof T.UserErr) return "⚠️ " + esc(e.message);
@@ -211,7 +210,7 @@ async function fromLink(text) {
   const host = url.hostname.replace(/^www\./, ""), parts = url.pathname.split("/").filter(Boolean), addr = parts.find((x) => CA_RE.test(x) && x.match(CA_RE)[0] === x);
   if (!addr) return null;
   const evm = /^0x/.test(addr);
-  const hintRaw = (url.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood|elysium)$/i.test(x)) || "").toLowerCase();
+  const hintRaw = (url.searchParams.get("chain") || parts.find((x) => /^(solana|sol|bsc|bnb|base|robinhood)$/i.test(x)) || "").toLowerCase();
   const hint = { sol: "solana", bnb: "bsc" }[hintRaw] || hintRaw || (evm ? null : "solana");
   if (/dexscreener\.com$/.test(host) || /photon/.test(host)) { // these links are usually pair addresses: resolve the token
     const ch = hint || parts[0];
@@ -281,9 +280,9 @@ function make(tg) {
     const V = require("./vault");
     await send(chat, `🔑 <b>${first ? "Save your private keys now" : "Your private keys"}</b>\nTap to reveal. Store them somewhere safe (password manager or offline), then <b>delete this message</b>. Anyone with these keys controls your funds.\n\n◎ Solana (import into Phantom/Solflare):\n<tg-spoiler><code>${V.solExport(V.solSeed(row))}</code></tg-spoiler>\n\n⬡ EVM (MetaMask/Rabby, same on BNB/Base/Robinhood):\n<tg-spoiler><code>${V.evmPk(row)}</code></tg-spoiler>${await B.exportKeys(row.tg_id).then((l) => l.map((w) => `\n\n◎ Solana W${w.idx} <code>${w.pub}</code>:\n<tg-spoiler><code>${w.key}</code></tg-spoiler>`).join("")).catch(() => "")}${first ? "\n\nYou can show them again any time: 👛 Wallet → 🔑 Export." : ""}`, { protect_content: true });
   }
-  const depositMsg = (row) => `<b>📥 Fund your wallet</b>\n\nSend <b>SOL</b> (Solana network) to:\n<code>${row.sol_pub}</code>\n\nSend <b>BNB</b> (BNB Chain)${T.CH.y ? ", <b>ETH</b> (Base / Robinhood Chain) or <b>HYPE</b> (Elysium network, not HyperEVM)" : " or <b>ETH</b> (Base / Robinhood Chain)"} to:\n<code>${row.evm_addr}</code>\n\nTap an address to copy it. Buy crypto on any exchange (Binance, Bybit, OKX…) and withdraw to these addresses on the matching network. Then tap 🔄 Refresh.`;
+  const depositMsg = (row) => `<b>📥 Fund your wallet</b>\n\nSend <b>SOL</b> (Solana network) to:\n<code>${row.sol_pub}</code>\n\nSend <b>BNB</b> (BNB Chain) or <b>ETH</b> (Base / Robinhood Chain) to:\n<code>${row.evm_addr}</code>\n\nTap an address to copy it. Buy crypto on any exchange (Binance, Bybit, OKX…) and withdraw to these addresses on the matching network. Then tap 🔄 Refresh.`;
   const exportAsk = () => ({ text: "🔑 <b>Export private keys</b>\n\nAnyone with these keys controls your funds. Never share them, and delete the message after saving them.\n\nShow keys now?", reply_markup: { inline_keyboard: [[{ text: "Yes, show my keys", callback_data: "Tkk" }, { text: "Cancel", callback_data: "TA" }]] } });
-  const withdrawPick = () => ({ text: "<b>📤 Withdraw</b>\nWhich coin?", reply_markup: { inline_keyboard: [[{ text: "SOL", callback_data: "Tws" }, { text: "BNB", callback_data: "Twb" }], [{ text: "ETH · Base", callback_data: "Twe" }, { text: "ETH · Robinhood", callback_data: "Twr" }]].concat(T.CH.y ? [[{ text: "HYPE · Elysium", callback_data: "Twy" }]] : [], [[{ text: "⬅️ Wallet", callback_data: "TA" }]]) } });
+  const withdrawPick = () => ({ text: "<b>📤 Withdraw</b>\nWhich coin?", reply_markup: { inline_keyboard: [[{ text: "SOL", callback_data: "Tws" }, { text: "BNB", callback_data: "Twb" }], [{ text: "ETH · Base", callback_data: "Twe" }, { text: "ETH · Robinhood", callback_data: "Twr" }], [{ text: "⬅️ Wallet", callback_data: "TA" }]] } });
   const dmOnly = (msg) => msg.chat.type !== "private";
 
   /** Commands. Returns true when handled. */
@@ -299,10 +298,10 @@ function make(tg) {
     if (name === "settings") { await send(chat, settingsMsg(row)); return true; }
     if (name === "export") { await send(chat, exportAsk()); return true; }
     if (name === "withdraw") { await send(chat, withdrawPick()); return true; }
-    const ca = (args.find((a) => CA_RE.test(a)) || "").match(CA_RE), chainArg = args.map((a) => ({ sol: "solana", solana: "solana", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood", ely: "elysium", elysium: "elysium" })[a.toLowerCase()]).find(Boolean);
+    const ca = (args.find((a) => CA_RE.test(a)) || "").match(CA_RE), chainArg = args.map((a) => ({ sol: "solana", solana: "solana", bsc: "bsc", bnb: "bsc", base: "base", rh: "robinhood", robinhood: "robinhood" })[a.toLowerCase()]).find(Boolean);
     const num = args.find((a) => /^\d*\.?\d+%?$/.test(a));
     if (!ca || !num) { await send(chat, name === "buy" ? "Usage: <code>/buy &lt;token&gt; &lt;amount&gt; [chain]</code>\nExample: <code>/buy 0xabc… 0.05 bsc</code>" : "Usage: <code>/sell &lt;token&gt; &lt;percent&gt; [chain]</code>\nExample: <code>/sell 7GCi…pump 50</code>"); return true; }
-    const c = chainOf(ca[0], chainArg); if (!c) { await send(chat, `Add the chain for EVM tokens: <code>bsc</code>, <code>base</code>${T.CH.y ? ", <code>robinhood</code> or <code>elysium</code>" : " or <code>robinhood</code>"}.`); return true; }
+    const c = chainOf(ca[0], chainArg); if (!c) { await send(chat, "Add the chain for EVM tokens: <code>bsc</code>, <code>base</code> or <code>robinhood</code>."); return true; }
     if (name === "buy") await doBuy(chat, uid, c, ca[0], num.replace("%", ""));
     else await doSell(chat, uid, c, ca[0], Number(num.replace("%", "")));
     return true;
@@ -311,7 +310,7 @@ function make(tg) {
   /** /start tr_<c>_<ca> and /start trade deep links. */
   async function refMsg(uid) {
     const R = require("./refs"), s = await R.stats(uid), bot = String(process.env.TELEGRAM_BOT_USERNAME || "").replace(/^@/, "");
-    const link = `https://t.me/${bot}?start=ref_${uid}`, coins = ["s", "b", "e", "r"].concat(T.CH.y ? ["y"] : []);
+    const link = `https://t.me/${bot}?start=ref_${uid}`, coins = ["s", "b", "e", "r"];
     const L = [`🤝 <b>Referrals</b>`, ``, `Invite friends and earn <b>${s.share}%</b> of their trading fees, forever. Earnings build up here; tap Claim to send them to your Bartender wallet.`, ``,
       `🔗 Your link:\n<code>${link}</code>`, ``, `👥 Invited: <b>${s.invited}</b> · their trades: <b>${s.trades}</b>`, ``, `<b>Earnings</b> (available / total)`];
     coins.forEach((c) => { if (s.earned[c] > 0n) L.push(`• ${T.CH[c].name}: <b>${fmt(s.avail[c], c)}</b> / ${fmt(s.earned[c], c)} ${T.CH[c].nat}`); });
@@ -361,7 +360,7 @@ function make(tg) {
       return true;
     }
     if (arg === "trade") { const nr = notReady(); if (nr) await send(msg.chat.id, nr); else await openMenu(msg.chat.id, msg.from.id); return true; }
-    const m = /^tr_([sbery])_(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(arg || "");
+    const m = /^tr_([sber])_(0x[a-fA-F0-9]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/.exec(arg || "");
     if (!m) return false;
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
     if (!(await T.getRow(msg.from.id))) { await send(msg.chat.id, introMsg()); return true; }
@@ -425,6 +424,18 @@ function make(tg) {
         }
         await ack(); await edit(chat, mid, await copyMsg(uid));
       } catch (e) { await ack(); await send(chat, errText(e)); }
+      return true;
+    }
+    if (k === "X") { // xStocks list → tap opens the normal token screen (buy / sell / TP-SL)
+      await ack();
+      const ST = require("./stocks"), [l, mk] = [await ST.list().catch(() => []), ST.market()];
+      const L = ["📈 <b>Stocks · xStocks on Solana</b>", "", `${mk.label}. ${mk.note}`, ""];
+      if (!l.length) L.push("Couldn't load the stock list right now. Try 🔄 in a minute.");
+      const kb = [], top = l.slice(0, 16);
+      for (let i = 0; i < top.length; i += 2) kb.push(top.slice(i, i + 2).map((t) => ({ text: `${t.sym} ${t.price ? "$" + (t.price >= 100 ? t.price.toFixed(0) : t.price.toFixed(2)) : ""}${t.ch24 != null ? " " + (t.ch24 >= 0 ? "+" : "") + t.ch24.toFixed(1) + "%" : ""}`, callback_data: `Tvs:${t.mint}` })));
+      L.push("Tap a stock to buy with SOL. Same 1% fee, sell any time (24/7).", "<i>xStocks are tokens by Backed that track the share price. Not the share itself, no voting rights. Not available to US persons.</i>");
+      kb.push([{ text: "🔄 Refresh", callback_data: "TX" }, { text: "⬅️ Menu", callback_data: "Tm" }]);
+      await edit(chat, mid, { text: L.join("\n"), reply_markup: { inline_keyboard: kb } });
       return true;
     }
     if (k === "P") { await ack(); const m = await require("./points").pointsMsg(uid); m.reply_markup.inline_keyboard.push([{ text: "⬅️ Menu", callback_data: "Tm" }]); await edit(chat, mid, m); return true; }
@@ -491,7 +502,7 @@ function make(tg) {
     if (d === "Ti") { await ack("Collecting…"); try { const r = await B.collect(uid); await send(chat, `🧲 Moved ${fmt(r.total, "s")} SOL back to W1.`); } catch (e) { await send(chat, errText(e)); } await edit(chat, mid, await walletMsg(await T.getRow(uid))); return true; }
     if (d === "To") { await ack(); await edit(chat, mid, await ordersMsg(uid)); return true; }
     if (k === "r" && /^\d+$/.test(d.slice(2))) { await O.cancel(uid, d.slice(2)); await ack("Order cancelled"); await edit(chat, mid, await ordersMsg(uid)); return true; }
-    const om = /^T([otjl])([sbery]):(.+)$/.exec(d);
+    const om = /^T([otjl])([sber]):(.+)$/.exec(d);
     if (om) {
       const [, oa, oc, oca] = om; await ack();
       if (oa === "o") { await edit(chat, mid, await ordersMsg(uid, oc, oca)); return true; }
@@ -500,7 +511,7 @@ function make(tg) {
       await prompt(chat, `🛑 <b>Stop loss</b>\nToken: <code>${oca}</code> · ${T.CH[oc].name}\nReply with the loss % (and optionally how much to sell), e.g. <code>30</code> = when it's down 30% from your entry, sell everything.`, "sl:" + oc, "30"); return true;
     }
     // token actions: Tv/TV<c>:<ca> (panel)  Tb<c><i|x>:<ca> (buy)  Tx<c><i|x>:<ca> (sell)  Tz<c><i>:<ca> (confirmed 100% sell)
-    const m = /^T([vVbxz])([sbery])([0-9x]?):(.+)$/.exec(d);
+    const m = /^T([vVbxz])([sber])([0-9x]?):(.+)$/.exec(d);
     if (!m) { await ack(); return true; }
     const [, act, c, opt, ca] = m, isPanel = /Wallet:/.test(q.message.text || "");
     if (act === "v" || act === "V") { await ack(); const pm = await panelMsg(uid, c, ca); if (isPanel && act === "v") await edit(chat, mid, pm); else await send(chat, pm); return true; }
@@ -521,7 +532,7 @@ function make(tg) {
   /** Replies to the bot's ✏️ prompts. Returns true when handled. Find-token replies return { ca, chain } to scan. */
   async function replyPrompt(msg) {
     const r = msg.reply_to_message; if (!r || !r.from || !r.from.is_bot || msg.chat.type !== "private") return false;
-    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread)(?::([a-z]+))?(?::([sbery]))?\s*$/.exec(r.text || ""); if (!tag) return false;
+    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
     const [, kind, a1, a2] = tag, uid = msg.from.id, chat = msg.chat.id, txt = (msg.text || "").trim();
     if (kind === "find") {

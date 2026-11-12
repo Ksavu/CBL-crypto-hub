@@ -7,12 +7,14 @@ const PTS = { critical: 100, high: 25, medium: 10, low: 4, info: 0, ok: 0 };
 
 function analyze(i) {
   const R = [];
-  const add = (sev, title, detail) => R.push({ sev, title, detail: detail || "" });
+  // Official xStocks are regulated tokens: pause / freeze / permanent delegate / metadata control are the issuer's legal controls, not rug tools.
+  const ISSUER = /freeze|pause|delegate|mint authority|mutable|transfer hook|token.?2022|extension|metadata|upgrad|owner/i;
+  const add = (sev, title, detail) => { if (i.xstock && sev !== "ok" && ISSUER.test(title)) sev = "info"; if (!R.some((r) => r.title === title)) R.push({ sev, title, detail: detail || "" }); }; // GoPlus + explorer can report the same thing
   const { kind, pair, gp, hp, rc } = i;
   const hasSec = !!(gp && Object.keys(gp).length) || !!hp || !!rc || !!i.deep || !!i.ex;
 
   if (kind === "evm") {
-    if (gp && Object.keys(gp).length) evmGoPlus(gp, hp, add);
+    if (gp && Object.keys(gp).length) evmGoPlus(gp, hp, add, pair);
     if (hp) evmHoneypot(hp, gp, add);
     if (i.ex) evmExplorer(i.ex, hp, add);
   } else {
@@ -42,7 +44,6 @@ function analyze(i) {
   }
   // Chains without GoPlus coverage: mint, blacklist and hidden-owner flags can't be checked, so never present a top score.
   const limited = kind === "evm" && !["ethereum", "bsc", "base"].includes(i.chain);
-  (i.extra || []).forEach((r) => add(r.sev, r.title, r.detail)); // chain-specific findings from the scanner (e.g. Kinetiq's token scan on Elysium)
   if (limited && hasSec) add("info", "Limited coverage on this chain", "Mint, blacklist, pause and hidden-owner functions could not be checked automatically. Verify the contract yourself.");
   let score = 100;
   for (const r of R) score -= PTS[r.sev] || 0;
@@ -69,7 +70,7 @@ function analyze(i) {
   return { score: hasSec ? score : null, verdict, confidence, reasons: R };
 }
 
-function evmGoPlus(s, hp, add) {
+function evmGoPlus(s, hp, add, pair) {
   const sim = hp && hp.simulationResult;
   if (s.is_honeypot === "1" || s.cannot_sell_all === "1") add("critical", "Honeypot risk", "Selling is blocked or restricted");
   else if (!(hp && hp.honeypotResult && hp.honeypotResult.isHoneypot)) add("ok", "No honeypot detected");
@@ -118,8 +119,9 @@ function evmGoPlus(s, hp, add) {
   if ((cp || 0) >= 10 || (op || 0) >= 10) add("medium", "Creator or owner holds a large share", `${Math.max(cp || 0, op || 0).toFixed(1)}% of supply`);
   const n = parseInt(s.holder_count, 10);
   if (n) add(n < 50 ? "medium" : n < 200 ? "low" : "ok", `${n.toLocaleString("en-US")} holders`);
-  const lp = s.lp_holders;
-  if (lp && lp.length) {
+  const lp = s.lp_holders, v34 = pair && /\bv[34]\b/i.test(((pair.labels || []).join(" ")) + " " + (pair.dexId || "")); // Uniswap v3/v4: liquidity is NFT positions / PoolManager
+  if (v34) add("info", `Liquidity is in ${/v4/i.test((pair.labels || []).join(" ")) ? "Uniswap v4" : "a v3"} pool`, "Positions are NFTs, so the usual LP lock / burn check doesn't apply.");
+  else if (lp && lp.length) {
     const lk = lp.reduce((a, x) => a + (x.is_locked === "1" || DEAD.test(x.address || "") ? pc(x.percent) || 0 : 0), 0);
     add(lk >= 90 ? "ok" : lk >= 50 ? "medium" : "high", `${Math.min(100, lk).toFixed(0)}% of liquidity locked or burned`);
   } else add("info", "Liquidity lock unknown", "Common for V3 pools or very new tokens");

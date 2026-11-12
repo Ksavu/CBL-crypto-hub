@@ -6,11 +6,10 @@ const { fillSol } = require("./solmarket");
 const { getOrders, dexPaid } = require("./dexpaid");
 const EF = require("./evmfind");
 const LP = require("./launchpads");
-const ELY = require("./elysium");
 
 // DexScreener chain id -> EVM chain id (GoPlus / honeypot.is)
 const EVM = { ethereum: 1, bsc: 56, base: 8453, arbitrum: 42161, polygon: 137, optimism: 10, avalanche: 43114, linea: 59144, blast: 81457,
-  zksync: 324, scroll: 534352, mantle: 5000, sonic: 146, unichain: 130, cronos: 25, robinhood: 4663, elysium: 99901 };
+  zksync: 324, scroll: 534352, mantle: 5000, sonic: 146, unichain: 130, cronos: 25, robinhood: 4663 };
 const OK_CHAINS = [...Object.keys(EVM), "solana"];
 const cache = new Map(); // best-effort, per warm instance
 
@@ -96,49 +95,12 @@ async function runScan(caIn, selIn, opts) {
   // DexScreener paid orders (profile, community takeover, ads). Hype info only, never affects the score.
   const ordersP = getOrders(chain, ca);
   let gp = null, hp = null, rc = null, deep = null, ex = null;
-  const extra = [];
   if (kind === "evm") {
     const id = EVM[chain];
     [gp, hp] = await Promise.all([
       j(`https://api.gopluslabs.io/api/v1/token_security/${id}?contract_addresses=${low}`).then((r) => r.result && r.result[low]).catch(() => null),
       j(`https://api.honeypot.is/v2/IsHoneypot?address=${low}&chainID=${id}`).catch(() => null),
     ]);
-    // Elysium: GoPlus and honeypot.is don't cover it. Kinetiq's explorer runs its own transfer test: blocked = can't sell, taxed = fee on transfer.
-    // First choice: our own rehearsal of a buy, a wallet transfer and a sell on the token's main pool (one eth_call, nothing is sent).
-    let probed = false;
-    // Robinhood Chain: v3 and v2 style pools only (no indexer there to supply v4 pool keys); curve tokens have no pool yet.
-    if ((chain === "elysium" || chain === "robinhood") && !hp && pair && !pair.curve) {
-      const run = chain === "elysium" ? ELY.probeToken(low, pair) : require("./tokenprobe").probePair({ rpc: CODE_RPC.robinhood, token: low, pair });
-      const pr = await Promise.race([run, new Promise((ok) => setTimeout(() => ok(null), 7000))]).catch(() => null), f = pr && pr.findings;
-      if (f) {
-        probed = true; sources.probe = true;
-        const p1 = (n) => (n >= 10 ? n.toFixed(0) : n.toFixed(1)) + "%", sevOf = (n) => (n >= 50 ? "critical" : n >= 20 ? "high" : n >= 10 ? "medium" : n >= 3 ? "low" : "info");
-        if (f.honeypot !== null) {
-          hp = { honeypotResult: { isHoneypot: f.honeypot, honeypotReason: f.reason || undefined }, simulationResult: {}, probe: f };
-          if (f.buyTax !== null) hp.simulationResult.buyTax = f.buyTax;
-          if (f.sellTax !== null) hp.simulationResult.sellTax = f.sellTax;
-          if (f.transferTax !== null) hp.simulationResult.transferTax = f.transferTax;
-        }
-        if (f.honeypot === false) {
-          const b = f.buyTax || 0, s = f.sellTax || 0, t = f.transferTax || 0;
-          if (Math.max(b, s) >= 0.05) extra.push({ sev: sevOf(Math.max(b, s)), title: `Buy tax ${p1(b)} · Sell tax ${p1(s)}`, detail: "Measured in a test buy and sell on the main pool." });
-          else extra.push({ sev: "ok", title: "Test buy and sell went through, no tax", detail: "" });
-          if (t >= 0.05) extra.push({ sev: sevOf(t), title: `Transfer tax ${p1(t)}`, detail: "Taken when tokens move between wallets." });
-          if (f.poolCost !== null && f.poolCost >= 15) extra.push({ sev: f.poolCost >= 50 ? "critical" : f.poolCost >= 30 ? "high" : "medium", title: `Buying and selling costs about ${p1(f.poolCost)} in pool fees`, detail: "Pool fee and hook fees for a buy plus a sell, on top of any token tax." });
-        } else if (f.honeypot === null && f.step === "transfer") extra.push({ sev: "high", title: "Tokens could not be moved between wallets in a test", detail: f.error ? `The token answered "${f.error}".` : "The transfer was refused." });
-        else if (f.honeypot === null) extra.push({ sev: "info", title: "Sell check not possible: the test buy failed", detail: f.error ? `The pool answered "${f.error}".` : "The pool may be paused, empty or restricted by its hook." });
-      }
-    }
-    if (chain === "elysium" && !hp && !probed) {
-      const ks = await Promise.race([ELY.tokenScan(low), new Promise((ok) => setTimeout(() => ok(null), 5500))]).catch(() => null);
-      if (ks) {
-        sources.kinetiq = true;
-        const bps = Number(ks.takenBps), pct = Number.isFinite(bps) && bps > 0 ? bps / 100 : null;
-        if (ks.result === "blocked") hp = { honeypotResult: { isHoneypot: true, honeypotReason: "Kinetiq's token scan: a test transfer was blocked" + (ks.hop ? ` (${String(ks.hop).replace(/_/g, " ")})` : "") } };
-        else if (ks.result === "taxed" && pct !== null) extra.push({ sev: pct >= 50 ? "critical" : pct >= 20 ? "high" : pct >= 10 ? "medium" : pct >= 3 ? "low" : "info", title: `Transfer tax about ${pct.toFixed(pct < 10 ? 1 : 0)}%`, detail: "Measured by Kinetiq's token scan on a test transfer." });
-        else if (ks.result === "taxed") extra.push({ sev: "low", title: "Token takes a fee on transfers", detail: "Flagged by Kinetiq's token scan." });
-      }
-    }
     if (EXPLORER_CHAINS.includes(chain)) {
       ex = await Promise.race([explorerEvm(chain, low, pair && pair.pairAddress), new Promise((ok) => setTimeout(() => ok(null), 6000))]).catch(() => null);
       if (!opts.noDeep) {
@@ -177,7 +139,7 @@ async function runScan(caIn, selIn, opts) {
   // Launchpad origin: deployer contract (EVM), else DEX ids + vanity address endings (pump, bonk, LoL, 4444, b07...).
   const lpHit = (kind === "evm" && EF.launchpadByCreator(chain, ex && ex.creator)) || null;
   const lpGuess = LP.launchpadOf(chain, ca, pairs.map((p) => p.dexId).concat(pair && pair.curve ? ["pumpfun"] : []), [].concat(...pairs.map((p) => p.labels || [])));
-  let launchpad = lpHit || (lpGuess && lpGuess.n) || (chain === "elysium" && ex && ex.pad) || null;
+  let launchpad = lpHit || (lpGuess && lpGuess.n) || null;
   if (chain === "solana" && !/pump$|bonk$|LoL$/.test(ca) && (!launchpad || launchpad === "LaunchLab" || pairs.some((p) => /launchlab|raydium/i.test(p.dexId || "")))) {
     const hi = await LP.higherOf([ca]).catch(() => new Set()); if (hi.has(ca)) launchpad = "higher.fun";
   }
@@ -217,9 +179,12 @@ async function runScan(caIn, selIn, opts) {
       if (pair && pair.curveProgress == null && typeof pons.progress === "number") pair.curveProgress = pons.progress;
     }
   }
-  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad, extra });
+  // xStocks (tokenized stocks by Backed): their mints start with "Xs"; confirm against the verified list before relaxing issuer-control flags.
+  const xstock = kind === "sol" && /^Xs/.test(ca) ? await require("./stocks").list().then((l) => l.find((t) => t.mint === ca) || null).catch(() => null) : null;
+  const a = analyze({ kind: kind === "sol" ? "sol" : "evm", chain, pair, gp, hp, rc, ex, sources, links, deep, onCurve, launchpad, xstock: !!xstock });
+  if (xstock) { const mk = require("./stocks").market(); a.reasons.unshift({ sev: "info", title: `Official xStock: ${xstock.name} (${xstock.sym})`, detail: `Tokenized share by Backed. Pause / freeze / delegate are the issuer's legal controls. ${mk.label}: ${mk.note}` }); }
   // The launchpad contract deployed the token; the real dev is whoever sent the launch transaction.
-  if (launchpad && ex && ex.creationTx && chain === "robinhood") { // (Elysium: add here once its launchpad factories are in launchpads.BY_CREATOR)
+  if (launchpad && ex && ex.creationTx && chain === "robinhood") {
     const tx = await j(`https://robinhoodchain.blockscout.com/api/v2/transactions/${ex.creationTx}`, 3500).catch(() => null);
     dev = tx && tx.from && /^0x[a-fA-F0-9]{40}$/.test(tx.from.hash || "") ? tx.from.hash.toLowerCase() : dev;
   }
@@ -248,7 +213,7 @@ async function runScan(caIn, selIn, opts) {
   return out;
 }
 
-const CODE_RPC = { robinhood: "https://rpc.mainnet.chain.robinhood.com", get elysium() { return ELY.rpc(); }, ethereum: "https://ethereum-rpc.publicnode.com", bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com" };
+const CODE_RPC = { robinhood: "https://rpc.mainnet.chain.robinhood.com", ethereum: "https://ethereum-rpc.publicnode.com", bsc: "https://bsc-rpc.publicnode.com", base: "https://base-rpc.publicnode.com" };
 async function contractsOf(chain, addrs) {
   const out = new Set(); if (!addrs.length) return out;
   const c = new AbortController(), t = setTimeout(() => c.abort(), 3500);

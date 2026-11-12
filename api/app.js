@@ -40,7 +40,7 @@ const nat = (c) => T.CH[c].nat, fmt = (v, c) => (v == null ? null : T.fromUnits(
 function codeOf(ca, chain) {
   if (chain && T.CODE[chain]) return T.CODE[chain];
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(ca)) return "s";
-  throw new T.UserErr(`Choose the chain for this 0x token (BNB Chain, Base${T.CH.y ? ", Robinhood or Elysium" : " or Robinhood"}).`);
+  throw new T.UserErr("Choose the chain for this 0x token (BNB Chain, Base or Robinhood).");
 }
 const chainsInfo = () => Object.fromEntries(Object.entries(T.CH).map(([c, x]) => [c, { key: x.key, name: x.name, nat: x.nat, exp: x.exp }]));
 
@@ -85,7 +85,7 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
   res.setHeader("Cache-Control", "no-store");
   let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body); } catch (e) { body = {}; } } body = body || {};
-  if (body.action === "config") return res.status(200).json({ ok: true, bot: String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, ""), on: T.on(), fee: T.feeBps() / 100, chains: chainsInfo() });
+  if (body.action === "config") return res.status(200).json({ ok: true, bot: String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, ""), on: T.on(), fee: T.feeBps() / 100 });
   if (!T.on()) return res.status(503).json({ ok: false, error: "Trading isn't switched on yet." });
 
   const u = verify(body.auth);
@@ -127,6 +127,7 @@ module.exports = async (req, res) => {
       else if (a === "addWallet") { await B.addWallet(uid); out = await home(uid); }
       else if (a === "spread") { const r = await B.spread(uid, String(p.each)); out = { sent: fmt(r.amt, "s"), n: r.n }; }
       else if (a === "collect") { const r = await B.collect(uid); out = { total: fmt(r.total, "s") }; }
+      else if (a === "stocks") { const ST = require("./_lib/stocks"); out = { list: (await ST.list()).slice(0, 30), market: ST.market() }; }
       else if (a === "refs") { // referrals: link + earnings per coin
         const R = require("./_lib/refs"), st2 = await R.stats(uid), bot = String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, "");
         out = { link: `https://t.me/${bot}?start=ref_${uid}`, share: st2.share, invited: st2.invited, trades: st2.trades,
