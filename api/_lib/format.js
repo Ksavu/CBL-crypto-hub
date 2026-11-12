@@ -1,7 +1,7 @@
 // Telegram message formatting (HTML parse mode).
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
-const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", elysium: "Elysium", solana: "Solana", xrpl: "XRP Ledger", terraclassic: "Terra Classic" };
-const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", elysium: "https://elysium.kinetiq.xyz/token/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
+const NAMES = { ethereum: "Ethereum", bsc: "BNB Chain", base: "Base", robinhood: "Robinhood Chain", solana: "Solana", xrpl: "XRP Ledger", terraclassic: "Terra Classic" };
+const EXPLORER = { ethereum: "https://etherscan.io/token/", bsc: "https://bscscan.com/token/", base: "https://basescan.org/token/", robinhood: "https://robinhoodchain.blockscout.com/token/", solana: "https://solscan.io/token/", xrpl: "https://xrpscan.com/account/", terraclassic: "https://finder.terra-classic.hexxagon.io/mainnet/address/" };
 const { CHAINS } = require("./source");
 const chainName = (c) => (c && (NAMES[c] || (CHAINS[c] && CHAINS[c][1]))) || c;
 // Telegram callback_data is max 64 bytes; Terra contracts are 64 chars, so "terra1" travels as "~".
@@ -72,14 +72,12 @@ function card(r, site, opt) {
       const h = r.devHistory, dm = r.devMints;
       if (h && r.creator) {
         const k = (n) => (n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? "$" + Math.round(n / 1e3) + "K" : "$" + Math.round(n));
-        L.push(`👨‍💻 <a href="https://solscan.io/account/${r.creator}">Dev</a>: ` + (!h.launches && h.done ? "first launch" :
+        L.push(`👨‍💻 <a href="https://solscan.io/account/${r.creator}">Dev</a>: ` + (!h.launches && h.done ? "first launch" : !h.launches ? "history still loading, rescan in a few minutes" :
           [`${h.launches}${h.done ? "" : "+"} other launches`, h.graduated != null ? `${h.graduated} graduated` : null, h.died ? `${h.died} died on curve` : null,
            h.bestAth ? `best ATH ${k(h.bestAth)}${h.bestSym ? " (" + esc(h.bestSym) + ")" : ""}` : null].filter(Boolean).join(" · ")));
       } else if (typeof dm === "number" && dm > 1) L.push(`👨‍💻 Dev launched ${dm} tokens`);
       if (d.traced) {
-        L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, d.bundlers && d.bundlers.kind === "distribution"
-          ? `📦 Launch distribution: ${d.bundlers.wallets} linked wallets received ${p(d.bundlers.boughtPct)} · ${d.bundlers.stillHolding} still hold (${p(d.bundlers.heldPct)} of supply)`
-          : `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
+        L.push(`🎯 Snipers: ${d.snipers ? g(d.snipers) : "none detected"}`, `📦 Bundlers: ${d.bundlers ? g(d.bundlers) : "none detected"}`);
         if (d.insiders) L.push(`🕵️ Insiders: ${g(d.insiders)}`);
         // proof: biggest flagged wallets with the transaction that flagged them
         const pr = [].concat(...[["📦", d.bundlers], ["🎯", d.snipers], ["🕵️", d.insiders]].map(([e, x]) => ((x && x.proof) || []).slice(0, 2).map((p) => Object.assign({ e }, p)))).slice(0, 5);
@@ -134,7 +132,7 @@ const HELP = [
   "<b>CBL Scanner</b> 🔍",
   "Paste a token contract address and I'll check it for common red flags.",
   "",
-  "Works on <b>Solana, XRP Ledger, Terra Classic</b> and EVM chains: <b>Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos, Robinhood Chain and Elysium</b>.",
+  "Works on <b>Solana, XRP Ledger, Terra Classic</b> and EVM chains: <b>Ethereum, BNB Chain, Base, Arbitrum, Polygon, Optimism, Avalanche, Linea, Blast, zkSync, Scroll, Mantle, Sonic, Unichain, Cronos and Robinhood Chain</b>.",
   "",
   "<b>Commands</b>",
   "/scan &lt;address&gt; [eth|bsc|base|arb|poly|op|avax|linea|blast|zksync|scroll|mantle|sonic|uni|cro|rh|sol|xrpl|lunc]",
