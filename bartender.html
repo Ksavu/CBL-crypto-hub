@@ -70,9 +70,10 @@ h2{font-size:20px;margin:22px 0 10px}
 .v-good{background:#35d39b22;color:var(--buy)}.v-mid{background:#ffc65c22;color:var(--warn)}.v-bad{background:#ff5d8f22;color:var(--sell)}
 .pills{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.pill{border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-weight:600}
 .pill[aria-pressed="true"]{background:var(--violet);border-color:var(--violet)}
+.pcat{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -16px 6px;padding:0 16px}.pcat::-webkit-scrollbar{display:none}.pcat .pill{flex:none;padding:6px 12px;font-size:13px}
 nav.tabs{position:fixed;left:0;right:0;bottom:0;background:#120e25f2;backdrop-filter:blur(12px);border-top:1px solid #ffffff12;padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:20}
-nav.tabs .in{width:min(560px,100%);margin:auto;display:grid;grid-template-columns:repeat(6,1fr)}
-nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:11px;color:var(--muted);border-radius:12px}
+nav.tabs .in{width:min(560px,100%);margin:auto;display:grid;grid-template-columns:repeat(7,1fr)}
+nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:10.5px;color:var(--muted);border-radius:12px}
 nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#fff;background:#ffffff0f}
 .field{display:flex;flex-direction:column;gap:6px;margin:12px 0}.field label{font-size:13px;color:var(--muted)}
 .field input,.field select{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 12px;outline:0}
@@ -107,6 +108,7 @@ nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#
 <nav class="tabs" id="tabs" hidden><div class="in">
   <button data-tab="home" aria-current="page"><span>◎</span>Home</button>
   <button data-tab="trade"><span>⇅</span>Trade</button>
+  <button data-tab="predict"><span>◈</span>Predict</button>
   <button data-tab="positions"><span>▤</span>Positions</button>
   <button data-tab="orders"><span>⊕</span>Orders</button>
   <button data-tab="copy"><span>⧉</span>Copy</button>
@@ -201,6 +203,7 @@ function go(tab, force) {
   if (tab === "orders") return ordersView();
   if (tab === "wallet") return walletView(force);
   if (tab === "copy") return copyView();
+  if (tab === "predict") return predictView();
 }
 
 /* ---------- home ---------- */
@@ -339,6 +342,105 @@ async function stocksBox() {
     <div class="stx">${d.list.map((t) => `<button class="stk" data-stk="${E(t.mint)}"><span class="h">${t.icon ? `<img src="${E(t.icon)}" alt="" loading="lazy">` : ""}<b>${E(t.sym)}</b></span><span class="small muted">${E(t.name)}</span><span>${px(t.price)} ${t.ch24 == null ? "" : `<em class="${t.ch24 >= 0 ? "up" : "dn"}">${t.ch24 >= 0 ? "+" : ""}${t.ch24.toFixed(1)}%</em>`}</span></button>`).join("")}</div>
     <p class="small muted">xStocks by Backed track the share price, 24/7 on Solana. A token, not the share itself. Not available to US persons.</p>`;
   box.querySelectorAll("[data-stk]").forEach((b) => b.onclick = () => tokenView(b.dataset.stk, "s"));
+}
+
+/* ---------- Predict (prediction markets via Jupiter: Polymarket and Kalshi) ---------- */
+const PF = { t: "🔥 Trending", n: "🆕 New", l: "🔴 Live" }, PC = { a: "All", c: "Crypto", s: "Sports", p: "Politics", e: "E-sports", u: "Culture", o: "Economics", t: "Tech" };
+const pApi = (op, params) => api("predict", Object.assign({ op }, params || {}));
+const pNote = '<p class="small muted">Markets by Polymarket and Kalshi via Jupiter. Each share pays $1 if you\'re right. Not available to residents of the US or South Korea.</p>';
+const pHtml = (h) => String(h || "").replace(/\n/g, "<br>").replace(/<a href=/g, '<a target="_blank" rel="noopener" href=');
+const pMoney = (x) => (x == null ? "–" : (x < 0 ? "−$" : "$") + Math.abs(x).toFixed(2));
+const pEvRow = (e) => `<button class="row" data-pev="${E(e.id)}" style="text-align:left;width:100%"><div class="grow"><b style="white-space:normal">${E(e.title)}</b><span class="small muted">${E([e.odds, e.live ? "live" : null, e.when].filter(Boolean).join(" · "))}</span></div><span class="muted" aria-hidden="true">›</span></button>`;
+async function predictView(q) {
+  const P = S.pred = S.pred || { f: "t", c: "a" };
+  view.innerHTML = `<h2>🔮 Predict</h2>
+    <form class="search" id="pf"><input id="pq" placeholder="Search: bitcoin, election, a team…" autocomplete="off" aria-label="Search prediction markets" value="${E(q || "")}"><button class="btn main">Search</button></form>
+    <div class="pills">${Object.keys(PF).map((k) => `<button class="pill" data-pf="${k}" aria-pressed="${!q && k === P.f}">${PF[k]}</button>`).join("")}<button class="pill" id="pmy">📊 My predictions</button></div>
+    <div class="pills pcat">${Object.keys(PC).map((k) => `<button class="pill" data-pc="${k}" aria-pressed="${!q && k === P.c}">${PC[k]}</button>`).join("")}</div>
+    <div class="list" id="pl"><div class="empty"><span class="spin"></span> Loading markets…</div></div>${pNote}`;
+  $("#pf").onsubmit = (ev) => { ev.preventDefault(); const v = $("#pq").value.trim(); if (v) predictView(v); };
+  $("#pmy").onclick = () => predictPositions();
+  view.querySelectorAll("[data-pf]").forEach((b) => b.onclick = () => { P.f = b.dataset.pf; predictView(); });
+  view.querySelectorAll("[data-pc]").forEach((b) => b.onclick = () => { P.c = b.dataset.pc; predictView(); });
+  let d, err; try { d = q ? await pApi("search", { q }) : await pApi("list", { f: P.f, c: P.c }); } catch (e) { if (e.quiet) return; err = e.message; }
+  const box = $("#pl"); if (!box || S.tab !== "predict") return;
+  box.innerHTML = err ? `<p class="empty">${E(err)}</p>` : d.events.length ? d.events.map(pEvRow).join("") : `<p class="empty">${q ? "No markets found. Try a shorter or different word." : "Nothing here right now. Try another filter or category."}</p>`;
+  box.querySelectorAll("[data-pev]").forEach((b) => b.onclick = () => predictEvent(b.dataset.pev));
+}
+async function predictEvent(id) {
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading market…</div>';
+  let d; try { d = await pApi("event", { id }); } catch (e) { if (!e.quiet) view.innerHTML = `<button class="btn ghost small" id="pback">‹ Markets</button><p class="empty">${E(e.message)}</p>`; if ($("#pback")) $("#pback").onclick = () => predictView(); return; }
+  if (S.tab !== "predict") return;
+  view.innerHTML = `<button class="btn ghost small" id="pback">‹ Markets</button>
+    <section class="tok"><div class="name" style="font-size:24px">${E(d.title)}</div>${d.subtitle ? `<p class="muted" style="margin:6px 0 0">${E(d.subtitle)}</p>` : ""}
+      <p class="small muted" style="margin:6px 0 0">${E([d.category, d.live ? "live" : null, d.when].filter(Boolean).join(" · "))}</p></section>
+    ${d.closed ? `<p class="empty">This event is closed for trading.${d.result ? " Result: " + E(d.result) : ""}</p>` : d.markets.map((m, i) => `<div class="pad"><div class="lab"><span style="color:var(--text);font-weight:600">${E(m.title && m.title !== d.title ? m.title : "Will it happen?")}</span></div>
+      <div class="two"><button class="btn buy" data-pm="${i}" data-side="y" ${m.yes == null ? "disabled" : ""}>Yes ${E(m.yesTxt)}</button><button class="btn sell" data-pm="${i}" data-side="n" ${m.no == null ? "disabled" : ""}>No ${E(m.noTxt)}</button></div></div>`).join("")}
+    ${d.more ? `<p class="small muted">+ ${d.more} more outcomes</p>` : ""}
+    ${d.rule ? `<h2>How it resolves</h2><p class="small muted">${E(d.rule)}</p>` : ""}
+    <p class="small muted">Prices are per share: a 40¢ share pays $1 if you're right and $0 if you're not. Tap Yes or No to buy. Fee: ${d.fee}%, taken in SOL after the order fills.</p>${pNote}`;
+  $("#pback").onclick = () => predictView();
+  view.querySelectorAll("[data-pm]").forEach((b) => b.onclick = () => predictOrder(d, d.markets[Number(b.dataset.pm)], b.dataset.side === "y"));
+}
+/* Buy sheet: amount → preview → result. */
+function predictOrder(d, m, yes) {
+  const el = document.createElement("div"); el.className = "sheet"; let working = false;
+  const close = () => el.remove(), args = (usd) => ({ id: m.id, yes, usd, hint: d.title });
+  el.onclick = (ev) => { if (ev.target === el && !working) close(); };
+  const head = `<h2 style="margin-top:0">${E(d.title)}</h2><p class="muted" style="margin:-4px 0 12px">${m.title && m.title !== d.title ? E(m.title) + " · " : ""}Your pick: <b class="${yes ? "up" : "down"}">${yes ? "YES" : "NO"}</b> at ${E(yes ? m.yesTxt : m.noTxt)} per share</p>`;
+  const box = (html) => { el.innerHTML = `<div class="box">${head}${html}</div>`; };
+  function pick() {
+    box(`<div class="pad" style="margin-top:0"><div class="lab"><span>How much do you want to put in?</span><span>min $${d.min}</span></div>
+      <div class="keys">${d.presets.map((a) => `<button class="btn" data-amt="${a}">$${a}</button>`).join("")}</div>
+      <form class="custom" id="pcf"><input id="pca" inputmode="numeric" placeholder="Other amount in $" aria-label="Other amount in dollars"><button class="btn main">Next</button></form></div>
+      <p class="small muted">Paid in USDC. If your wallet has SOL only, the Bartender swaps the needed USDC from your SOL first.</p>
+      <button class="btn ghost" id="pcl" style="width:100%">Cancel</button>`);
+    el.querySelectorAll("[data-amt]").forEach((b) => b.onclick = () => preview(Number(b.dataset.amt)));
+    $("#pcf", el).onsubmit = (ev) => { ev.preventDefault(); const v = Number($("#pca", el).value.replace(/[$,\s]/g, "")); if (!Number.isInteger(v) || v < d.min || v > d.max) return toast(`Enter a whole dollar amount from ${d.min} to ${d.max}.`, true); preview(v); };
+    $("#pcl", el).onclick = close;
+  }
+  async function preview(usd) {
+    box('<div class="empty"><span class="spin"></span> Checking the price…</div>');
+    let p; try { p = await pApi("preview", args(usd)); } catch (e) { if (e.quiet) return close(); toast(e.message, true); return pick(); }
+    const line = (a, b) => `<div class="lab" style="margin:8px 2px"><span>${a}</span><b style="color:var(--text);text-align:right">${b}</b></div>`;
+    box(`<div class="pad" style="margin-top:0">${line("Order", `$${p.usd} on ${p.side} at about ${E(p.price)}`)}${line("You get about", `${p.shares} shares`)}${line("Pays if you're right", `about $${p.payout.toFixed(2)}`)}
+        ${line(`CBL fee (${p.fee}%)`, `${pMoney(p.feeUsd)} ≈ ${E(p.feeSol)} SOL`)}${line("Your wallet", `${pMoney(p.usdc)} USDC · ${p.sol == null ? "?" : E(p.sol)} SOL`)}</div>
+      ${p.swapSol ? `<p class="small">The Bartender will first swap about <b>${E(p.swapSol)} SOL</b> into the missing ${pMoney(p.swapUsd)} USDC.</p>` : ""}
+      <p class="small muted">The final price is set when the order fills and includes the market's own trading fee. The CBL fee is taken after the fill. By confirming you state that you are not a resident of the United States or South Korea.</p>
+      <button class="btn main" id="pgo" style="width:100%">Confirm $${p.usd} on ${p.side}</button>
+      <button class="btn ghost" id="pbk" style="width:100%;margin-top:8px">Back</button>`);
+    $("#pbk", el).onclick = pick;
+    $("#pgo", el).onclick = async (ev) => {
+      const b = ev.currentTarget; working = true; b.disabled = true; $("#pbk", el).disabled = true; b.innerHTML = '<span class="spin"></span> Placing your order… this can take up to a minute';
+      try { const r = await pApi("buy", args(usd)); S.home = null; box(`<div class="pad" style="margin-top:0">${pHtml(r.html)}</div><div class="two" style="margin-top:12px"><button class="btn main" id="pmy2">My predictions</button><button class="btn ghost" id="pdn">Done</button></div>`); $("#pmy2", el).onclick = () => { close(); predictPositions(); }; $("#pdn", el).onclick = close; }
+      catch (e) { if (e.quiet) return close(); toast(e.message, true); pick(); }
+      finally { working = false; }
+    };
+  }
+  document.body.appendChild(el); pick();
+}
+function pResult(html, after) {
+  const el = document.createElement("div"); el.className = "sheet";
+  el.innerHTML = `<div class="box"><div class="pad" style="margin-top:0">${pHtml(html)}</div><button class="btn main" id="pok" style="width:100%;margin-top:12px">Done</button></div>`;
+  const close = () => { el.remove(); if (after) after(); }; el.onclick = (ev) => { if (ev.target === el) close(); };
+  document.body.appendChild(el); $("#pok", el).onclick = close;
+}
+async function predictPositions() {
+  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading your predictions…</div>';
+  let d; try { d = await pApi("positions"); } catch (e) { if (!e.quiet) view.innerHTML = `<button class="btn ghost small" id="pback">‹ Markets</button><p class="empty">${E(e.message)}</p>`; if ($("#pback")) $("#pback").onclick = () => predictView(); return; }
+  if (S.tab !== "predict") return;
+  const row = (x) => `<div class="row"><div class="grow"><b style="white-space:normal">${E(x.title)}</b><span class="small muted"><span class="${x.yes ? "up" : "down"}">${x.yes ? "YES" : "NO"}</span> · ${x.shares} shares${x.avg ? " at " + E(x.avg) : ""}${x.value != null ? " · worth " + pMoney(x.value) : ""}${x.pnl != null ? ` · <span class="${x.pnl >= 0 ? "up" : "down"}">${x.pnl >= 0 ? "+" : ""}${pMoney(x.pnl)}</span>` : ""}${x.claimable ? `<br>🏆 Won: ${pMoney(x.payout)} ready to claim` : x.result ? "<br>Result: " + E(x.result) : ""}${x.filling ? "<br>🕒 order still filling" : ""}</span></div>
+    ${x.claimable ? `<button class="btn main" data-pclaim="${E(x.pubkey)}">Claim</button>` : `<button class="btn sell" data-psell="${E(x.pubkey)}">Sell</button>`}</div>`;
+  view.innerHTML = `<button class="btn ghost small" id="pback">‹ Markets</button><h2>📊 My predictions</h2>
+    <div class="list">${d.list.length ? d.list.map(row).join("") : '<p class="empty">No open predictions yet. Pick a market and tap Yes or No.</p>'}</div>
+    <div class="pad"><div class="lab"><span>USDC in your wallet</span><b style="color:var(--text)">${pMoney(d.usdc)}</b></div>
+      ${d.usdc >= 0.5 ? '<button class="btn ghost" id="pusdc" style="width:100%">Swap USDC to SOL</button>' : ""}
+      <p class="small muted" style="margin-bottom:0">Winnings and sale proceeds arrive as USDC. Use them for the next prediction or turn them back into SOL (no CBL fee). Selling costs ${d.fee}% of the proceeds, taken in SOL; claiming is free.</p></div>`;
+  $("#pback").onclick = () => predictView();
+  const twice = (b, label, fn) => { b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = label; setTimeout(() => { if (b.isConnected && !b.disabled) { delete b.dataset.sure; b.textContent = b.dataset.t; } }, 4000); return; } busy(b, async () => { const r = await fn(); S.home = null; pResult(r.html, predictPositions); }); }; b.dataset.t = b.textContent; };
+  view.querySelectorAll("[data-psell]").forEach((b) => twice(b, "Tap again to sell all", () => pApi("sell", { id: b.dataset.psell })));
+  view.querySelectorAll("[data-pclaim]").forEach((b) => b.onclick = () => busy(b, async () => { const r = await pApi("claim", { id: b.dataset.pclaim }); pResult(r.html, predictPositions); }));
+  if ($("#pusdc")) twice($("#pusdc"), "Tap again to swap all USDC", () => pApi("usdc"));
 }
 
 /* ---------- token ---------- */

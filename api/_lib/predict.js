@@ -107,10 +107,23 @@ function navRows(f, c) {
 }
 
 /** Event list for a filter (t/n/l) and category (a/c/s/p/e/u/o/t). */
+async function fetchList(f, c, n) {
+  const q = new URLSearchParams({ filter: FILTER[f][0], includeMarkets: "true" }); if (c !== "a") q.set("category", CAT[c][0]);
+  return rows(await api("/events?" + q)).filter((ev) => ev && ev.isActive !== false).slice(0, n);
+}
+async function fetchSearch(query, n) {
+  const term = cut(query, 60); if (term.length < 2) fail("Send at least two letters to search, e.g. <code>bitcoin</code>.");
+  return { term, evs: rows(await api("/events/search?" + new URLSearchParams({ query: term, limit: String(n), includeMarkets: "true" }))).slice(0, n) };
+}
+async function fetchEvent(eventId) {
+  if (!/^[\w.:~-]{1,60}$/.test(String(eventId || ""))) fail("That market was not found.");
+  const ev = one(await api("/events/" + encodeURIComponent(eventId) + "?includeMarkets=true"));
+  if (!ev || (!ev.eventId && !ev.metadata)) fail("That market was not found.");
+  return { ev, all: ev.markets || [], ms: openMarkets(ev).sort((a, b) => (yesOf(b) || 0) - (yesOf(a) || 0)) };
+}
 async function listMsg(f, c) {
   if (!FILTER[f]) f = "t"; if (!CAT[c]) c = "a";
-  const q = new URLSearchParams({ filter: FILTER[f][0], includeMarkets: "true" }); if (c !== "a") q.set("category", CAT[c][0]);
-  const evs = rows(await api("/events?" + q)).filter((ev) => ev && ev.isActive !== false).slice(0, 8);
+  const evs = await fetchList(f, c, 8);
   const L = [`🔮 <b>Predict</b> · ${FILTER[f][1]}${c === "a" ? "" : " · " + CAT[c][1]}`, "Trade on real-world events. Each share pays $1 if you're right.", ""];
   if (!evs.length) L.push("Nothing here right now. Try another filter or category.");
   evs.forEach((ev, i) => L.push(evLine(ev, i)));
@@ -120,8 +133,7 @@ async function listMsg(f, c) {
 
 /** Search results for free text. */
 async function searchMsg(query) {
-  const term = cut(query, 60); if (term.length < 2) fail("Send at least two letters to search, e.g. <code>bitcoin</code>.");
-  const evs = rows(await api("/events/search?" + new URLSearchParams({ query: term, limit: "8", includeMarkets: "true" }))).slice(0, 8);
+  const { term, evs } = await fetchSearch(query, 8);
   const L = [`🔎 <b>Predict</b> · results for “${esc(term)}”`, ""];
   if (!evs.length) L.push("No markets found. Try a shorter or different word.");
   evs.forEach((ev, i) => L.push(evLine(ev, i)));
@@ -131,10 +143,7 @@ async function searchMsg(query) {
 
 /** One event: its markets with YES / NO prices, close time and the resolution rule. */
 async function eventMsg(eventId) {
-  if (!/^[\w.:~-]{1,60}$/.test(String(eventId || ""))) fail("That market was not found.");
-  const d = await api("/events/" + encodeURIComponent(eventId) + "?includeMarkets=true"), ev = d && d.data && !Array.isArray(d.data) ? d.data : d;
-  if (!ev || (!ev.eventId && !ev.metadata)) fail("That market was not found.");
-  const all = ev.markets || [], ms = openMarkets(ev).sort((a, b) => (yesOf(b) || 0) - (yesOf(a) || 0)), w = when(ev.metadata && ev.metadata.closeTime);
+  const { ev, all, ms } = await fetchEvent(eventId), w = when(ev.metadata && ev.metadata.closeTime);
   const L = [`🔮 <b>${esc(cut(titleOf(ev), 200))}</b>`];
   if (ev.metadata && ev.metadata.subtitle) L.push(esc(cut(ev.metadata.subtitle, 140)));
   L.push([ev.category && esc(String(ev.category)), ev.isLive ? "🔴 live" : null, w].filter(Boolean).join(" · "), "");
@@ -234,20 +243,24 @@ function parseUsd(v) {
 }
 
 /** Step 2 of a buy: what the user gets and pays. Nothing is sent yet. */
-async function previewMsg(row, marketId, yes, usd, hint) {
+async function previewData(row, marketId, yes, usd, hint) {
   usd = parseUsd(usd);
-  const m = await getMarket(marketId), p = checkOpen(m, yes), s = yes ? "y" : "n", dep = BigInt(usd) * 1000000n;
+  const m = await getMarket(marketId), p = checkOpen(m, yes), dep = BigInt(usd) * 1000000n;
   const [have, sol, price] = await Promise.all([usdcBal(row.sol_pub).catch(() => 0n), X.solBal(row.sol_pub).catch(() => null), solUsd()]);
   const feeUsd = dep * BigInt(T.feeBps()) / 10000n, need = have >= dep ? 0n : dep - have;
-  const L = [marketHead(m, yes, hint), "",
-    `Order: <b>$${usd}</b> at about <b>${esc(cents(p))}</b> per share`,
-    `You get about <b>${sh(usd / p)} shares</b> → pays about <b>$${(usd / p).toFixed(2)}</b> if you're right, $0 if not`,
-    `CBL fee: ${T.feeBps() / 100}% = ${$(feeUsd)}, taken in SOL (≈ ${solTxt(usdToLamports(feeUsd, price))} SOL) after the order fills`,
+  return { m, usd, p, yes: !!yes, have, sol, feeUsd, feeSol: usdToLamports(feeUsd, price), need, swapSol: need > 0n ? usdToLamports(need, price) : 0n, shares: usd / p, hint };
+}
+async function previewMsg(row, marketId, yes, usd, hint) {
+  const d = await previewData(row, marketId, yes, usd, hint), s = yes ? "y" : "n";
+  const L = [marketHead(d.m, yes, hint), "",
+    `Order: <b>$${d.usd}</b> at about <b>${esc(cents(d.p))}</b> per share`,
+    `You get about <b>${sh(d.shares)} shares</b> → pays about <b>$${d.shares.toFixed(2)}</b> if you're right, $0 if not`,
+    `CBL fee: ${T.feeBps() / 100}% = ${$(d.feeUsd)}, taken in SOL (≈ ${solTxt(d.feeSol)} SOL) after the order fills`,
     "<i>The final price is set when the order fills, and the market's own trading fee is included in it.</i>", "",
-    `Wallet: ${$(have)} USDC · ${sol == null ? "?" : solTxt(sol)} SOL`];
-  if (need > 0n) L.push(`The Bartender will first swap about <b>${solTxt(usdToLamports(need, price))} SOL</b> into the missing ${$(need)} USDC.`);
+    `Wallet: ${$(d.have)} USDC · ${d.sol == null ? "?" : solTxt(d.sol)} SOL`];
+  if (d.need > 0n) L.push(`The Bartender will first swap about <b>${solTxt(d.swapSol)} SOL</b> into the missing ${$(d.need)} USDC.`);
   L.push("", "<i>By confirming you state that you are not a resident of the United States or South Korea.</i>");
-  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[{ text: `✅ Confirm $${usd} on ${sideName(yes)}`, callback_data: `TQo${s}${usd}:${marketId}` }], [{ text: "❌ Cancel", callback_data: `TQb${s}:${marketId}` }]] } };
+  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[{ text: `✅ Confirm $${d.usd} on ${sideName(yes)}`, callback_data: `TQo${s}${d.usd}:${marketId}` }], [{ text: "❌ Cancel", callback_data: `TQb${s}:${marketId}` }]] } };
 }
 
 // ---------- sending transactions ----------
@@ -371,17 +384,21 @@ async function buy(uid, marketId, yes, usd, say, hint) {
   } finally { await X.unlock(uid); }
 }
 
+/** Open positions and the wallet's USDC. Shared by the Telegram screen and the website. */
+async function positionsData(row) {
+  const [ps, have] = await Promise.all([api("/positions?ownerPubkey=" + row.sol_pub).then(rows), usdcBal(row.sol_pub).catch(() => 0n)]);
+  const list = ps.filter((x) => x && x.pubkey && !x.claimed && (shares(x) > 0 || x.claimable)).slice(0, 20).map((x) => ({ pubkey: x.pubkey, title: posTitle(x), yes: !!x.isYes, n: shares(x), avg: px(x.avgPriceUsd), sell: px(x.sellPriceUsd),
+    val: micro(x.valueUsd), pnl: micro(x.pnlUsd), claimable: !!x.claimable, payout: micro(x.payoutUsd), result: (x.marketMetadata && x.marketMetadata.result) || null, filling: x.openOrders > 0 }));
+  return { have, list };
+}
 /** My predictions: open positions with value and profit, sell / claim buttons. */
 async function positionsMsg(row) {
-  const [ps, have] = await Promise.all([api("/positions?ownerPubkey=" + row.sol_pub).then(rows), usdcBal(row.sol_pub).catch(() => 0n)]);
-  const open = ps.filter((x) => x && x.pubkey && !x.claimed && (shares(x) > 0 || x.claimable)).slice(0, 10);
+  const { have, list } = await positionsData(row), open = list.slice(0, 10);
   const L = ["📊 <b>My predictions</b>", ""], kb = [];
   if (!open.length) L.push("No open predictions yet. Open 🔮 Predict, pick a market and tap an outcome.");
   open.forEach((x, i) => {
-    const ev = x.eventMetadata && x.eventMetadata.title, mt = x.marketMetadata && x.marketMetadata.title, title = ev && mt && ev !== mt ? ev + " · " + mt : mt || ev || x.marketId || "Market";
-    const n = shares(x), val = micro(x.valueUsd), pnl = micro(x.pnlUsd), avg = px(x.avgPriceUsd), res = x.marketMetadata && x.marketMetadata.result;
-    L.push(`${i + 1}. <b>${esc(cut(title, 90))}</b>\n   ${x.isYes ? "🟢 YES" : "🔴 NO"} · ${sh(n)} shares${avg ? " at " + esc(cents(avg)) : ""}${val != null ? " · worth " + $(val) : ""}${pnl != null ? ` · ${pnl >= 0n ? "🟢 +" + $(pnl) : "🔴 " + $(pnl)}` : ""}${x.claimable ? "\n   🏆 Won: " + (micro(x.payoutUsd) != null ? $(micro(x.payoutUsd)) : "$" + n.toFixed(2)) + " ready to claim" : res ? "\n   Result: " + esc(String(res).toUpperCase()) : ""}${x.openOrders > 0 ? "\n   🕒 order still filling" : ""}`);
-    kb.push([x.claimable ? { text: `💰 Claim ${i + 1}`, callback_data: "TQc:" + x.pubkey } : { text: `🔴 Sell ${i + 1} · ${cut(title, 24)}`, callback_data: "TQx:" + x.pubkey }]);
+    L.push(`${i + 1}. <b>${esc(cut(x.title, 90))}</b>\n   ${x.yes ? "🟢 YES" : "🔴 NO"} · ${sh(x.n)} shares${x.avg ? " at " + esc(cents(x.avg)) : ""}${x.val != null ? " · worth " + $(x.val) : ""}${x.pnl != null ? ` · ${x.pnl >= 0n ? "🟢 +" + $(x.pnl) : "🔴 " + $(x.pnl)}` : ""}${x.claimable ? "\n   🏆 Won: " + (x.payout != null ? $(x.payout) : "$" + x.n.toFixed(2)) + " ready to claim" : x.result ? "\n   Result: " + esc(String(x.result).toUpperCase()) : ""}${x.filling ? "\n   🕒 order still filling" : ""}`);
+    kb.push([x.claimable ? { text: `💰 Claim ${i + 1}`, callback_data: "TQc:" + x.pubkey } : { text: `🔴 Sell ${i + 1} · ${cut(x.title, 24)}`, callback_data: "TQx:" + x.pubkey }]);
   });
   L.push("", `Wallet: <b>${$(have)} USDC</b>`, "<i>Winnings and sale proceeds arrive as USDC. Use them for the next prediction or turn them back into SOL.</i>");
   const last = [{ text: "🔄 Refresh", callback_data: "TQm" }]; if (have >= 500000n) last.push({ text: "💵 USDC → SOL", callback_data: "TQu" });
@@ -531,4 +548,43 @@ async function job(deadline) {
   return out;
 }
 
-module.exports = { on, listMsg, searchMsg, eventMsg, callback, reply, job, SEARCH_PROMPT, FILTER, CAT, _: { px, cents, pct, when, lead, evLine, rows, micro, shares, usdToLamports } };
+// ---------- website (api/app.js, action "predict") ----------
+const dollars = (m) => (m == null ? null : Number(m) / 1e6);
+function evOut(ev) {
+  const l = lead(ev), ms = openMarkets(ev);
+  return { id: ev.eventId, title: cut(titleOf(ev), 140), odds: !l ? null : ms.length > 1 ? `${cut(mTitle(l), 28)} ${pct(yesOf(l))}` : `Yes ${pct(yesOf(l))}`, when: when(ev.metadata && ev.metadata.closeTime), live: !!ev.isLive };
+}
+/** One call per screen or action of the web app. Trades return { html }: the same result text the bot sends. */
+async function web(uid, row, p) {
+  try { return await webOp(uid, row, p); }
+  catch (e) { if (e instanceof UserErr) throw new UserErr(e.message.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/ in \/trade\b/g, " in the Wallet tab").replace(/Open \/trade first/g, "Create your wallet first")); throw e; } // the bot's wording, without Telegram markup
+}
+async function webOp(uid, row, p) {
+  const op = String(p.op || ""), none = async () => {}, id = String(p.id || ""), yes = p.yes === true || p.yes === "y", hint = cut(p.hint || "", 120);
+  if (op === "list") { const f = FILTER[p.f] ? p.f : "t", c = CAT[p.c] ? p.c : "a"; return { f, c, events: (await fetchList(f, c, 12)).map(evOut).filter((e) => e.id) }; }
+  if (op === "search") { const r = await fetchSearch(String(p.q || ""), 12); return { term: r.term, events: r.evs.map(evOut).filter((e) => e.id) }; }
+  if (op === "event") {
+    const { ev, all, ms } = await fetchEvent(id);
+    return { id: ev.eventId || id, title: cut(titleOf(ev), 200), subtitle: cut((ev.metadata && ev.metadata.subtitle) || "", 140), category: ev.category || "", live: !!ev.isLive, when: when(ev.metadata && ev.metadata.closeTime),
+      closed: !ms.length, result: !ms.length && all[0] && all[0].result ? String(all[0].result).toUpperCase() : null, rule: cut((ms[0] && ms[0].metadata && ms[0].metadata.rulesPrimary) || "", 420), more: Math.max(0, ms.length - 12),
+      markets: ms.slice(0, 12).filter((m) => m.marketId).map((m) => ({ id: m.marketId, title: cut(mTitle(m) || "", 70), yes: yesOf(m), no: noOf(m), yesTxt: cents(yesOf(m)), noTxt: cents(noOf(m)) })),
+      min: minUsd(), max: maxUsd(), presets: PRESETS.filter((a) => a >= minUsd() && a <= maxUsd()), fee: T.feeBps() / 100 };
+  }
+  if (op === "preview") {
+    const d = await previewData(row, id, yes, p.usd, hint);
+    return { usd: d.usd, side: sideName(d.yes), price: cents(d.p), shares: Number(sh(d.shares)), payout: Number(d.shares.toFixed(2)), fee: T.feeBps() / 100, feeUsd: dollars(d.feeUsd), feeSol: solTxt(d.feeSol),
+      usdc: dollars(d.have), sol: d.sol == null ? null : solTxt(d.sol), swapSol: d.need > 0n ? solTxt(d.swapSol) : null, swapUsd: dollars(d.need) };
+  }
+  if (op === "buy") return { html: (await buy(uid, id, yes, p.usd, none, hint)).text };
+  if (op === "positions") {
+    const d = await positionsData(row);
+    return { usdc: dollars(d.have), fee: T.feeBps() / 100, list: d.list.map((x) => ({ pubkey: x.pubkey, title: x.title, yes: x.yes, shares: Number(sh(x.n)), avg: x.avg ? cents(x.avg) : null, sell: x.sell ? cents(x.sell) : null, value: dollars(x.val), pnl: dollars(x.pnl),
+      claimable: x.claimable, payout: x.payout != null ? dollars(x.payout) : x.n, result: x.result ? String(x.result).toUpperCase() : null, filling: x.filling })) };
+  }
+  if (op === "sell") return { html: (await sell(uid, id, none)).text };
+  if (op === "claim") return { html: (await claim(uid, id, none)).text };
+  if (op === "usdc") return { html: (await usdcToSol(uid, none)).text };
+  return fail("Unknown action");
+}
+
+module.exports = { on, web, listMsg, searchMsg, eventMsg, callback, reply, job, SEARCH_PROMPT, FILTER, CAT, _: { px, cents, pct, when, lead, evLine, rows, micro, shares, usdToLamports } };

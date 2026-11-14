@@ -1,0 +1,323 @@
+diff --git a/TELEGRAM_SETUP.md b/TELEGRAM_SETUP.md
+index 95f595d..6194cfc 100644
+--- a/TELEGRAM_SETUP.md
++++ b/TELEGRAM_SETUP.md
+@@ -202,6 +202,8 @@ Polymarket and Kalshi through Jupiter's Prediction API (`api/_lib/predict.js`).
+   (token `pred:<marketId>`), so referral earnings count it like any other Solana trade.
+ - An order that has not filled when the request ends is kept in `bot_orders` (kind `pred`). The existing cron
+   `orders` job finishes it, charges the fee and messages the user. No new table and no new cron entry are needed.
++- Web app: the same screens are in the Bartender app (`bartender.html`, Predict tab), through `POST /api/app` with
++  action `predict` (list / search / event / preview / buy / positions / sell / claim / usdc). Same wallet, fee and limits.
+ - The API is in beta, and Jupiter blocks requests from US and South Korea IPs. If Predict answers "not available from
+   this server's region", move the Vercel function region away from the US (Project → Settings → Functions → Region).
+   The confirm screen has the user state they are not a US or South Korea resident.
+diff --git a/api/_lib/predict.js b/api/_lib/predict.js
+index b2e612d..ab2c9fd 100644
+--- a/api/_lib/predict.js
++++ b/api/_lib/predict.js
+@@ -107,10 +107,23 @@ function navRows(f, c) {
+ }
+ 
+ /** Event list for a filter (t/n/l) and category (a/c/s/p/e/u/o/t). */
++async function fetchList(f, c, n) {
++  const q = new URLSearchParams({ filter: FILTER[f][0], includeMarkets: "true" }); if (c !== "a") q.set("category", CAT[c][0]);
++  return rows(await api("/events?" + q)).filter((ev) => ev && ev.isActive !== false).slice(0, n);
++}
++async function fetchSearch(query, n) {
++  const term = cut(query, 60); if (term.length < 2) fail("Send at least two letters to search, e.g. <code>bitcoin</code>.");
++  return { term, evs: rows(await api("/events/search?" + new URLSearchParams({ query: term, limit: String(n), includeMarkets: "true" }))).slice(0, n) };
++}
++async function fetchEvent(eventId) {
++  if (!/^[\w.:~-]{1,60}$/.test(String(eventId || ""))) fail("That market was not found.");
++  const ev = one(await api("/events/" + encodeURIComponent(eventId) + "?includeMarkets=true"));
++  if (!ev || (!ev.eventId && !ev.metadata)) fail("That market was not found.");
++  return { ev, all: ev.markets || [], ms: openMarkets(ev).sort((a, b) => (yesOf(b) || 0) - (yesOf(a) || 0)) };
++}
+ async function listMsg(f, c) {
+   if (!FILTER[f]) f = "t"; if (!CAT[c]) c = "a";
+-  const q = new URLSearchParams({ filter: FILTER[f][0], includeMarkets: "true" }); if (c !== "a") q.set("category", CAT[c][0]);
+-  const evs = rows(await api("/events?" + q)).filter((ev) => ev && ev.isActive !== false).slice(0, 8);
++  const evs = await fetchList(f, c, 8);
+   const L = [`🔮 <b>Predict</b> · ${FILTER[f][1]}${c === "a" ? "" : " · " + CAT[c][1]}`, "Trade on real-world events. Each share pays $1 if you're right.", ""];
+   if (!evs.length) L.push("Nothing here right now. Try another filter or category.");
+   evs.forEach((ev, i) => L.push(evLine(ev, i)));
+@@ -120,8 +133,7 @@ async function listMsg(f, c) {
+ 
+ /** Search results for free text. */
+ async function searchMsg(query) {
+-  const term = cut(query, 60); if (term.length < 2) fail("Send at least two letters to search, e.g. <code>bitcoin</code>.");
+-  const evs = rows(await api("/events/search?" + new URLSearchParams({ query: term, limit: "8", includeMarkets: "true" }))).slice(0, 8);
++  const { term, evs } = await fetchSearch(query, 8);
+   const L = [`🔎 <b>Predict</b> · results for “${esc(term)}”`, ""];
+   if (!evs.length) L.push("No markets found. Try a shorter or different word.");
+   evs.forEach((ev, i) => L.push(evLine(ev, i)));
+@@ -131,10 +143,7 @@ async function searchMsg(query) {
+ 
+ /** One event: its markets with YES / NO prices, close time and the resolution rule. */
+ async function eventMsg(eventId) {
+-  if (!/^[\w.:~-]{1,60}$/.test(String(eventId || ""))) fail("That market was not found.");
+-  const d = await api("/events/" + encodeURIComponent(eventId) + "?includeMarkets=true"), ev = d && d.data && !Array.isArray(d.data) ? d.data : d;
+-  if (!ev || (!ev.eventId && !ev.metadata)) fail("That market was not found.");
+-  const all = ev.markets || [], ms = openMarkets(ev).sort((a, b) => (yesOf(b) || 0) - (yesOf(a) || 0)), w = when(ev.metadata && ev.metadata.closeTime);
++  const { ev, all, ms } = await fetchEvent(eventId), w = when(ev.metadata && ev.metadata.closeTime);
+   const L = [`🔮 <b>${esc(cut(titleOf(ev), 200))}</b>`];
+   if (ev.metadata && ev.metadata.subtitle) L.push(esc(cut(ev.metadata.subtitle, 140)));
+   L.push([ev.category && esc(String(ev.category)), ev.isLive ? "🔴 live" : null, w].filter(Boolean).join(" · "), "");
+@@ -234,20 +243,24 @@ function parseUsd(v) {
+ }
+ 
+ /** Step 2 of a buy: what the user gets and pays. Nothing is sent yet. */
+-async function previewMsg(row, marketId, yes, usd, hint) {
++async function previewData(row, marketId, yes, usd, hint) {
+   usd = parseUsd(usd);
+-  const m = await getMarket(marketId), p = checkOpen(m, yes), s = yes ? "y" : "n", dep = BigInt(usd) * 1000000n;
++  const m = await getMarket(marketId), p = checkOpen(m, yes), dep = BigInt(usd) * 1000000n;
+   const [have, sol, price] = await Promise.all([usdcBal(row.sol_pub).catch(() => 0n), X.solBal(row.sol_pub).catch(() => null), solUsd()]);
+   const feeUsd = dep * BigInt(T.feeBps()) / 10000n, need = have >= dep ? 0n : dep - have;
+-  const L = [marketHead(m, yes, hint), "",
+-    `Order: <b>$${usd}</b> at about <b>${esc(cents(p))}</b> per share`,
+-    `You get about <b>${sh(usd / p)} shares</b> → pays about <b>$${(usd / p).toFixed(2)}</b> if you're right, $0 if not`,
+-    `CBL fee: ${T.feeBps() / 100}% = ${$(feeUsd)}, taken in SOL (≈ ${solTxt(usdToLamports(feeUsd, price))} SOL) after the order fills`,
++  return { m, usd, p, yes: !!yes, have, sol, feeUsd, feeSol: usdToLamports(feeUsd, price), need, swapSol: need > 0n ? usdToLamports(need, price) : 0n, shares: usd / p, hint };
++}
++async function previewMsg(row, marketId, yes, usd, hint) {
++  const d = await previewData(row, marketId, yes, usd, hint), s = yes ? "y" : "n";
++  const L = [marketHead(d.m, yes, hint), "",
++    `Order: <b>$${d.usd}</b> at about <b>${esc(cents(d.p))}</b> per share`,
++    `You get about <b>${sh(d.shares)} shares</b> → pays about <b>$${d.shares.toFixed(2)}</b> if you're right, $0 if not`,
++    `CBL fee: ${T.feeBps() / 100}% = ${$(d.feeUsd)}, taken in SOL (≈ ${solTxt(d.feeSol)} SOL) after the order fills`,
+     "<i>The final price is set when the order fills, and the market's own trading fee is included in it.</i>", "",
+-    `Wallet: ${$(have)} USDC · ${sol == null ? "?" : solTxt(sol)} SOL`];
+-  if (need > 0n) L.push(`The Bartender will first swap about <b>${solTxt(usdToLamports(need, price))} SOL</b> into the missing ${$(need)} USDC.`);
++    `Wallet: ${$(d.have)} USDC · ${d.sol == null ? "?" : solTxt(d.sol)} SOL`];
++  if (d.need > 0n) L.push(`The Bartender will first swap about <b>${solTxt(d.swapSol)} SOL</b> into the missing ${$(d.need)} USDC.`);
+   L.push("", "<i>By confirming you state that you are not a resident of the United States or South Korea.</i>");
+-  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[{ text: `✅ Confirm $${usd} on ${sideName(yes)}`, callback_data: `TQo${s}${usd}:${marketId}` }], [{ text: "❌ Cancel", callback_data: `TQb${s}:${marketId}` }]] } };
++  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[{ text: `✅ Confirm $${d.usd} on ${sideName(yes)}`, callback_data: `TQo${s}${d.usd}:${marketId}` }], [{ text: "❌ Cancel", callback_data: `TQb${s}:${marketId}` }]] } };
+ }
+ 
+ // ---------- sending transactions ----------
+@@ -371,17 +384,21 @@ async function buy(uid, marketId, yes, usd, say, hint) {
+   } finally { await X.unlock(uid); }
+ }
+ 
++/** Open positions and the wallet's USDC. Shared by the Telegram screen and the website. */
++async function positionsData(row) {
++  const [ps, have] = await Promise.all([api("/positions?ownerPubkey=" + row.sol_pub).then(rows), usdcBal(row.sol_pub).catch(() => 0n)]);
++  const list = ps.filter((x) => x && x.pubkey && !x.claimed && (shares(x) > 0 || x.claimable)).slice(0, 20).map((x) => ({ pubkey: x.pubkey, title: posTitle(x), yes: !!x.isYes, n: shares(x), avg: px(x.avgPriceUsd), sell: px(x.sellPriceUsd),
++    val: micro(x.valueUsd), pnl: micro(x.pnlUsd), claimable: !!x.claimable, payout: micro(x.payoutUsd), result: (x.marketMetadata && x.marketMetadata.result) || null, filling: x.openOrders > 0 }));
++  return { have, list };
++}
+ /** My predictions: open positions with value and profit, sell / claim buttons. */
+ async function positionsMsg(row) {
+-  const [ps, have] = await Promise.all([api("/positions?ownerPubkey=" + row.sol_pub).then(rows), usdcBal(row.sol_pub).catch(() => 0n)]);
+-  const open = ps.filter((x) => x && x.pubkey && !x.claimed && (shares(x) > 0 || x.claimable)).slice(0, 10);
++  const { have, list } = await positionsData(row), open = list.slice(0, 10);
+   const L = ["📊 <b>My predictions</b>", ""], kb = [];
+   if (!open.length) L.push("No open predictions yet. Open 🔮 Predict, pick a market and tap an outcome.");
+   open.forEach((x, i) => {
+-    const ev = x.eventMetadata && x.eventMetadata.title, mt = x.marketMetadata && x.marketMetadata.title, title = ev && mt && ev !== mt ? ev + " · " + mt : mt || ev || x.marketId || "Market";
+-    const n = shares(x), val = micro(x.valueUsd), pnl = micro(x.pnlUsd), avg = px(x.avgPriceUsd), res = x.marketMetadata && x.marketMetadata.result;
+-    L.push(`${i + 1}. <b>${esc(cut(title, 90))}</b>\n   ${x.isYes ? "🟢 YES" : "🔴 NO"} · ${sh(n)} shares${avg ? " at " + esc(cents(avg)) : ""}${val != null ? " · worth " + $(val) : ""}${pnl != null ? ` · ${pnl >= 0n ? "🟢 +" + $(pnl) : "🔴 " + $(pnl)}` : ""}${x.claimable ? "\n   🏆 Won: " + (micro(x.payoutUsd) != null ? $(micro(x.payoutUsd)) : "$" + n.toFixed(2)) + " ready to claim" : res ? "\n   Result: " + esc(String(res).toUpperCase()) : ""}${x.openOrders > 0 ? "\n   🕒 order still filling" : ""}`);
+-    kb.push([x.claimable ? { text: `💰 Claim ${i + 1}`, callback_data: "TQc:" + x.pubkey } : { text: `🔴 Sell ${i + 1} · ${cut(title, 24)}`, callback_data: "TQx:" + x.pubkey }]);
++    L.push(`${i + 1}. <b>${esc(cut(x.title, 90))}</b>\n   ${x.yes ? "🟢 YES" : "🔴 NO"} · ${sh(x.n)} shares${x.avg ? " at " + esc(cents(x.avg)) : ""}${x.val != null ? " · worth " + $(x.val) : ""}${x.pnl != null ? ` · ${x.pnl >= 0n ? "🟢 +" + $(x.pnl) : "🔴 " + $(x.pnl)}` : ""}${x.claimable ? "\n   🏆 Won: " + (x.payout != null ? $(x.payout) : "$" + x.n.toFixed(2)) + " ready to claim" : x.result ? "\n   Result: " + esc(String(x.result).toUpperCase()) : ""}${x.filling ? "\n   🕒 order still filling" : ""}`);
++    kb.push([x.claimable ? { text: `💰 Claim ${i + 1}`, callback_data: "TQc:" + x.pubkey } : { text: `🔴 Sell ${i + 1} · ${cut(x.title, 24)}`, callback_data: "TQx:" + x.pubkey }]);
+   });
+   L.push("", `Wallet: <b>${$(have)} USDC</b>`, "<i>Winnings and sale proceeds arrive as USDC. Use them for the next prediction or turn them back into SOL.</i>");
+   const last = [{ text: "🔄 Refresh", callback_data: "TQm" }]; if (have >= 500000n) last.push({ text: "💵 USDC → SOL", callback_data: "TQu" });
+@@ -531,4 +548,43 @@ async function job(deadline) {
+   return out;
+ }
+ 
+-module.exports = { on, listMsg, searchMsg, eventMsg, callback, reply, job, SEARCH_PROMPT, FILTER, CAT, _: { px, cents, pct, when, lead, evLine, rows, micro, shares, usdToLamports } };
++// ---------- website (api/app.js, action "predict") ----------
++const dollars = (m) => (m == null ? null : Number(m) / 1e6);
++function evOut(ev) {
++  const l = lead(ev), ms = openMarkets(ev);
++  return { id: ev.eventId, title: cut(titleOf(ev), 140), odds: !l ? null : ms.length > 1 ? `${cut(mTitle(l), 28)} ${pct(yesOf(l))}` : `Yes ${pct(yesOf(l))}`, when: when(ev.metadata && ev.metadata.closeTime), live: !!ev.isLive };
++}
++/** One call per screen or action of the web app. Trades return { html }: the same result text the bot sends. */
++async function web(uid, row, p) {
++  try { return await webOp(uid, row, p); }
++  catch (e) { if (e instanceof UserErr) throw new UserErr(e.message.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/ in \/trade\b/g, " in the Wallet tab").replace(/Open \/trade first/g, "Create your wallet first")); throw e; } // the bot's wording, without Telegram markup
++}
++async function webOp(uid, row, p) {
++  const op = String(p.op || ""), none = async () => {}, id = String(p.id || ""), yes = p.yes === true || p.yes === "y", hint = cut(p.hint || "", 120);
++  if (op === "list") { const f = FILTER[p.f] ? p.f : "t", c = CAT[p.c] ? p.c : "a"; return { f, c, events: (await fetchList(f, c, 12)).map(evOut).filter((e) => e.id) }; }
++  if (op === "search") { const r = await fetchSearch(String(p.q || ""), 12); return { term: r.term, events: r.evs.map(evOut).filter((e) => e.id) }; }
++  if (op === "event") {
++    const { ev, all, ms } = await fetchEvent(id);
++    return { id: ev.eventId || id, title: cut(titleOf(ev), 200), subtitle: cut((ev.metadata && ev.metadata.subtitle) || "", 140), category: ev.category || "", live: !!ev.isLive, when: when(ev.metadata && ev.metadata.closeTime),
++      closed: !ms.length, result: !ms.length && all[0] && all[0].result ? String(all[0].result).toUpperCase() : null, rule: cut((ms[0] && ms[0].metadata && ms[0].metadata.rulesPrimary) || "", 420), more: Math.max(0, ms.length - 12),
++      markets: ms.slice(0, 12).filter((m) => m.marketId).map((m) => ({ id: m.marketId, title: cut(mTitle(m) || "", 70), yes: yesOf(m), no: noOf(m), yesTxt: cents(yesOf(m)), noTxt: cents(noOf(m)) })),
++      min: minUsd(), max: maxUsd(), presets: PRESETS.filter((a) => a >= minUsd() && a <= maxUsd()), fee: T.feeBps() / 100 };
++  }
++  if (op === "preview") {
++    const d = await previewData(row, id, yes, p.usd, hint);
++    return { usd: d.usd, side: sideName(d.yes), price: cents(d.p), shares: Number(sh(d.shares)), payout: Number(d.shares.toFixed(2)), fee: T.feeBps() / 100, feeUsd: dollars(d.feeUsd), feeSol: solTxt(d.feeSol),
++      usdc: dollars(d.have), sol: d.sol == null ? null : solTxt(d.sol), swapSol: d.need > 0n ? solTxt(d.swapSol) : null, swapUsd: dollars(d.need) };
++  }
++  if (op === "buy") return { html: (await buy(uid, id, yes, p.usd, none, hint)).text };
++  if (op === "positions") {
++    const d = await positionsData(row);
++    return { usdc: dollars(d.have), fee: T.feeBps() / 100, list: d.list.map((x) => ({ pubkey: x.pubkey, title: x.title, yes: x.yes, shares: Number(sh(x.n)), avg: x.avg ? cents(x.avg) : null, sell: x.sell ? cents(x.sell) : null, value: dollars(x.val), pnl: dollars(x.pnl),
++      claimable: x.claimable, payout: x.payout != null ? dollars(x.payout) : x.n, result: x.result ? String(x.result).toUpperCase() : null, filling: x.filling })) };
++  }
++  if (op === "sell") return { html: (await sell(uid, id, none)).text };
++  if (op === "claim") return { html: (await claim(uid, id, none)).text };
++  if (op === "usdc") return { html: (await usdcToSol(uid, none)).text };
++  return fail("Unknown action");
++}
++
++module.exports = { on, web, listMsg, searchMsg, eventMsg, callback, reply, job, SEARCH_PROMPT, FILTER, CAT, _: { px, cents, pct, when, lead, evLine, rows, micro, shares, usdToLamports } };
+diff --git a/api/app.js b/api/app.js
+index 0ece46f..0218ec6 100644
+--- a/api/app.js
++++ b/api/app.js
+@@ -127,6 +127,7 @@ module.exports = async (req, res) => {
+       else if (a === "addWallet") { await B.addWallet(uid); out = await home(uid); }
+       else if (a === "spread") { const r = await B.spread(uid, String(p.each)); out = { sent: fmt(r.amt, "s"), n: r.n }; }
+       else if (a === "collect") { const r = await B.collect(uid); out = { total: fmt(r.total, "s") }; }
++      else if (a === "predict") out = await require("./_lib/predict").web(uid, row, p || {}); // prediction markets: list / search / event / preview / buy / positions / sell / claim / usdc
+       else if (a === "stocks") { const ST = require("./_lib/stocks"); out = { list: (await ST.list()).slice(0, 30), market: ST.market() }; }
+       else if (a === "refs") { // referrals: link + earnings per coin
+         const R = require("./_lib/refs"), st2 = await R.stats(uid), bot = String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, "");
+diff --git a/bartender.html b/bartender.html
+index 66618ae..d79b959 100644
+--- a/bartender.html
++++ b/bartender.html
+@@ -70,9 +70,10 @@ h2{font-size:20px;margin:22px 0 10px}
+ .v-good{background:#35d39b22;color:var(--buy)}.v-mid{background:#ffc65c22;color:var(--warn)}.v-bad{background:#ff5d8f22;color:var(--sell)}
+ .pills{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.pill{border:1px solid var(--line);border-radius:999px;padding:8px 14px;font-weight:600}
+ .pill[aria-pressed="true"]{background:var(--violet);border-color:var(--violet)}
++.pcat{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 -16px 6px;padding:0 16px}.pcat::-webkit-scrollbar{display:none}.pcat .pill{flex:none;padding:6px 12px;font-size:13px}
+ nav.tabs{position:fixed;left:0;right:0;bottom:0;background:#120e25f2;backdrop-filter:blur(12px);border-top:1px solid #ffffff12;padding:6px 8px calc(6px + env(safe-area-inset-bottom));z-index:20}
+-nav.tabs .in{width:min(560px,100%);margin:auto;display:grid;grid-template-columns:repeat(6,1fr)}
+-nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:11px;color:var(--muted);border-radius:12px}
++nav.tabs .in{width:min(560px,100%);margin:auto;display:grid;grid-template-columns:repeat(7,1fr)}
++nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:10.5px;color:var(--muted);border-radius:12px}
+ nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#fff;background:#ffffff0f}
+ .field{display:flex;flex-direction:column;gap:6px;margin:12px 0}.field label{font-size:13px;color:var(--muted)}
+ .field input,.field select{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 12px;outline:0}
+@@ -107,6 +108,7 @@ nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#
+ <nav class="tabs" id="tabs" hidden><div class="in">
+   <button data-tab="home" aria-current="page"><span>◎</span>Home</button>
+   <button data-tab="trade"><span>⇅</span>Trade</button>
++  <button data-tab="predict"><span>◈</span>Predict</button>
+   <button data-tab="positions"><span>▤</span>Positions</button>
+   <button data-tab="orders"><span>⊕</span>Orders</button>
+   <button data-tab="copy"><span>⧉</span>Copy</button>
+@@ -201,6 +203,7 @@ function go(tab, force) {
+   if (tab === "orders") return ordersView();
+   if (tab === "wallet") return walletView(force);
+   if (tab === "copy") return copyView();
++  if (tab === "predict") return predictView();
+ }
+ 
+ /* ---------- home ---------- */
+@@ -341,6 +344,105 @@ async function stocksBox() {
+   box.querySelectorAll("[data-stk]").forEach((b) => b.onclick = () => tokenView(b.dataset.stk, "s"));
+ }
+ 
++/* ---------- Predict (prediction markets via Jupiter: Polymarket and Kalshi) ---------- */
++const PF = { t: "🔥 Trending", n: "🆕 New", l: "🔴 Live" }, PC = { a: "All", c: "Crypto", s: "Sports", p: "Politics", e: "E-sports", u: "Culture", o: "Economics", t: "Tech" };
++const pApi = (op, params) => api("predict", Object.assign({ op }, params || {}));
++const pNote = '<p class="small muted">Markets by Polymarket and Kalshi via Jupiter. Each share pays $1 if you\'re right. Not available to residents of the US or South Korea.</p>';
++const pHtml = (h) => String(h || "").replace(/\n/g, "<br>").replace(/<a href=/g, '<a target="_blank" rel="noopener" href=');
++const pMoney = (x) => (x == null ? "–" : (x < 0 ? "−$" : "$") + Math.abs(x).toFixed(2));
++const pEvRow = (e) => `<button class="row" data-pev="${E(e.id)}" style="text-align:left;width:100%"><div class="grow"><b style="white-space:normal">${E(e.title)}</b><span class="small muted">${E([e.odds, e.live ? "live" : null, e.when].filter(Boolean).join(" · "))}</span></div><span class="muted" aria-hidden="true">›</span></button>`;
++async function predictView(q) {
++  const P = S.pred = S.pred || { f: "t", c: "a" };
++  view.innerHTML = `<h2>🔮 Predict</h2>
++    <form class="search" id="pf"><input id="pq" placeholder="Search: bitcoin, election, a team…" autocomplete="off" aria-label="Search prediction markets" value="${E(q || "")}"><button class="btn main">Search</button></form>
++    <div class="pills">${Object.keys(PF).map((k) => `<button class="pill" data-pf="${k}" aria-pressed="${!q && k === P.f}">${PF[k]}</button>`).join("")}<button class="pill" id="pmy">📊 My predictions</button></div>
++    <div class="pills pcat">${Object.keys(PC).map((k) => `<button class="pill" data-pc="${k}" aria-pressed="${!q && k === P.c}">${PC[k]}</button>`).join("")}</div>
++    <div class="list" id="pl"><div class="empty"><span class="spin"></span> Loading markets…</div></div>${pNote}`;
++  $("#pf").onsubmit = (ev) => { ev.preventDefault(); const v = $("#pq").value.trim(); if (v) predictView(v); };
++  $("#pmy").onclick = () => predictPositions();
++  view.querySelectorAll("[data-pf]").forEach((b) => b.onclick = () => { P.f = b.dataset.pf; predictView(); });
++  view.querySelectorAll("[data-pc]").forEach((b) => b.onclick = () => { P.c = b.dataset.pc; predictView(); });
++  let d, err; try { d = q ? await pApi("search", { q }) : await pApi("list", { f: P.f, c: P.c }); } catch (e) { if (e.quiet) return; err = e.message; }
++  const box = $("#pl"); if (!box || S.tab !== "predict") return;
++  box.innerHTML = err ? `<p class="empty">${E(err)}</p>` : d.events.length ? d.events.map(pEvRow).join("") : `<p class="empty">${q ? "No markets found. Try a shorter or different word." : "Nothing here right now. Try another filter or category."}</p>`;
++  box.querySelectorAll("[data-pev]").forEach((b) => b.onclick = () => predictEvent(b.dataset.pev));
++}
++async function predictEvent(id) {
++  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading market…</div>';
++  let d; try { d = await pApi("event", { id }); } catch (e) { if (!e.quiet) view.innerHTML = `<button class="btn ghost small" id="pback">‹ Markets</button><p class="empty">${E(e.message)}</p>`; if ($("#pback")) $("#pback").onclick = () => predictView(); return; }
++  if (S.tab !== "predict") return;
++  view.innerHTML = `<button class="btn ghost small" id="pback">‹ Markets</button>
++    <section class="tok"><div class="name" style="font-size:24px">${E(d.title)}</div>${d.subtitle ? `<p class="muted" style="margin:6px 0 0">${E(d.subtitle)}</p>` : ""}
++      <p class="small muted" style="margin:6px 0 0">${E([d.category, d.live ? "live" : null, d.when].filter(Boolean).join(" · "))}</p></section>
++    ${d.closed ? `<p class="empty">This event is closed for trading.${d.result ? " Result: " + E(d.result) : ""}</p>` : d.markets.map((m, i) => `<div class="pad"><div class="lab"><span style="color:var(--text);font-weight:600">${E(m.title && m.title !== d.title ? m.title : "Will it happen?")}</span></div>
++      <div class="two"><button class="btn buy" data-pm="${i}" data-side="y" ${m.yes == null ? "disabled" : ""}>Yes ${E(m.yesTxt)}</button><button class="btn sell" data-pm="${i}" data-side="n" ${m.no == null ? "disabled" : ""}>No ${E(m.noTxt)}</button></div></div>`).join("")}
++    ${d.more ? `<p class="small muted">+ ${d.more} more outcomes</p>` : ""}
++    ${d.rule ? `<h2>How it resolves</h2><p class="small muted">${E(d.rule)}</p>` : ""}
++    <p class="small muted">Prices are per share: a 40¢ share pays $1 if you're right and $0 if you're not. Tap Yes or No to buy. Fee: ${d.fee}%, taken in SOL after the order fills.</p>${pNote}`;
++  $("#pback").onclick = () => predictView();
++  view.querySelectorAll("[data-pm]").forEach((b) => b.onclick = () => predictOrder(d, d.markets[Number(b.dataset.pm)], b.dataset.side === "y"));
++}
++/* Buy sheet: amount → preview → result. */
++function predictOrder(d, m, yes) {
++  const el = document.createElement("div"); el.className = "sheet"; let working = false;
++  const close = () => el.remove(), args = (usd) => ({ id: m.id, yes, usd, hint: d.title });
++  el.onclick = (ev) => { if (ev.target === el && !working) close(); };
++  const head = `<h2 style="margin-top:0">${E(d.title)}</h2><p class="muted" style="margin:-4px 0 12px">${m.title && m.title !== d.title ? E(m.title) + " · " : ""}Your pick: <b class="${yes ? "up" : "down"}">${yes ? "YES" : "NO"}</b> at ${E(yes ? m.yesTxt : m.noTxt)} per share</p>`;
++  const box = (html) => { el.innerHTML = `<div class="box">${head}${html}</div>`; };
++  function pick() {
++    box(`<div class="pad" style="margin-top:0"><div class="lab"><span>How much do you want to put in?</span><span>min $${d.min}</span></div>
++      <div class="keys">${d.presets.map((a) => `<button class="btn" data-amt="${a}">$${a}</button>`).join("")}</div>
++      <form class="custom" id="pcf"><input id="pca" inputmode="numeric" placeholder="Other amount in $" aria-label="Other amount in dollars"><button class="btn main">Next</button></form></div>
++      <p class="small muted">Paid in USDC. If your wallet has SOL only, the Bartender swaps the needed USDC from your SOL first.</p>
++      <button class="btn ghost" id="pcl" style="width:100%">Cancel</button>`);
++    el.querySelectorAll("[data-amt]").forEach((b) => b.onclick = () => preview(Number(b.dataset.amt)));
++    $("#pcf", el).onsubmit = (ev) => { ev.preventDefault(); const v = Number($("#pca", el).value.replace(/[$,\s]/g, "")); if (!Number.isInteger(v) || v < d.min || v > d.max) return toast(`Enter a whole dollar amount from ${d.min} to ${d.max}.`, true); preview(v); };
++    $("#pcl", el).onclick = close;
++  }
++  async function preview(usd) {
++    box('<div class="empty"><span class="spin"></span> Checking the price…</div>');
++    let p; try { p = await pApi("preview", args(usd)); } catch (e) { if (e.quiet) return close(); toast(e.message, true); return pick(); }
++    const line = (a, b) => `<div class="lab" style="margin:8px 2px"><span>${a}</span><b style="color:var(--text);text-align:right">${b}</b></div>`;
++    box(`<div class="pad" style="margin-top:0">${line("Order", `$${p.usd} on ${p.side} at about ${E(p.price)}`)}${line("You get about", `${p.shares} shares`)}${line("Pays if you're right", `about $${p.payout.toFixed(2)}`)}
++        ${line(`CBL fee (${p.fee}%)`, `${pMoney(p.feeUsd)} ≈ ${E(p.feeSol)} SOL`)}${line("Your wallet", `${pMoney(p.usdc)} USDC · ${p.sol == null ? "?" : E(p.sol)} SOL`)}</div>
++      ${p.swapSol ? `<p class="small">The Bartender will first swap about <b>${E(p.swapSol)} SOL</b> into the missing ${pMoney(p.swapUsd)} USDC.</p>` : ""}
++      <p class="small muted">The final price is set when the order fills and includes the market's own trading fee. The CBL fee is taken after the fill. By confirming you state that you are not a resident of the United States or South Korea.</p>
++      <button class="btn main" id="pgo" style="width:100%">Confirm $${p.usd} on ${p.side}</button>
++      <button class="btn ghost" id="pbk" style="width:100%;margin-top:8px">Back</button>`);
++    $("#pbk", el).onclick = pick;
++    $("#pgo", el).onclick = async (ev) => {
++      const b = ev.currentTarget; working = true; b.disabled = true; $("#pbk", el).disabled = true; b.innerHTML = '<span class="spin"></span> Placing your order… this can take up to a minute';
++      try { const r = await pApi("buy", args(usd)); S.home = null; box(`<div class="pad" style="margin-top:0">${pHtml(r.html)}</div><div class="two" style="margin-top:12px"><button class="btn main" id="pmy2">My predictions</button><button class="btn ghost" id="pdn">Done</button></div>`); $("#pmy2", el).onclick = () => { close(); predictPositions(); }; $("#pdn", el).onclick = close; }
++      catch (e) { if (e.quiet) return close(); toast(e.message, true); pick(); }
++      finally { working = false; }
++    };
++  }
++  document.body.appendChild(el); pick();
++}
++function pResult(html, after) {
++  const el = document.createElement("div"); el.className = "sheet";
++  el.innerHTML = `<div class="box"><div class="pad" style="margin-top:0">${pHtml(html)}</div><button class="btn main" id="pok" style="width:100%;margin-top:12px">Done</button></div>`;
++  const close = () => { el.remove(); if (after) after(); }; el.onclick = (ev) => { if (ev.target === el) close(); };
++  document.body.appendChild(el); $("#pok", el).onclick = close;
++}
++async function predictPositions() {
++  view.innerHTML = '<div class="empty"><span class="spin"></span> Loading your predictions…</div>';
++  let d; try { d = await pApi("positions"); } catch (e) { if (!e.quiet) view.innerHTML = `<button class="btn ghost small" id="pback">‹ Markets</button><p class="empty">${E(e.message)}</p>`; if ($("#pback")) $("#pback").onclick = () => predictView(); return; }
++  if (S.tab !== "predict") return;
++  const row = (x) => `<div class="row"><div class="grow"><b style="white-space:normal">${E(x.title)}</b><span class="small muted"><span class="${x.yes ? "up" : "down"}">${x.yes ? "YES" : "NO"}</span> · ${x.shares} shares${x.avg ? " at " + E(x.avg) : ""}${x.value != null ? " · worth " + pMoney(x.value) : ""}${x.pnl != null ? ` · <span class="${x.pnl >= 0 ? "up" : "down"}">${x.pnl >= 0 ? "+" : ""}${pMoney(x.pnl)}</span>` : ""}${x.claimable ? `<br>🏆 Won: ${pMoney(x.payout)} ready to claim` : x.result ? "<br>Result: " + E(x.result) : ""}${x.filling ? "<br>🕒 order still filling" : ""}</span></div>
++    ${x.claimable ? `<button class="btn main" data-pclaim="${E(x.pubkey)}">Claim</button>` : `<button class="btn sell" data-psell="${E(x.pubkey)}">Sell</button>`}</div>`;
++  view.innerHTML = `<button class="btn ghost small" id="pback">‹ Markets</button><h2>📊 My predictions</h2>
++    <div class="list">${d.list.length ? d.list.map(row).join("") : '<p class="empty">No open predictions yet. Pick a market and tap Yes or No.</p>'}</div>
++    <div class="pad"><div class="lab"><span>USDC in your wallet</span><b style="color:var(--text)">${pMoney(d.usdc)}</b></div>
++      ${d.usdc >= 0.5 ? '<button class="btn ghost" id="pusdc" style="width:100%">Swap USDC to SOL</button>' : ""}
++      <p class="small muted" style="margin-bottom:0">Winnings and sale proceeds arrive as USDC. Use them for the next prediction or turn them back into SOL (no CBL fee). Selling costs ${d.fee}% of the proceeds, taken in SOL; claiming is free.</p></div>`;
++  $("#pback").onclick = () => predictView();
++  const twice = (b, label, fn) => { b.onclick = () => { if (!b.dataset.sure) { b.dataset.sure = "1"; b.textContent = label; setTimeout(() => { if (b.isConnected && !b.disabled) { delete b.dataset.sure; b.textContent = b.dataset.t; } }, 4000); return; } busy(b, async () => { const r = await fn(); S.home = null; pResult(r.html, predictPositions); }); }; b.dataset.t = b.textContent; };
++  view.querySelectorAll("[data-psell]").forEach((b) => twice(b, "Tap again to sell all", () => pApi("sell", { id: b.dataset.psell })));
++  view.querySelectorAll("[data-pclaim]").forEach((b) => b.onclick = () => busy(b, async () => { const r = await pApi("claim", { id: b.dataset.pclaim }); pResult(r.html, predictPositions); }));
++  if ($("#pusdc")) twice($("#pusdc"), "Tap again to swap all USDC", () => pApi("usdc"));
++}
++
+ /* ---------- token ---------- */
+ async function tokenView(ca, c) {
+   S.tok = { ca, c };

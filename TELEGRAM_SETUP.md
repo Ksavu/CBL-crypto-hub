@@ -202,6 +202,8 @@ Polymarket and Kalshi through Jupiter's Prediction API (`api/_lib/predict.js`).
   (token `pred:<marketId>`), so referral earnings count it like any other Solana trade.
 - An order that has not filled when the request ends is kept in `bot_orders` (kind `pred`). The existing cron
   `orders` job finishes it, charges the fee and messages the user. No new table and no new cron entry are needed.
+- Web app: the same screens are in the Bartender app (`bartender.html`, Predict tab), through `POST /api/app` with
+  action `predict` (list / search / event / preview / buy / positions / sell / claim / usdc). Same wallet, fee and limits.
 - The API is in beta, and Jupiter blocks requests from US and South Korea IPs. If Predict answers "not available from
   this server's region", move the Vercel function region away from the US (Project → Settings → Functions → Region).
   The confirm screen has the user state they are not a US or South Korea resident.
