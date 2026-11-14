@@ -437,7 +437,10 @@ function make(tg) {
       const P = require("./predict"), sub = d[2];
       if (sub === "s") { await ack(); await prompt(chat, P.SEARCH_PROMPT, "pred", "bitcoin"); return true; }
       await ack("Loading markets…");
-      try { await edit(chat, mid, sub === "e" ? await P.eventMsg(d.slice(4)) : await P.listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a")); }
+      try {
+        const r = await edit(chat, mid, sub === "e" ? await P.eventMsg(d.slice(4)) : await P.listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a"));
+        if (r && r.ok === false && !/not modified/i.test(r.description || "")) { console.error("predict edit failed", d, r.description); await send(chat, "⚠️ Couldn't show this market. Try again in a moment."); }
+      }
       catch (e) { await edit(chat, mid, { text: errText(e), reply_markup: { inline_keyboard: [[{ text: "🔮 Predict", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } }); }
       return true;
     }

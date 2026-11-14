@@ -1,0 +1,29 @@
+diff --git a/api/_lib/predict.js b/api/_lib/predict.js
+index f38f3db..6cbb23f 100644
+--- a/api/_lib/predict.js
++++ b/api/_lib/predict.js
+@@ -116,7 +116,7 @@ async function eventMsg(eventId) {
+   if (!ms.length) L.push(all.length ? "This event is closed for trading." + (all[0].result ? ` Result: <b>${esc(String(all[0].result).toUpperCase())}</b>` : "") : "No open markets for this event.");
+   ms.slice(0, 8).forEach((m) => {
+     const single = ms.length === 1 && (!mTitle(m) || mTitle(m) === titleOf(ev));
+-    L.push(`${single ? "" : "<b>" + esc(cut(mTitle(m) || "Market", 60)) + "</b>\n"}🟢 Yes ${cents(yesOf(m))} · 🔴 No ${cents(noOf(m))}`);
++    L.push(`${single ? "" : "<b>" + esc(cut(mTitle(m) || "Market", 60)) + "</b>\n"}🟢 Yes ${esc(cents(yesOf(m)))} · 🔴 No ${esc(cents(noOf(m)))}`);
+   });
+   if (ms.length > 8) L.push(`<i>+ ${ms.length - 8} more outcomes</i>`);
+   const rule = ms[0] && ms[0].metadata && ms[0].metadata.rulesPrimary;
+diff --git a/api/_lib/tradebot.js b/api/_lib/tradebot.js
+index 7ad8325..1390b91 100644
+--- a/api/_lib/tradebot.js
++++ b/api/_lib/tradebot.js
+@@ -437,7 +437,10 @@ function make(tg) {
+       const P = require("./predict"), sub = d[2];
+       if (sub === "s") { await ack(); await prompt(chat, P.SEARCH_PROMPT, "pred", "bitcoin"); return true; }
+       await ack("Loading markets…");
+-      try { await edit(chat, mid, sub === "e" ? await P.eventMsg(d.slice(4)) : await P.listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a")); }
++      try {
++        const r = await edit(chat, mid, sub === "e" ? await P.eventMsg(d.slice(4)) : await P.listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a"));
++        if (r && r.ok === false && !/not modified/i.test(r.description || "")) { console.error("predict edit failed", d, r.description); await send(chat, "⚠️ Couldn't show this market. Try again in a moment."); }
++      }
+       catch (e) { await edit(chat, mid, { text: errText(e), reply_markup: { inline_keyboard: [[{ text: "🔮 Predict", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } }); }
+       return true;
+     }

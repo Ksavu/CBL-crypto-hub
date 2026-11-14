@@ -116,7 +116,7 @@ async function eventMsg(eventId) {
   if (!ms.length) L.push(all.length ? "This event is closed for trading." + (all[0].result ? ` Result: <b>${esc(String(all[0].result).toUpperCase())}</b>` : "") : "No open markets for this event.");
   ms.slice(0, 8).forEach((m) => {
     const single = ms.length === 1 && (!mTitle(m) || mTitle(m) === titleOf(ev));
-    L.push(`${single ? "" : "<b>" + esc(cut(mTitle(m) || "Market", 60)) + "</b>\n"}🟢 Yes ${cents(yesOf(m))} · 🔴 No ${cents(noOf(m))}`);
+    L.push(`${single ? "" : "<b>" + esc(cut(mTitle(m) || "Market", 60)) + "</b>\n"}🟢 Yes ${esc(cents(yesOf(m)))} · 🔴 No ${esc(cents(noOf(m)))}`);
   });
   if (ms.length > 8) L.push(`<i>+ ${ms.length - 8} more outcomes</i>`);
   const rule = ms[0] && ms[0].metadata && ms[0].metadata.rulesPrimary;
