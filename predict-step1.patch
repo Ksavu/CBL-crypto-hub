@@ -1,0 +1,238 @@
+diff --git a/TELEGRAM_SETUP.md b/TELEGRAM_SETUP.md
+index aff9e30..5054d97 100644
+--- a/TELEGRAM_SETUP.md
++++ b/TELEGRAM_SETUP.md
+@@ -185,3 +185,14 @@ They are labelled ⬆️ higher.fun by their `…high` address ending and by hig
+ - `/points` (also ⭐ Points in the Bartender menu) and `/rank` (top calling groups, 7 days).
+ - Points recalculate every 30 min (trending cron). Monday at `WEEKLY_HOUR_UTC` (default 10) a winners post goes to the channel.
+ - Optional `WEEKLY_PRIZE` text, e.g. `free 24h Trending boost` — shown on /points and in the winners post.
++
++## Predict (prediction markets in the Bartender)
++
++🔮 Predict in the Bartender menu, or `/predict` (trending) and `/predict <words>` (search), lists prediction markets from
++Polymarket and Kalshi through Jupiter's Prediction API (`api/_lib/predict.js`).
++
++- Uses the same `JUP_API_KEY` as Solana swaps. Without it the screen says Predict is not switched on.
++- Step 1 is read-only: trending / new / live lists, categories, search and the event view with Yes / No prices and the
++  resolution rule. Buying, selling, claiming and the CBL fee come in the next step.
++- The API is in beta, and Jupiter blocks requests from US and South Korea IPs. If Predict answers "not available from
++  this server's region", move the Vercel function region away from the US (Project → Settings → Functions → Region).
+diff --git a/api/_lib/predict.js b/api/_lib/predict.js
+new file mode 100644
+index 0000000..f38f3db
+--- /dev/null
++++ b/api/_lib/predict.js
+@@ -0,0 +1,131 @@
++// Predict: prediction markets inside CBL Bartender, through Jupiter's Prediction API (markets come from Polymarket and Kalshi).
++//   Step 1 (this file): browse, search and event view, read-only. Buy / sell / claim and the CBL fee come in the next step.
++//   Needs JUP_API_KEY (the same key the Solana swaps use). The API is in beta and Jupiter blocks US and South Korea IPs.
++//   Callback data (Telegram limit 64 bytes):
++//     TQ                 home (trending, all categories)
++//     TQl<filter><cat>   list, e.g. TQltc = trending crypto
++//     TQe:<eventId>      one event with its markets
++//     TQs                search prompt (the reply is handled in tradebot.js, tag #pred)
++const { UserErr } = require("./trade");
++const { esc } = require("./format");
++
++const BASE = "https://api.jup.ag/prediction/v1";
++const clean = (v) => String(v || "").trim().replace(/^["']|["']$/g, "");
++const on = () => !!clean(process.env.JUP_API_KEY);
++const fail = (m) => { throw new UserErr(m); };
++
++const FILTER = { t: ["trending", "🔥 Trending"], n: ["new", "🆕 New"], l: ["live", "🔴 Live"] };
++const CAT = { a: ["all", "All"], c: ["crypto", "Crypto"], s: ["sports", "Sports"], p: ["politics", "Politics"], e: ["esports", "E-sports"], u: ["culture", "Culture"], o: ["economics", "Economics"], t: ["tech", "Tech"] };
++const NOTE = "<i>Preview: browsing only for now, trading opens soon. Markets by Polymarket and Kalshi via Jupiter. Not available to residents of the US or South Korea.</i>";
++
++async function api(path) {
++  const key = clean(process.env.JUP_API_KEY); if (!key) fail("Predict is not switched on yet (JUP_API_KEY).");
++  const c = new AbortController(), t = setTimeout(() => c.abort(), 12000);
++  let r, d = null;
++  try { r = await fetch(BASE + path, { headers: { "x-api-key": key, accept: "application/json" }, signal: c.signal }); try { d = await r.json(); } catch (e) {} }
++  catch (e) { fail("Jupiter did not answer. Try again in a moment."); }
++  finally { clearTimeout(t); }
++  if (!r.ok) fail(r.status === 403 || r.status === 451 ? "Prediction markets are not available from this server's region." : r.status === 404 ? "That market was not found." : r.status === 429 ? "Too many requests. Try again in a minute." : String((d && (d.error || d.message)) || "Jupiter error " + r.status).slice(0, 160));
++  return d;
++}
++const rows = (d) => (Array.isArray(d) ? d : d && Array.isArray(d.data) ? d.data : []);
++
++// Prices arrive as dollars (0.63), cents (63) or micro USD (630000) depending on the endpoint version: normalise to 0–1.
++function px(v) {
++  const n = Number(v); if (v == null || v === "" || !Number.isFinite(n) || n < 0) return null;
++  const p = n > 100 ? n / 1e6 : n > 1 ? n / 100 : n;
++  return p > 1 ? null : p;
++}
++const cents = (p) => (p == null ? "–" : p < 0.01 ? "<1¢" : p >= 0.995 ? "99¢+" : Math.round(p * 100) + "¢");
++const pct = (p) => (p == null ? "" : p < 0.01 ? "<1%" : p > 0.99 ? ">99%" : Math.round(p * 100) + "%");
++const cut = (s, n) => { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + "…" : s; };
++function when(v) {
++  if (v == null || v === "") return null;
++  const ms = typeof v === "number" || /^\d+$/.test(String(v)) ? (Number(v) < 1e12 ? Number(v) * 1000 : Number(v)) : Date.parse(v);
++  if (!Number.isFinite(ms) || ms < 1e11) return null;
++  const left = ms - Date.now(), d = new Date(ms).toISOString().slice(0, 10);
++  if (left <= 0) return "closed " + d;
++  const h = left / 36e5;
++  return h < 1 ? "closes in " + Math.max(1, Math.round(left / 6e4)) + " min" : h < 48 ? "closes in " + Math.round(h) + "h" : "closes " + d;
++}
++
++const titleOf = (ev) => (ev && ev.metadata && ev.metadata.title) || (ev && ev.title) || "Untitled event";
++const mTitle = (m) => (m && m.metadata && m.metadata.title) || (m && m.title) || "";
++const yesOf = (m) => px(m && m.pricing && m.pricing.buyYesPriceUsd);
++const noOf = (m) => px(m && m.pricing && m.pricing.buyNoPriceUsd);
++const openMarkets = (ev) => ((ev && ev.markets) || []).filter((m) => !m.status || m.status === "open");
++/** The market that leads an event: highest YES price among open markets. */
++function lead(ev) {
++  const ms = openMarkets(ev).filter((m) => yesOf(m) != null);
++  return ms.sort((a, b) => yesOf(b) - yesOf(a))[0] || null;
++}
++function evLine(ev, i) {
++  const ms = openMarkets(ev), l = lead(ev), w = when(ev.metadata && ev.metadata.closeTime);
++  const odds = !l ? "" : ms.length > 1 ? `${cut(mTitle(l), 28)} ${pct(yesOf(l))}` : `Yes ${pct(yesOf(l))}`;
++  return `${i + 1}. <b>${esc(cut(titleOf(ev), 80))}</b>${odds ? "\n   " + esc(odds) : ""}${w ? " · " + w : ""}`;
++}
++const fits = (data) => Buffer.byteLength(data) <= 64;
++function evButtons(evs) {
++  return evs.filter((ev) => ev && ev.eventId && fits("TQe:" + ev.eventId)).map((ev) => {
++    const l = lead(ev);
++    return [{ text: cut(`${evs.indexOf(ev) + 1}. ${titleOf(ev)}`, 44) + (l && openMarkets(ev).length === 1 ? " · " + pct(yesOf(l)) : ""), callback_data: "TQe:" + ev.eventId }];
++  });
++}
++function navRows(f, c) {
++  const cats = Object.keys(CAT);
++  return [
++    Object.keys(FILTER).map((k) => ({ text: (k === f ? "• " : "") + FILTER[k][1], callback_data: "TQl" + k + c })),
++    cats.slice(0, 4).map((k) => ({ text: (k === c ? "• " : "") + CAT[k][1], callback_data: "TQl" + f + k })),
++    cats.slice(4).map((k) => ({ text: (k === c ? "• " : "") + CAT[k][1], callback_data: "TQl" + f + k })),
++    [{ text: "🔎 Search", callback_data: "TQs" }, { text: "🔄 Refresh", callback_data: "TQl" + f + c }, { text: "⬅️ Menu", callback_data: "Tm" }],
++  ];
++}
++
++/** Event list for a filter (t/n/l) and category (a/c/s/p/e/u/o/t). */
++async function listMsg(f, c) {
++  if (!FILTER[f]) f = "t"; if (!CAT[c]) c = "a";
++  const q = new URLSearchParams({ filter: FILTER[f][0], includeMarkets: "true" }); if (c !== "a") q.set("category", CAT[c][0]);
++  const evs = rows(await api("/events?" + q)).filter((ev) => ev && ev.isActive !== false).slice(0, 8);
++  const L = [`🔮 <b>Predict</b> · ${FILTER[f][1]}${c === "a" ? "" : " · " + CAT[c][1]}`, "Trade on real-world events. Each share pays $1 if you're right.", ""];
++  if (!evs.length) L.push("Nothing here right now. Try another filter or category.");
++  evs.forEach((ev, i) => L.push(evLine(ev, i)));
++  L.push("", NOTE);
++  return { text: L.join("\n"), reply_markup: { inline_keyboard: [...evButtons(evs), ...navRows(f, c)] } };
++}
++
++/** Search results for free text. */
++async function searchMsg(query) {
++  const term = cut(query, 60); if (term.length < 2) fail("Send at least two letters to search, e.g. <code>bitcoin</code>.");
++  const evs = rows(await api("/events/search?" + new URLSearchParams({ query: term, limit: "8", includeMarkets: "true" }))).slice(0, 8);
++  const L = [`🔎 <b>Predict</b> · results for “${esc(term)}”`, ""];
++  if (!evs.length) L.push("No markets found. Try a shorter or different word.");
++  evs.forEach((ev, i) => L.push(evLine(ev, i)));
++  L.push("", NOTE);
++  return { text: L.join("\n"), reply_markup: { inline_keyboard: [...evButtons(evs), [{ text: "🔎 Search again", callback_data: "TQs" }, { text: "🔥 Trending", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } };
++}
++
++/** One event: its markets with YES / NO prices, close time and the resolution rule. */
++async function eventMsg(eventId) {
++  if (!/^[\w.:~-]{1,60}$/.test(String(eventId || ""))) fail("That market was not found.");
++  const d = await api("/events/" + encodeURIComponent(eventId) + "?includeMarkets=true"), ev = d && d.data && !Array.isArray(d.data) ? d.data : d;
++  if (!ev || (!ev.eventId && !ev.metadata)) fail("That market was not found.");
++  const all = ev.markets || [], ms = openMarkets(ev).sort((a, b) => (yesOf(b) || 0) - (yesOf(a) || 0)), w = when(ev.metadata && ev.metadata.closeTime);
++  const L = [`🔮 <b>${esc(cut(titleOf(ev), 200))}</b>`];
++  if (ev.metadata && ev.metadata.subtitle) L.push(esc(cut(ev.metadata.subtitle, 140)));
++  L.push([ev.category && esc(String(ev.category)), ev.isLive ? "🔴 live" : null, w].filter(Boolean).join(" · "), "");
++  if (!ms.length) L.push(all.length ? "This event is closed for trading." + (all[0].result ? ` Result: <b>${esc(String(all[0].result).toUpperCase())}</b>` : "") : "No open markets for this event.");
++  ms.slice(0, 8).forEach((m) => {
++    const single = ms.length === 1 && (!mTitle(m) || mTitle(m) === titleOf(ev));
++    L.push(`${single ? "" : "<b>" + esc(cut(mTitle(m) || "Market", 60)) + "</b>\n"}🟢 Yes ${cents(yesOf(m))} · 🔴 No ${cents(noOf(m))}`);
++  });
++  if (ms.length > 8) L.push(`<i>+ ${ms.length - 8} more outcomes</i>`);
++  const rule = ms[0] && ms[0].metadata && ms[0].metadata.rulesPrimary;
++  if (rule) L.push("", "<b>How it resolves</b>", esc(cut(rule, 420)));
++  L.push("", "<i>Prices are per share: a 40¢ share pays $1 if you're right and $0 if you're not.</i>", NOTE);
++  return { text: L.filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n"),
++    reply_markup: { inline_keyboard: [[{ text: "🔄 Refresh", callback_data: "TQe:" + eventId }, { text: "🔥 Trending", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } };
++}
++
++const SEARCH_PROMPT = "🔎 <b>Search prediction markets</b>\nReply with a word or name, e.g. <code>bitcoin</code>, <code>election</code> or a team.";
++
++module.exports = { on, listMsg, searchMsg, eventMsg, SEARCH_PROMPT, FILTER, CAT, _: { px, cents, pct, when, lead, evLine, rows } };
+diff --git a/api/_lib/tradebot.js b/api/_lib/tradebot.js
+index 1f290c3..7ad8325 100644
+--- a/api/_lib/tradebot.js
++++ b/api/_lib/tradebot.js
+@@ -53,8 +53,8 @@ function sortList(list, st) {
+ }
+ 
+ const HOME_KB = [
+-  [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📈 Stocks", callback_data: "TX" }, { text: "📥 Fund", callback_data: "Td" }],
+-  [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
++  [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📈 Stocks", callback_data: "TX" }, { text: "🔮 Predict", callback_data: "TQ" }],
++  [{ text: "📥 Fund", callback_data: "Td" }, { text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
+   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 Orders (TP/SL/limit)", callback_data: "To" }],
+   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
+   [{ text: "👥 Copy trade", callback_data: "TC" }, { text: "🔔 Alerts", callback_data: "TL" }, { text: "⭐ Points", callback_data: "TP" }],
+@@ -100,7 +100,9 @@ const HELP = `<b>❓ How the CBL Bartender works</b>
+ <b>Bundles:</b> 👛 Wallet → ➕ add up to 5 Solana wallets, 💸 spread SOL to them, turn 📦 Bundles on. Every Solana buy/sell then runs from all wallets in one Jito bundle (same block, all or nothing).
+ <b>Keys:</b> 👛 Wallet → 🔑 Export. Keep them private — anyone with them controls your funds.
+ 
+-Commands: /trade · /positions · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export · /settings`;
++<b>Predict:</b> 🔮 Predict (or /predict) lists prediction markets from Polymarket and Kalshi: trending, by category, or search. Browsing only for now.
++
++Commands: /trade · /positions · /predict · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export · /settings`;
+ 
+ async function positionsMsg(uid) {
+   const { row, list } = await T.positions(uid), st = T.settings(row), shown = sortList(list, st), hidden = list.filter((p) => p.raw > 0n).length - shown.length;
+@@ -287,7 +289,7 @@ function make(tg) {
+ 
+   /** Commands. Returns true when handled. */
+   async function command(name, args, msg, botUser) {
+-    const map = { trade: 1, menu: 1, home: 1, positions: 1, pos: 1, withdraw: 1, export: 1, settings: 1, buy: 1, sell: 1 };
++    const map = { trade: 1, menu: 1, home: 1, positions: 1, pos: 1, withdraw: 1, export: 1, settings: 1, buy: 1, sell: 1, predict: 1, predictions: 1 };
+     if (!map[name]) return false;
+     if (dmOnly(msg)) { await send(msg.chat.id, botUser ? `🍸 The Bartender only takes orders in private: <a href="https://t.me/${botUser.replace(/^@/, "")}?start=trade">open CBL Bartender</a>` : "🍸 The Bartender only takes orders in a private chat with me."); return true; }
+     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
+@@ -295,6 +297,11 @@ function make(tg) {
+     if (name === "trade" || name === "menu" || name === "home") { await openMenu(chat, uid); return true; }
+     const row = await T.getRow(uid); if (!row) { await send(chat, introMsg()); return true; }
+     if (name === "positions" || name === "pos") { await send(chat, await positionsMsg(uid)); return true; }
++    if (name === "predict" || name === "predictions") { // /predict = trending, /predict <words> = search
++      const P = require("./predict");
++      try { await send(chat, args.length ? await P.searchMsg(args.join(" ")) : await P.listMsg("t", "a")); } catch (e) { await send(chat, errText(e)); }
++      return true;
++    }
+     if (name === "settings") { await send(chat, settingsMsg(row)); return true; }
+     if (name === "export") { await send(chat, exportAsk()); return true; }
+     if (name === "withdraw") { await send(chat, withdrawPick()); return true; }
+@@ -426,6 +433,14 @@ function make(tg) {
+       } catch (e) { await ack(); await send(chat, errText(e)); }
+       return true;
+     }
++    if (k === "Q") { // Predict: TQ home · TQl<filter><category> list · TQe:<eventId> event · TQs search prompt
++      const P = require("./predict"), sub = d[2];
++      if (sub === "s") { await ack(); await prompt(chat, P.SEARCH_PROMPT, "pred", "bitcoin"); return true; }
++      await ack("Loading markets…");
++      try { await edit(chat, mid, sub === "e" ? await P.eventMsg(d.slice(4)) : await P.listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a")); }
++      catch (e) { await edit(chat, mid, { text: errText(e), reply_markup: { inline_keyboard: [[{ text: "🔮 Predict", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } }); }
++      return true;
++    }
+     if (k === "X") { // xStocks list → tap opens the normal token screen (buy / sell / TP-SL)
+       await ack();
+       const ST = require("./stocks"), [l, mk] = [await ST.list().catch(() => []), ST.market()];
+@@ -532,7 +547,7 @@ function make(tg) {
+   /** Replies to the bot's ✏️ prompts. Returns true when handled. Find-token replies return { ca, chain } to scan. */
+   async function replyPrompt(msg) {
+     const r = msg.reply_to_message; if (!r || !r.from || !r.from.is_bot || msg.chat.type !== "private") return false;
+-    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
++    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread|pred)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
+     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
+     const [, kind, a1, a2] = tag, uid = msg.from.id, chat = msg.chat.id, txt = (msg.text || "").trim();
+     if (kind === "find") {
+@@ -540,6 +555,10 @@ function make(tg) {
+       const ca = (txt.match(CA_RE) || [])[0]; if (ca) return { ca, chain: null };
+       const handled = await textInput({ chat: msg.chat, text: txt.startsWith("$") ? txt : "$" + txt }); return handled || true;
+     }
++    if (kind === "pred") {
++      try { await send(chat, await require("./predict").searchMsg(txt)); } catch (e) { await send(chat, errText(e)); }
++      return true;
++    }
+     if (kind === "spread") {
+       if (!/^\d*\.?\d+$/.test(txt)) { await send(chat, "Reply with an amount, e.g. <code>0.2</code>"); return true; }
+       try { const r = await B.spread(uid, txt); await send(chat, { text: `💸 Sent ${fmt(r.amt, "s")} SOL from W1 to ${r.n} wallet(s).`, reply_markup: { inline_keyboard: [[{ text: "👛 Wallet", callback_data: "TA" }]] } }); } catch (e) { await send(chat, errText(e)); }

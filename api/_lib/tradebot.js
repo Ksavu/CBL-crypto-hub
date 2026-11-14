@@ -53,8 +53,8 @@ function sortList(list, st) {
 }
 
 const HOME_KB = [
-  [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📈 Stocks", callback_data: "TX" }, { text: "📥 Fund", callback_data: "Td" }],
-  [{ text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
+  [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📈 Stocks", callback_data: "TX" }, { text: "🔮 Predict", callback_data: "TQ" }],
+  [{ text: "📥 Fund", callback_data: "Td" }, { text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 Orders (TP/SL/limit)", callback_data: "To" }],
   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
   [{ text: "👥 Copy trade", callback_data: "TC" }, { text: "🔔 Alerts", callback_data: "TL" }, { text: "⭐ Points", callback_data: "TP" }],
@@ -100,7 +100,9 @@ const HELP = `<b>❓ How the CBL Bartender works</b>
 <b>Bundles:</b> 👛 Wallet → ➕ add up to 5 Solana wallets, 💸 spread SOL to them, turn 📦 Bundles on. Every Solana buy/sell then runs from all wallets in one Jito bundle (same block, all or nothing).
 <b>Keys:</b> 👛 Wallet → 🔑 Export. Keep them private — anyone with them controls your funds.
 
-Commands: /trade · /positions · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export · /settings`;
+<b>Predict:</b> 🔮 Predict (or /predict) lists prediction markets from Polymarket and Kalshi: trending, by category, or search. Browsing only for now.
+
+Commands: /trade · /positions · /predict · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export · /settings`;
 
 async function positionsMsg(uid) {
   const { row, list } = await T.positions(uid), st = T.settings(row), shown = sortList(list, st), hidden = list.filter((p) => p.raw > 0n).length - shown.length;
@@ -287,7 +289,7 @@ function make(tg) {
 
   /** Commands. Returns true when handled. */
   async function command(name, args, msg, botUser) {
-    const map = { trade: 1, menu: 1, home: 1, positions: 1, pos: 1, withdraw: 1, export: 1, settings: 1, buy: 1, sell: 1 };
+    const map = { trade: 1, menu: 1, home: 1, positions: 1, pos: 1, withdraw: 1, export: 1, settings: 1, buy: 1, sell: 1, predict: 1, predictions: 1 };
     if (!map[name]) return false;
     if (dmOnly(msg)) { await send(msg.chat.id, botUser ? `🍸 The Bartender only takes orders in private: <a href="https://t.me/${botUser.replace(/^@/, "")}?start=trade">open CBL Bartender</a>` : "🍸 The Bartender only takes orders in a private chat with me."); return true; }
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
@@ -295,6 +297,11 @@ function make(tg) {
     if (name === "trade" || name === "menu" || name === "home") { await openMenu(chat, uid); return true; }
     const row = await T.getRow(uid); if (!row) { await send(chat, introMsg()); return true; }
     if (name === "positions" || name === "pos") { await send(chat, await positionsMsg(uid)); return true; }
+    if (name === "predict" || name === "predictions") { // /predict = trending, /predict <words> = search
+      const P = require("./predict");
+      try { await send(chat, args.length ? await P.searchMsg(args.join(" ")) : await P.listMsg("t", "a")); } catch (e) { await send(chat, errText(e)); }
+      return true;
+    }
     if (name === "settings") { await send(chat, settingsMsg(row)); return true; }
     if (name === "export") { await send(chat, exportAsk()); return true; }
     if (name === "withdraw") { await send(chat, withdrawPick()); return true; }
@@ -426,6 +433,14 @@ function make(tg) {
       } catch (e) { await ack(); await send(chat, errText(e)); }
       return true;
     }
+    if (k === "Q") { // Predict: TQ home · TQl<filter><category> list · TQe:<eventId> event · TQs search prompt
+      const P = require("./predict"), sub = d[2];
+      if (sub === "s") { await ack(); await prompt(chat, P.SEARCH_PROMPT, "pred", "bitcoin"); return true; }
+      await ack("Loading markets…");
+      try { await edit(chat, mid, sub === "e" ? await P.eventMsg(d.slice(4)) : await P.listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a")); }
+      catch (e) { await edit(chat, mid, { text: errText(e), reply_markup: { inline_keyboard: [[{ text: "🔮 Predict", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } }); }
+      return true;
+    }
     if (k === "X") { // xStocks list → tap opens the normal token screen (buy / sell / TP-SL)
       await ack();
       const ST = require("./stocks"), [l, mk] = [await ST.list().catch(() => []), ST.market()];
@@ -532,13 +547,17 @@ function make(tg) {
   /** Replies to the bot's ✏️ prompts. Returns true when handled. Find-token replies return { ca, chain } to scan. */
   async function replyPrompt(msg) {
     const r = msg.reply_to_message; if (!r || !r.from || !r.from.is_bot || msg.chat.type !== "private") return false;
-    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
+    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread|pred)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
     const [, kind, a1, a2] = tag, uid = msg.from.id, chat = msg.chat.id, txt = (msg.text || "").trim();
     if (kind === "find") {
       const link = /https?:\/\//.test(txt) ? await fromLink(txt) : null; if (link) return link;
       const ca = (txt.match(CA_RE) || [])[0]; if (ca) return { ca, chain: null };
       const handled = await textInput({ chat: msg.chat, text: txt.startsWith("$") ? txt : "$" + txt }); return handled || true;
+    }
+    if (kind === "pred") {
+      try { await send(chat, await require("./predict").searchMsg(txt)); } catch (e) { await send(chat, errText(e)); }
+      return true;
     }
     if (kind === "spread") {
       if (!/^\d*\.?\d+$/.test(txt)) { await send(chat, "Reply with an amount, e.g. <code>0.2</code>"); return true; }

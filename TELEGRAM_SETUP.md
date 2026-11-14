@@ -185,3 +185,14 @@ They are labelled ⬆️ higher.fun by their `…high` address ending and by hig
 - `/points` (also ⭐ Points in the Bartender menu) and `/rank` (top calling groups, 7 days).
 - Points recalculate every 30 min (trending cron). Monday at `WEEKLY_HOUR_UTC` (default 10) a winners post goes to the channel.
 - Optional `WEEKLY_PRIZE` text, e.g. `free 24h Trending boost` — shown on /points and in the winners post.
+
+## Predict (prediction markets in the Bartender)
+
+🔮 Predict in the Bartender menu, or `/predict` (trending) and `/predict <words>` (search), lists prediction markets from
+Polymarket and Kalshi through Jupiter's Prediction API (`api/_lib/predict.js`).
+
+- Uses the same `JUP_API_KEY` as Solana swaps. Without it the screen says Predict is not switched on.
+- Step 1 is read-only: trending / new / live lists, categories, search and the event view with Yes / No prices and the
+  resolution rule. Buying, selling, claiming and the CBL fee come in the next step.
+- The API is in beta, and Jupiter blocks requests from US and South Korea IPs. If Predict answers "not available from
+  this server's region", move the Vercel function region away from the US (Project → Settings → Functions → Region).
