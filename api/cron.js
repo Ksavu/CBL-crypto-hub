@@ -88,8 +88,9 @@ module.exports = async (req, res) => {
     const notify = tgNotify, O = require("./_lib/orders");
     const a = await O.alertJob(t0 + 15000, notify).catch((e) => ({ alertError: String(e.message).slice(0, 100) })); // price alerts: everyone, trading on or off
     const r = await O.job(t0 + 35000, notify).catch((e) => ({ error: String(e.message).slice(0, 100) }));
+    const pj = require("./_lib/vault").on() ? await require("./_lib/predict").job(t0 + 44000).catch((e) => ({ predError: String(e.message).slice(0, 100) })) : {}; // prediction orders that filled after the user's request ended
     const cp = require("./_lib/vault").on() ? await require("./_lib/copy").pollJob(t0 + 52000, notify).catch((e) => ({ copyError: String(e.message).slice(0, 100) })) : {}; // copy trading backup check + EVM chains
-    return res.status(200).json({ ok: true, job: "orders", ...a, ...r, ...cp });
+    return res.status(200).json({ ok: true, job: "orders", ...a, ...r, ...pj, ...cp });
   }
   if (job === "devs") { const r = await require("./_lib/devstats").devJob(t0 + 50000).catch((e) => ({ error: String(e.message).slice(0, 100) })); return res.status(200).json({ ok: true, job: "devs", ...r }); }
   if (job === "curves") { const r = await require("./_lib/curves").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "curves", ...r.stats }); }

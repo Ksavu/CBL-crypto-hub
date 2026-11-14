@@ -355,6 +355,7 @@ async function positions(uid) {
   const trades = (await db.select("bot_trades", `tg_id=eq.${uid}&select=chain,token,side,native_raw,token_raw,decimals,created_at&order=created_at.asc&limit=2000`)) || [];
   const agg = new Map();
   for (const t of trades) {
+    if (String(t.token).startsWith("pred:")) continue; // prediction-market trades (./predict.js) are not tokens
     const k = t.chain + "|" + t.token, a = agg.get(k) || { chain: t.chain, token: t.token, spent: 0n, got: 0n, dec: t.decimals };
     if (t.side === "buy") a.spent += BigInt(t.native_raw); else a.got += BigInt(t.native_raw);
     agg.set(k, a);
@@ -392,5 +393,5 @@ async function tokenView(uid, c, ca) {
 }
 
 // internals shared with bundle.js
-module.exports._ = { evmTokenBal, prov, waitTx, srpc, solTokens, solBal, solDecimals, jfetch, lock, unlock, record, feeTo, fail, toUnits, SOL_MINT, clean };
+module.exports._ = { evmTokenBal, prov, waitTx, srpc, solTokens, solBal, solDecimals, jfetch, lock, unlock, record, feeTo, fail, toUnits, SOL_MINT, clean, solSwap, solSend, dsPrices, jup };
 Object.assign(module.exports, { DEFAULTS, on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf, ponsInfo });

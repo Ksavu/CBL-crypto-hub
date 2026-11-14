@@ -151,7 +151,7 @@ const HELP = [
   "<b>🍸 CBL Bartender</b> — trading (private chat)",
   "/trade – open the Bartender, your CBL trading wallet: buy/sell on Solana, BNB Chain, Base and Robinhood Chain (incl. pump.fun, Four.meme, Pons curves)",
   "Paste a token here and tap 🟢 Buy or 🔴 Sell · /positions – holdings + PnL · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export",
-  "/predict – 🔮 prediction markets from Polymarket and Kalshi: trending, categories and search (/predict bitcoin). Browsing only for now, trading opens soon",
+  "/predict – 🔮 prediction markets from Polymarket and Kalshi: buy Yes / No shares from $5, sell any time, claim when you win (/predict bitcoin to search)",
   "",
   "/radar [safe|trending|new|gainers|curves] – top tokens right now with CBL scores (curves = still on Pump.fun, Pons, Four.meme… bonding curves)",
   "",

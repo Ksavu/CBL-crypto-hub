@@ -100,7 +100,7 @@ const HELP = `<b>❓ How the CBL Bartender works</b>
 <b>Bundles:</b> 👛 Wallet → ➕ add up to 5 Solana wallets, 💸 spread SOL to them, turn 📦 Bundles on. Every Solana buy/sell then runs from all wallets in one Jito bundle (same block, all or nothing).
 <b>Keys:</b> 👛 Wallet → 🔑 Export. Keep them private — anyone with them controls your funds.
 
-<b>Predict:</b> 🔮 Predict (or /predict) lists prediction markets from Polymarket and Kalshi: trending, by category, or search. Browsing only for now.
+<b>Predict:</b> 🔮 Predict (or /predict) opens prediction markets from Polymarket and Kalshi. Pick a market, tap Yes or No and an amount (from $5). Each share pays $1 if you're right. Paid in USDC, swapped from your SOL automatically; sell any time or claim when you win in 📊 My predictions. Same ${"{fee}"}% fee, taken in SOL after the order fills.
 
 Commands: /trade · /positions · /predict · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export · /settings`;
 
@@ -433,17 +433,7 @@ function make(tg) {
       } catch (e) { await ack(); await send(chat, errText(e)); }
       return true;
     }
-    if (k === "Q") { // Predict: TQ home · TQl<filter><category> list · TQe:<eventId> event · TQs search prompt
-      const P = require("./predict"), sub = d[2];
-      if (sub === "s") { await ack(); await prompt(chat, P.SEARCH_PROMPT, "pred", "bitcoin"); return true; }
-      await ack("Loading markets…");
-      try {
-        const r = await edit(chat, mid, sub === "e" ? await P.eventMsg(d.slice(4)) : await P.listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a"));
-        if (r && r.ok === false && !/not modified/i.test(r.description || "")) { console.error("predict edit failed", d, r.description); await send(chat, "⚠️ Couldn't show this market. Try again in a moment."); }
-      }
-      catch (e) { await edit(chat, mid, { text: errText(e), reply_markup: { inline_keyboard: [[{ text: "🔮 Predict", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } }); }
-      return true;
-    }
+    if (k === "Q") return require("./predict").callback({ d, uid, chat, mid, row, ack, edit, send, prompt, errText, text: q.message.text || "" }); // Predict (prediction markets): see ./predict.js
     if (k === "X") { // xStocks list → tap opens the normal token screen (buy / sell / TP-SL)
       await ack();
       const ST = require("./stocks"), [l, mk] = [await ST.list().catch(() => []), ST.market()];
@@ -474,7 +464,7 @@ function make(tg) {
       }
       await ack(); await edit(chat, mid, await refMsg(uid)); return true;
     }
-    if (k === "H") { await ack(); await send(chat, { text: HELP.replace("{fee}", T.feeBps() / 100), reply_markup: { inline_keyboard: [[{ text: "⬅️ Menu", callback_data: "Tm" }]] } }); return true; }
+    if (k === "H") { await ack(); await send(chat, { text: HELP.replace(/\{fee\}/g, T.feeBps() / 100), reply_markup: { inline_keyboard: [[{ text: "⬅️ Menu", callback_data: "Tm" }]] } }); return true; }
     if (k === "B") { await ack(); await prompt(chat, "🟢 <b>Buy a token</b>\nReply with a token address, a ticker (e.g. <code>$PEPE</code>) or a pump.fun / DEX Screener / Birdeye link.", "find", "token address, $TICKER or link"); return true; }
     if (k === "s") { await ack(); await edit(chat, mid, settingsMsg(row)); return true; }
     if (k === "S") {
@@ -558,10 +548,7 @@ function make(tg) {
       const ca = (txt.match(CA_RE) || [])[0]; if (ca) return { ca, chain: null };
       const handled = await textInput({ chat: msg.chat, text: txt.startsWith("$") ? txt : "$" + txt }); return handled || true;
     }
-    if (kind === "pred") {
-      try { await send(chat, await require("./predict").searchMsg(txt)); } catch (e) { await send(chat, errText(e)); }
-      return true;
-    }
+    if (kind === "pred") { await require("./predict").reply({ a1, uid, chat, txt, promptText: r.text || "", send, errText }); return true; } // search words or a custom amount
     if (kind === "spread") {
       if (!/^\d*\.?\d+$/.test(txt)) { await send(chat, "Reply with an amount, e.g. <code>0.2</code>"); return true; }
       try { const r = await B.spread(uid, txt); await send(chat, { text: `💸 Sent ${fmt(r.amt, "s")} SOL from W1 to ${r.n} wallet(s).`, reply_markup: { inline_keyboard: [[{ text: "👛 Wallet", callback_data: "TA" }]] } }); } catch (e) { await send(chat, errText(e)); }

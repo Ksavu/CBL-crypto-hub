@@ -20,6 +20,7 @@ module.exports = {
   insertRet: (table, rows) => q("POST", table, rows, "return=representation"),
   upsert: (table, rows, conflict) => q("POST", table + "?on_conflict=" + conflict, rows, "resolution=merge-duplicates,return=minimal"),
   patch: (table, query, body) => q("PATCH", table + "?" + query, body, "return=minimal"),
+  patchRet: (table, query, body) => q("PATCH", table + "?" + query, body, "return=representation"), // the rows that were changed ([] when none matched)
   del: (table, query) => q("DELETE", table + "?" + query, undefined, "return=minimal"),
   enc,
 };

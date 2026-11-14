@@ -115,7 +115,7 @@ async function alertJob(deadline, notify) {
   return { alerts: rows.length, sent };
 }
 
-const list = (uid, chain, ca) => db.select("bot_orders", `tg_id=eq.${uid}&active=eq.true&kind=neq.alert${chain ? `&chain=eq.${chain}&token=eq.${encodeURIComponent(key(chain, ca))}` : ""}&select=*&order=created_at.asc&limit=50`).then((r) => r || []);
+const list = (uid, chain, ca) => db.select("bot_orders", `tg_id=eq.${uid}&active=eq.true&kind=in.(take_profit,stop_loss,limit_buy)${chain ? `&chain=eq.${chain}&token=eq.${encodeURIComponent(key(chain, ca))}` : ""}&select=*&order=created_at.asc&limit=50`).then((r) => r || []);
 const cancel = (uid, id) => db.patch("bot_orders", `tg_id=eq.${uid}&id=eq.${Number(id)}`, { active: false });
 
 /** Settings → Auto TP/SL: attach orders to every buy. */

@@ -1,0 +1,638 @@
+diff --git a/TELEGRAM_SETUP.md b/TELEGRAM_SETUP.md
+index 5054d97..95f595d 100644
+--- a/TELEGRAM_SETUP.md
++++ b/TELEGRAM_SETUP.md
+@@ -188,11 +188,20 @@ They are labelled ⬆️ higher.fun by their `…high` address ending and by hig
+ 
+ ## Predict (prediction markets in the Bartender)
+ 
+-🔮 Predict in the Bartender menu, or `/predict` (trending) and `/predict <words>` (search), lists prediction markets from
++🔮 Predict in the Bartender menu, or `/predict` (trending) and `/predict <words>` (search), opens prediction markets from
+ Polymarket and Kalshi through Jupiter's Prediction API (`api/_lib/predict.js`).
+ 
+ - Uses the same `JUP_API_KEY` as Solana swaps. Without it the screen says Predict is not switched on.
+-- Step 1 is read-only: trending / new / live lists, categories, search and the event view with Yes / No prices and the
+-  resolution rule. Buying, selling, claiming and the CBL fee come in the next step.
++- Buy: open a market, tap Yes or No, pick $5 / $10 / $25 / $50 or another amount, confirm. Orders are paid in USDC; if
++  the wallet is short, the bot first swaps the missing USDC from the user's SOL. Minimum $5 (Jupiter's minimum),
++  maximum `PREDICT_MAX_USD` (default 1000).
++- 📊 My predictions: positions with value and profit, 🔴 Sell (all shares, at market), 💰 Claim for a won market,
++  and 💵 USDC → SOL to turn proceeds back into SOL (plain swap, no CBL fee).
++- Fee: `BOT_FEE_BPS` (1%) of the order value on buys and of the proceeds on sells, sent in SOL to `BOT_SOL_FEE_ACCOUNT`
++  only after the order is filled. No fee on failed orders or claims. The fee is written to `bot_trades`
++  (token `pred:<marketId>`), so referral earnings count it like any other Solana trade.
++- An order that has not filled when the request ends is kept in `bot_orders` (kind `pred`). The existing cron
++  `orders` job finishes it, charges the fee and messages the user. No new table and no new cron entry are needed.
+ - The API is in beta, and Jupiter blocks requests from US and South Korea IPs. If Predict answers "not available from
+   this server's region", move the Vercel function region away from the US (Project → Settings → Functions → Region).
++  The confirm screen has the user state they are not a US or South Korea resident.
+diff --git a/api/_lib/db.js b/api/_lib/db.js
+index 6408f62..022d9c6 100644
+--- a/api/_lib/db.js
++++ b/api/_lib/db.js
+@@ -20,6 +20,7 @@ module.exports = {
+   insertRet: (table, rows) => q("POST", table, rows, "return=representation"),
+   upsert: (table, rows, conflict) => q("POST", table + "?on_conflict=" + conflict, rows, "resolution=merge-duplicates,return=minimal"),
+   patch: (table, query, body) => q("PATCH", table + "?" + query, body, "return=minimal"),
++  patchRet: (table, query, body) => q("PATCH", table + "?" + query, body, "return=representation"), // the rows that were changed ([] when none matched)
+   del: (table, query) => q("DELETE", table + "?" + query, undefined, "return=minimal"),
+   enc,
+ };
+diff --git a/api/_lib/format.js b/api/_lib/format.js
+index 9bd4bfc..549ca74 100644
+--- a/api/_lib/format.js
++++ b/api/_lib/format.js
+@@ -151,7 +151,7 @@ const HELP = [
+   "<b>🍸 CBL Bartender</b> — trading (private chat)",
+   "/trade – open the Bartender, your CBL trading wallet: buy/sell on Solana, BNB Chain, Base and Robinhood Chain (incl. pump.fun, Four.meme, Pons curves)",
+   "Paste a token here and tap 🟢 Buy or 🔴 Sell · /positions – holdings + PnL · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export",
+-  "/predict – 🔮 prediction markets from Polymarket and Kalshi: trending, categories and search (/predict bitcoin). Browsing only for now, trading opens soon",
++  "/predict – 🔮 prediction markets from Polymarket and Kalshi: buy Yes / No shares from $5, sell any time, claim when you win (/predict bitcoin to search)",
+   "",
+   "/radar [safe|trending|new|gainers|curves] – top tokens right now with CBL scores (curves = still on Pump.fun, Pons, Four.meme… bonding curves)",
+   "",
+diff --git a/api/_lib/orders.js b/api/_lib/orders.js
+index b259f6d..404b0dd 100644
+--- a/api/_lib/orders.js
++++ b/api/_lib/orders.js
+@@ -115,7 +115,7 @@ async function alertJob(deadline, notify) {
+   return { alerts: rows.length, sent };
+ }
+ 
+-const list = (uid, chain, ca) => db.select("bot_orders", `tg_id=eq.${uid}&active=eq.true&kind=neq.alert${chain ? `&chain=eq.${chain}&token=eq.${encodeURIComponent(key(chain, ca))}` : ""}&select=*&order=created_at.asc&limit=50`).then((r) => r || []);
++const list = (uid, chain, ca) => db.select("bot_orders", `tg_id=eq.${uid}&active=eq.true&kind=in.(take_profit,stop_loss,limit_buy)${chain ? `&chain=eq.${chain}&token=eq.${encodeURIComponent(key(chain, ca))}` : ""}&select=*&order=created_at.asc&limit=50`).then((r) => r || []);
+ const cancel = (uid, id) => db.patch("bot_orders", `tg_id=eq.${uid}&id=eq.${Number(id)}`, { active: false });
+ 
+ /** Settings → Auto TP/SL: attach orders to every buy. */
+diff --git a/api/_lib/predict.js b/api/_lib/predict.js
+index 6cbb23f..b2e612d 100644
+--- a/api/_lib/predict.js
++++ b/api/_lib/predict.js
+@@ -1,13 +1,30 @@
+ // Predict: prediction markets inside CBL Bartender, through Jupiter's Prediction API (markets come from Polymarket and Kalshi).
+-//   Step 1 (this file): browse, search and event view, read-only. Buy / sell / claim and the CBL fee come in the next step.
++//   Browse / search / event view, buy YES or NO shares, positions, sell, claim, and the CBL fee.
+ //   Needs JUP_API_KEY (the same key the Solana swaps use). The API is in beta and Jupiter blocks US and South Korea IPs.
++//   Money flow: orders are paid in USDC. The user's Bartender wallet holds SOL, so a buy first swaps the missing USDC from SOL.
++//   Fee: BOT_FEE_BPS (default 1%) of the order value, sent in SOL to BOT_SOL_FEE_ACCOUNT only after the order is filled.
++//        It is written to bot_trades (chain solana, token "pred:<marketId>") so referral earnings pick it up like any other trade.
++//   An order that is still waiting when the request ends stays in bot_orders (kind "pred"); the cron "orders" job finishes it.
++//   Limits: PREDICT_MIN_USD (default and floor 5, Jupiter's minimum), PREDICT_MAX_USD (default 1000).
+ //   Callback data (Telegram limit 64 bytes):
+-//     TQ                 home (trending, all categories)
+-//     TQl<filter><cat>   list, e.g. TQltc = trending crypto
+-//     TQe:<eventId>      one event with its markets
+-//     TQs                search prompt (the reply is handled in tradebot.js, tag #pred)
+-const { UserErr } = require("./trade");
++//     TQ                    home (trending, all categories)
++//     TQl<filter><cat>      list, e.g. TQltc = trending crypto
++//     TQe:<eventId>         one event with its markets
++//     TQs                   search prompt (reply tag #pred)
++//     TQb<y|n>:<marketId>   pick an amount for YES / NO
++//     TQi<y|n>:<marketId>   custom amount prompt (reply tag #pred:buy)
++//     TQp<y|n><usd>:<id>    order preview
++//     TQo<y|n><usd>:<id>    place the order
++//     TQm                   my predictions (positions)
++//     TQx:<position> / TQz:<position>   sell: ask / confirmed
++//     TQc:<position>        claim a won position
++//     TQu / TQU             USDC → SOL: ask / confirmed
++const db = require("./db");
++const T = require("./trade");
++const V = require("./vault");
++const { UserErr } = T;
+ const { esc } = require("./format");
++const X = T._;
+ 
+ const BASE = "https://api.jup.ag/prediction/v1";
+ const clean = (v) => String(v || "").trim().replace(/^["']|["']$/g, "");
+@@ -16,18 +33,25 @@ const fail = (m) => { throw new UserErr(m); };
+ 
+ const FILTER = { t: ["trending", "🔥 Trending"], n: ["new", "🆕 New"], l: ["live", "🔴 Live"] };
+ const CAT = { a: ["all", "All"], c: ["crypto", "Crypto"], s: ["sports", "Sports"], p: ["politics", "Politics"], e: ["esports", "E-sports"], u: ["culture", "Culture"], o: ["economics", "Economics"], t: ["tech", "Tech"] };
+-const NOTE = "<i>Preview: browsing only for now, trading opens soon. Markets by Polymarket and Kalshi via Jupiter. Not available to residents of the US or South Korea.</i>";
++const NOTE = "<i>Markets by Polymarket and Kalshi via Jupiter. Not available to residents of the US or South Korea.</i>";
++const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
++const PRESETS = [5, 10, 25, 50];
++const minUsd = () => Math.max(5, Math.round(Number(clean(process.env.PREDICT_MIN_USD)) || 5));
++const maxUsd = () => Math.max(minUsd(), Math.round(Number(clean(process.env.PREDICT_MAX_USD)) || 1000));
++const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+ 
+-async function api(path) {
++async function api(path, method, body) {
+   const key = clean(process.env.JUP_API_KEY); if (!key) fail("Predict is not switched on yet (JUP_API_KEY).");
+-  const c = new AbortController(), t = setTimeout(() => c.abort(), 12000);
++  const c = new AbortController(), t = setTimeout(() => c.abort(), 15000);
+   let r, d = null;
+-  try { r = await fetch(BASE + path, { headers: { "x-api-key": key, accept: "application/json" }, signal: c.signal }); try { d = await r.json(); } catch (e) {} }
++  try { r = await fetch(BASE + path, { method: method || "GET", headers: Object.assign({ "x-api-key": key, accept: "application/json" }, body ? { "content-type": "application/json" } : {}), body: body ? JSON.stringify(body) : undefined, signal: c.signal }); try { d = await r.json(); } catch (e) {} }
+   catch (e) { fail("Jupiter did not answer. Try again in a moment."); }
+   finally { clearTimeout(t); }
+-  if (!r.ok) fail(r.status === 403 || r.status === 451 ? "Prediction markets are not available from this server's region." : r.status === 404 ? "That market was not found." : r.status === 429 ? "Too many requests. Try again in a minute." : String((d && (d.error || d.message)) || "Jupiter error " + r.status).slice(0, 160));
++  if (!r.ok) fail(r.status === 403 || r.status === 451 ? "Prediction markets are not available from this server's region." : r.status === 404 && !method ? "That market was not found." : r.status === 429 ? "Too many requests. Try again in a minute." : errOf(d, r.status));
+   return d;
+ }
++const errOf = (d, status) => { const m = d && (d.error || d.message); return String((m && typeof m === "object" ? m.message || JSON.stringify(m) : m) || "Jupiter error " + status).slice(0, 160); };
++const one = (d) => (d && d.data && !Array.isArray(d.data) && typeof d.data === "object" ? d.data : d);
+ const rows = (d) => (Array.isArray(d) ? d : d && Array.isArray(d.data) ? d.data : []);
+ 
+ // Prices arrive as dollars (0.63), cents (63) or micro USD (630000) depending on the endpoint version: normalise to 0–1.
+@@ -77,7 +101,8 @@ function navRows(f, c) {
+     Object.keys(FILTER).map((k) => ({ text: (k === f ? "• " : "") + FILTER[k][1], callback_data: "TQl" + k + c })),
+     cats.slice(0, 4).map((k) => ({ text: (k === c ? "• " : "") + CAT[k][1], callback_data: "TQl" + f + k })),
+     cats.slice(4).map((k) => ({ text: (k === c ? "• " : "") + CAT[k][1], callback_data: "TQl" + f + k })),
+-    [{ text: "🔎 Search", callback_data: "TQs" }, { text: "🔄 Refresh", callback_data: "TQl" + f + c }, { text: "⬅️ Menu", callback_data: "Tm" }],
++    [{ text: "🔎 Search", callback_data: "TQs" }, { text: "📊 My predictions", callback_data: "TQm" }],
++    [{ text: "🔄 Refresh", callback_data: "TQl" + f + c }, { text: "⬅️ Menu", callback_data: "Tm" }],
+   ];
+ }
+ 
+@@ -101,7 +126,7 @@ async function searchMsg(query) {
+   if (!evs.length) L.push("No markets found. Try a shorter or different word.");
+   evs.forEach((ev, i) => L.push(evLine(ev, i)));
+   L.push("", NOTE);
+-  return { text: L.join("\n"), reply_markup: { inline_keyboard: [...evButtons(evs), [{ text: "🔎 Search again", callback_data: "TQs" }, { text: "🔥 Trending", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } };
++  return { text: L.join("\n"), reply_markup: { inline_keyboard: [...evButtons(evs), [{ text: "🔎 Search again", callback_data: "TQs" }, { text: "📊 My predictions", callback_data: "TQm" }], [{ text: "🔥 Trending", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } };
+ }
+ 
+ /** One event: its markets with YES / NO prices, close time and the resolution rule. */
+@@ -121,11 +146,389 @@ async function eventMsg(eventId) {
+   if (ms.length > 8) L.push(`<i>+ ${ms.length - 8} more outcomes</i>`);
+   const rule = ms[0] && ms[0].metadata && ms[0].metadata.rulesPrimary;
+   if (rule) L.push("", "<b>How it resolves</b>", esc(cut(rule, 420)));
+-  L.push("", "<i>Prices are per share: a 40¢ share pays $1 if you're right and $0 if you're not.</i>", NOTE);
+-  return { text: L.filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n"),
+-    reply_markup: { inline_keyboard: [[{ text: "🔄 Refresh", callback_data: "TQe:" + eventId }, { text: "🔥 Trending", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } };
++  L.push("", "<i>Prices are per share: a 40¢ share pays $1 if you're right and $0 if you're not. Tap an outcome to buy.</i>", NOTE);
++  const kb = [];
++  ms.slice(0, 8).forEach((m) => {
++    if (!m.marketId || !fits("TQpy99999:" + m.marketId)) return;
++    const single = ms.length === 1, y = yesOf(m), n = noOf(m), row = [];
++    if (y != null) row.push({ text: `🟢 ${single ? "Yes" : cut(mTitle(m) || "Yes", 18)} ${cents(y)}`, callback_data: "TQby:" + m.marketId });
++    if (n != null) row.push({ text: `🔴 No ${cents(n)}`, callback_data: "TQbn:" + m.marketId });
++    if (row.length) kb.push(row);
++  });
++  kb.push([{ text: "🔄 Refresh", callback_data: "TQe:" + eventId }, { text: "📊 My predictions", callback_data: "TQm" }], [{ text: "🔥 Trending", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]);
++  return { text: L.filter((x, i, a) => !(x === "" && a[i - 1] === "")).join("\n"), reply_markup: { inline_keyboard: kb } };
+ }
+ 
+ const SEARCH_PROMPT = "🔎 <b>Search prediction markets</b>\nReply with a word or name, e.g. <code>bitcoin</code>, <code>election</code> or a team.";
+ 
+-module.exports = { on, listMsg, searchMsg, eventMsg, SEARCH_PROMPT, FILTER, CAT, _: { px, cents, pct, when, lead, evLine, rows } };
++// ---------- trading ----------
++const BACK = (rows) => ({ inline_keyboard: [...(rows || []), [{ text: "📊 My predictions", callback_data: "TQm" }, { text: "🔮 Predict", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] });
++const sideName = (yes) => (yes ? "YES" : "NO");
++const $ = (micro) => { const n = Number(micro) / 1e6; return (n < 0 ? "-$" : "$") + Math.abs(n).toFixed(2); };
++/** USD amounts arrive as micro USD integers ("5000000") or decimal dollars ("5.00"). Returns micro USD (BigInt) or null. */
++function micro(v) {
++  if (v == null || v === "") return null;
++  const s = String(v).trim();
++  if (/^-?\d+$/.test(s)) return BigInt(s);
++  const n = Number(s); return Number.isFinite(n) ? BigInt(Math.round(n * 1e6)) : null;
++}
++/** Number of shares in an order / position object (contracts are fractional). */
++function shares(o) {
++  if (!o) return 0;
++  if (o.contractsDecimal != null && Number.isFinite(Number(o.contractsDecimal))) return Number(o.contractsDecimal);
++  if (o.contractsMicro != null && Number.isFinite(Number(o.contractsMicro))) return Number(o.contractsMicro) / 1e6;
++  return Number(o.contracts) || 0;
++}
++const sh = (n) => (n >= 100 ? n.toFixed(0) : n >= 10 ? n.toFixed(1) : n.toFixed(2)).replace(/\.0+$/, "");
++const solTxt = (lamports) => T.fromUnits(lamports, 9);
++const usdcBal = async (pub) => { const t = (await X.solTokens(pub, USDC))[0]; return t ? t.raw : 0n; };
++const txLink = (sig) => `<a href="${T.CH.s.exp}${sig}">View transaction</a>`;
++
++/** USD price of 1 SOL (DEX Screener, then a Jupiter quote as fallback). */
++async function solUsd() {
++  const m = await X.dsPrices("solana", [X.SOL_MINT]).catch(() => ({})), p = m[X.SOL_MINT] && Number(m[X.SOL_MINT].pu);
++  if (p > 5 && p < 5000) return p;
++  const o = await X.jup(`/order?inputMint=${X.SOL_MINT}&outputMint=${USDC}&amount=100000000`).catch(() => null), q = o && Number(o.outAmount) / 1e5; // 0.1 SOL in micro USDC
++  if (q > 5 && q < 5000) return q;
++  return fail("Couldn't get the SOL price right now. Try again in a moment.");
++}
++const usdToLamports = (microUsd, price) => BigInt(Math.ceil(Number(microUsd) / 1e6 / price * 1e9));
++
++async function getMarket(marketId) {
++  if (!/^[\w.:~-]{1,60}$/.test(String(marketId || ""))) fail("That market was not found.");
++  const m = one(await api("/markets/" + encodeURIComponent(marketId)));
++  if (!m || (!m.marketId && !m.pricing)) fail("That market was not found.");
++  return m;
++}
++function sidePrice(m, yes) { return yes ? yesOf(m) : noOf(m); }
++/** Event name for a market: from the API when it has one, else from the first line of the screen the user tapped ("🔮 <event>"). */
++const evOf = (m, hint) => cut((m.eventMetadata && m.eventMetadata.title) || (m.event && m.event.metadata && m.event.metadata.title) || hint || "", 120);
++const hintOf = (text) => { const x = /^🔮 (.+)$/m.exec(String(text || "")); return x && !/^Predict\b/.test(x[1]) ? x[1].trim() : ""; };
++const fullTitle = (m, hint) => { const t = mTitle(m) || "Market", ev = evOf(m, hint); return cut(ev && ev !== t ? ev + " · " + t : t, 140); };
++function marketHead(m, yes, hint) {
++  const t = mTitle(m) || "Market", ev = evOf(m, hint);
++  return `🔮 <b>${esc(ev || cut(t, 120))}</b>${ev && ev !== t ? "\n" + esc(cut(t, 120)) : ""}\nYour pick: <b>${yes ? "🟢 YES" : "🔴 NO"}</b>`;
++}
++function checkOpen(m, yes) {
++  if (m.status && m.status !== "open") fail("This market is closed for trading.");
++  const p = sidePrice(m, yes); if (p == null || p <= 0) fail("No price for this side right now. Try again later.");
++  if (p >= 0.995) fail("This side is priced at about $1, so there is nothing left to win.");
++  return p;
++}
++const backToEvent = (m) => (m.eventId && fits("TQe:" + m.eventId) ? { text: "⬅️ Back", callback_data: "TQe:" + m.eventId } : { text: "⬅️ Back", callback_data: "TQ" });
++
++/** Step 1 of a buy: choose how many dollars. */
++async function amountMsg(marketId, yes, hint) {
++  const m = await getMarket(marketId), p = checkOpen(m, yes), s = yes ? "y" : "n";
++  const amts = PRESETS.filter((a) => a >= minUsd() && a <= maxUsd());
++  return { text: `${marketHead(m, yes, hint)}\nPrice: <b>${esc(cents(p))}</b> per share · each share pays <b>$1</b> if ${yes ? "it happens" : "it doesn't happen"}\n\nHow much do you want to put in? (minimum $${minUsd()})\n<i>Paid in USDC. If your wallet has SOL only, the Bartender swaps the needed USDC from your SOL first.</i>`,
++    reply_markup: { inline_keyboard: [amts.map((a) => ({ text: "$" + a, callback_data: `TQp${s}${a}:${marketId}` })), [{ text: "✏️ Other amount", callback_data: `TQi${s}:${marketId}` }, backToEvent(m)]] } };
++}
++
++function parseUsd(v) {
++  const n = Number(String(v).replace(/[$,\s]/g, ""));
++  if (!Number.isFinite(n) || n !== Math.round(n)) fail(`Send a whole dollar amount, e.g. <code>20</code>.`);
++  if (n < minUsd()) fail(`The minimum order is $${minUsd()}.`);
++  if (n > maxUsd()) fail(`The maximum order here is $${maxUsd()}.`);
++  return n;
++}
++
++/** Step 2 of a buy: what the user gets and pays. Nothing is sent yet. */
++async function previewMsg(row, marketId, yes, usd, hint) {
++  usd = parseUsd(usd);
++  const m = await getMarket(marketId), p = checkOpen(m, yes), s = yes ? "y" : "n", dep = BigInt(usd) * 1000000n;
++  const [have, sol, price] = await Promise.all([usdcBal(row.sol_pub).catch(() => 0n), X.solBal(row.sol_pub).catch(() => null), solUsd()]);
++  const feeUsd = dep * BigInt(T.feeBps()) / 10000n, need = have >= dep ? 0n : dep - have;
++  const L = [marketHead(m, yes, hint), "",
++    `Order: <b>$${usd}</b> at about <b>${esc(cents(p))}</b> per share`,
++    `You get about <b>${sh(usd / p)} shares</b> → pays about <b>$${(usd / p).toFixed(2)}</b> if you're right, $0 if not`,
++    `CBL fee: ${T.feeBps() / 100}% = ${$(feeUsd)}, taken in SOL (≈ ${solTxt(usdToLamports(feeUsd, price))} SOL) after the order fills`,
++    "<i>The final price is set when the order fills, and the market's own trading fee is included in it.</i>", "",
++    `Wallet: ${$(have)} USDC · ${sol == null ? "?" : solTxt(sol)} SOL`];
++  if (need > 0n) L.push(`The Bartender will first swap about <b>${solTxt(usdToLamports(need, price))} SOL</b> into the missing ${$(need)} USDC.`);
++  L.push("", "<i>By confirming you state that you are not a resident of the United States or South Korea.</i>");
++  return { text: L.join("\n"), reply_markup: { inline_keyboard: [[{ text: `✅ Confirm $${usd} on ${sideName(yes)}`, callback_data: `TQo${s}${usd}:${marketId}` }], [{ text: "❌ Cancel", callback_data: `TQb${s}:${marketId}` }]] } };
++}
++
++// ---------- sending transactions ----------
++async function sendTx(row, b64) {
++  if (!b64 || typeof b64 !== "string") fail("Jupiter did not return a transaction. Try again.");
++  const signed = V.solSignTx(b64, V.solSeed(row));
++  let sig;
++  try { sig = await X.srpc("sendTransaction", [signed, { encoding: "base64", preflightCommitment: "confirmed", maxRetries: 5 }], 15000); }
++  catch (e) {
++    if (!/blockhash/i.test(String(e.message))) fail("Solana rejected the transaction: " + cut(e.message, 150));
++    sig = await X.srpc("sendTransaction", [signed, { encoding: "base64", skipPreflight: true, maxRetries: 5 }], 15000).catch((e2) => fail("Solana rejected the transaction: " + cut(e2.message, 150)));
++  }
++  if (!sig || typeof sig !== "string") fail("Solana did not accept the transaction. Nothing was sent. Try again.");
++  return sig;
++}
++/** true = confirmed, false = not seen before the deadline. Throws if it failed on-chain. */
++async function confirm(sig, deadline) {
++  while (Date.now() < deadline) {
++    const r = await X.srpc("getSignatureStatuses", [[sig]], 8000).catch(() => null), st = r && r.value && r.value[0];
++    if (st && st.err) fail(`The transaction failed on-chain, nothing was bought or sold.\n${T.CH.s.exp}${sig}`);
++    if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) return true;
++    await sleep(1300);
++  }
++  return false;
++}
++/** Order fill status: created | partiallyfilled | filled | failed | null (unknown yet). */
++async function orderStatus(orderPubkey) {
++  let d; try { d = await api("/orders/status/" + encodeURIComponent(orderPubkey)); } catch (e) { return null; }
++  const o = one(d) || {}, raw = String(o.status || (o.order && o.order.status) || "").toLowerCase().replace(/[^a-z]/g, "");
++  if (["created", "partiallyfilled", "filled", "failed"].includes(raw)) return raw;
++  if (raw === "pending") return "created";
++  const j = JSON.stringify(d || ""); // some versions answer with an event history instead of a status field
++  return /order_failed/.test(j) ? "failed" : /order_filled/.test(j) ? "filled" : null;
++}
++async function waitFill(orderPubkey, deadline) {
++  let st = null;
++  while (Date.now() < deadline) {
++    st = await orderStatus(orderPubkey);
++    if (st === "filled" || st === "failed") return st;
++    await sleep(2000);
++  }
++  return st;
++}
++const getPosition = async (pubkey) => { try { return one(await api("/positions/" + encodeURIComponent(pubkey))); } catch (e) { return null; } };
++
++// ---------- pending orders (bot_orders, kind "pred") ----------
++async function savePending(uid, marketId, params) {
++  const r = await db.insertRet("bot_orders", [{ tg_id: uid, chain: "solana", token: ("pred:" + marketId).slice(0, 120), kind: "pred", params, active: true }]).catch((e) => { console.error("pred pending save", e.message); return null; });
++  return r && r[0] ? r[0] : null;
++}
++/** Only one caller (this request or the cron job) may finish an order: whoever flips active to false wins. */
++async function take(id) {
++  if (!id) return true;
++  const r = await db.patchRet("bot_orders", `id=eq.${Number(id)}&active=eq.true`, { active: false }).catch(() => null);
++  return Array.isArray(r) && r.length > 0;
++}
++
++/** Send the CBL fee (in SOL) for a filled order and write the trade row. Returns lamports actually paid. */
++async function chargeFee(row, o, baseMicro, sig, contracts) {
++  const bps = BigInt(T.feeBps()), to = X.feeTo("s");
++  let price = null; try { price = await solUsd(); } catch (e) {}
++  const fee = to && bps > 0n && price && baseMicro > 0n ? usdToLamports(baseMicro * bps / 10000n, price) : 0n;
++  let paid = 0n;
++  if (fee > 0n) { try { await X.solSend(row, to, fee); paid = fee; } catch (e) { console.error("pred fee transfer failed", e.message); } }
++  await X.record({ tg_id: row.tg_id, chain: "solana", token: ("pred:" + o.marketId).slice(0, 120), side: o.op === "sell" ? "sell" : "buy", native_raw: (price ? usdToLamports(baseMicro, price) : 0n).toString(),
++    token_raw: String(Math.round((contracts || 0) * 1e6)), decimals: 6, tx: sig || null, fee_raw: paid.toString() });
++  return paid;
++}
++/** A buy order was filled: work out what was bought, charge the fee. */
++async function finishBuy(row, o) {
++  const pos = o.pos ? await getPosition(o.pos) : null, dep = BigInt(o.usd);
++  const cost = pos && micro(pos.totalCostUsd), base = cost && cost > 0n && cost < dep ? cost : dep; // a first buy on a market: the position cost is the filled amount
++  const n = shares(pos) || shares(o.q), avg = pos ? px(pos.avgPriceUsd) : null;
++  const fee = await chargeFee(row, o, base, o.sig, n);
++  return { n, avg, fee, base };
++}
++async function finishSell(row, o, got) {
++  const base = got && got > 0n ? got : BigInt(o.est || "0");
++  const fee = await chargeFee(row, o, base, o.sig, Number(o.n) || 0);
++  return { fee, base };
++}
++const boughtTxt = (o, r) => `✅ <b>Bought ${r.n ? sh(r.n) + " " : ""}${sideName(o.yes)} shares</b>${r.avg ? " at " + esc(cents(r.avg)) : ""} for ${$(r.base)}\n${esc(cut(o.title, 140))}\nPays <b>$${r.n ? r.n.toFixed(2) : "1 per share"}</b> if you're right.${r.fee > 0n ? `\nCBL fee: ${solTxt(r.fee)} SOL` : ""}${o.sig ? "\n" + txLink(o.sig) : ""}`;
++const soldTxt = (o, r) => `✅ <b>Sold ${o.n ? sh(Number(o.n)) + " " : ""}${sideName(o.yes)} shares</b> for about ${$(r.base)} USDC\n${esc(cut(o.title, 140))}${r.fee > 0n ? `\nCBL fee: ${solTxt(r.fee)} SOL` : ""}${o.sig ? "\n" + txLink(o.sig) : ""}`;
++const FAILED = (o) => `⚠️ <b>Your ${o.op === "sell" ? "sell" : "buy"} order could not be filled</b>\n${esc(cut(o.title, 140))}\nJupiter closes unfilled orders automatically${o.op === "sell" ? "; your shares stay in 📊 My predictions" : " and the USDC goes back to your wallet"}. No CBL fee was charged.`;
++
++/** Buy `usd` dollars of YES / NO shares. `say(html)` updates the progress message. */
++async function buy(uid, marketId, yes, usd, say, hint) {
++  const t0 = Date.now(), end = t0 + 50000; usd = parseUsd(usd);
++  const row = await T.getRow(uid); if (!row) fail("Open /trade first to create your wallet.");
++  const st = T.settings(row), m = await getMarket(marketId), p = checkOpen(m, yes), dep = BigInt(usd) * 1000000n;
++  const ts = await api("/trading-status").catch(() => null); if (ts && one(ts) && one(ts).trading_active === false) fail("Prediction trading is paused by the exchange right now. Try again later.");
++  const [have, sol, price] = await Promise.all([usdcBal(row.sol_pub), X.solBal(row.sol_pub), solUsd()]);
++  const need = have >= dep ? 0n : dep - have, swapIn = need > 0n ? usdToLamports(need < 1000000n ? 1000000n : need, price) * 102n / 100n : 0n; // 2% over, at least $1, so the swap covers the order
++  const feeEst = usdToLamports(dep * BigInt(T.feeBps()) / 10000n, price), reserve = X.toUnits("0.012", 9); // network fees + rent for the order and position accounts
++  if (sol < swapIn + feeEst + reserve) fail(`Not enough SOL. This order needs about ${solTxt(swapIn + feeEst + reserve)} SOL (${need > 0n ? "swap to USDC, " : ""}fee and network costs); you have ${solTxt(sol)} SOL${have > 0n ? " and " + $(have) + " USDC" : ""}.\nDeposit SOL to your Solana address in /trade.`);
++  if (!(await X.lock(uid))) fail("Another trade is still running. Wait a few seconds.");
++  let swapped = false, sent = false;
++  try {
++    if (swapIn > 0n) {
++      await say(`⏳ Swapping ${solTxt(swapIn)} SOL to USDC…`);
++      await X.solSwap(row, X.SOL_MINT, USDC, swapIn, st); swapped = true;
++      let now = 0n; for (let i = 0; i < 6 && (now = await usdcBal(row.sol_pub).catch(() => 0n)) < dep; i++) await sleep(1200);
++      if (now < dep) fail(`The swap gave ${$(now)} USDC, a little under the $${usd} order. The USDC stays in your wallet: try again, or pick a smaller amount.`);
++    }
++    await say(`⏳ Placing your $${usd} ${sideName(yes)} order…`);
++    const q = await api("/orders", "POST", { ownerPubkey: row.sol_pub, marketId, isYes: !!yes, isBuy: true, depositAmount: dep.toString(), depositMint: USDC });
++    const ord = (q && q.order) || {}; if (!q || !q.transaction) fail(errOf(q, 200) === "Jupiter error 200" ? "Jupiter could not build this order. Try again." : errOf(q, 200));
++    const sig = await sendTx(row, q.transaction); sent = true;
++    const o = { op: "buy", marketId, yes: !!yes, usd: dep.toString(), order: ord.orderPubkey || null, pos: ord.positionPubkey || null, sig, title: fullTitle(m, hint), q: { contractsMicro: ord.contractsMicro, contractsDecimal: ord.contractsDecimal, contracts: ord.contracts }, t: t0 };
++    const pend = await savePending(uid, marketId, o);
++    if (!(await confirm(sig, Math.min(end, Date.now() + 25000)))) return { text: `🕒 <b>Order sent, not confirmed yet</b>\n${esc(o.title)}\nSolana is slow to confirm it. I'll message you when it fills; if it never lands, nothing is spent.\n${txLink(sig)}`, reply_markup: BACK() };
++    await say(`⏳ Order placed at about ${esc(cents(p))}. Waiting for it to fill…`);
++    const fs = o.order ? await waitFill(o.order, end) : null;
++    if (fs === "failed") { await take(pend && pend.id); return { text: FAILED(o), reply_markup: BACK() }; }
++    if (fs !== "filled") return { text: `🕒 <b>Order placed, waiting to be filled</b>\n${esc(o.title)}\n$${usd} on ${sideName(yes)}. I'll message you when it fills (checked every few minutes).\n${txLink(sig)}`, reply_markup: BACK() };
++    if (!(await take(pend && pend.id))) return { text: `✅ <b>Order filled</b>\n${esc(o.title)}`, reply_markup: BACK() }; // the cron job got there first and sends the details
++    return { text: boughtTxt(o, await finishBuy(row, o)), reply_markup: BACK() };
++  } catch (e) {
++    if (swapped && !sent && e instanceof UserErr) fail(e.message + "\n\nNo order was placed. The USDC from the swap stays in your wallet: try again, or swap it back in 📊 My predictions → 💵 USDC → SOL.");
++    throw e;
++  } finally { await X.unlock(uid); }
++}
++
++/** My predictions: open positions with value and profit, sell / claim buttons. */
++async function positionsMsg(row) {
++  const [ps, have] = await Promise.all([api("/positions?ownerPubkey=" + row.sol_pub).then(rows), usdcBal(row.sol_pub).catch(() => 0n)]);
++  const open = ps.filter((x) => x && x.pubkey && !x.claimed && (shares(x) > 0 || x.claimable)).slice(0, 10);
++  const L = ["📊 <b>My predictions</b>", ""], kb = [];
++  if (!open.length) L.push("No open predictions yet. Open 🔮 Predict, pick a market and tap an outcome.");
++  open.forEach((x, i) => {
++    const ev = x.eventMetadata && x.eventMetadata.title, mt = x.marketMetadata && x.marketMetadata.title, title = ev && mt && ev !== mt ? ev + " · " + mt : mt || ev || x.marketId || "Market";
++    const n = shares(x), val = micro(x.valueUsd), pnl = micro(x.pnlUsd), avg = px(x.avgPriceUsd), res = x.marketMetadata && x.marketMetadata.result;
++    L.push(`${i + 1}. <b>${esc(cut(title, 90))}</b>\n   ${x.isYes ? "🟢 YES" : "🔴 NO"} · ${sh(n)} shares${avg ? " at " + esc(cents(avg)) : ""}${val != null ? " · worth " + $(val) : ""}${pnl != null ? ` · ${pnl >= 0n ? "🟢 +" + $(pnl) : "🔴 " + $(pnl)}` : ""}${x.claimable ? "\n   🏆 Won: " + (micro(x.payoutUsd) != null ? $(micro(x.payoutUsd)) : "$" + n.toFixed(2)) + " ready to claim" : res ? "\n   Result: " + esc(String(res).toUpperCase()) : ""}${x.openOrders > 0 ? "\n   🕒 order still filling" : ""}`);
++    kb.push([x.claimable ? { text: `💰 Claim ${i + 1}`, callback_data: "TQc:" + x.pubkey } : { text: `🔴 Sell ${i + 1} · ${cut(title, 24)}`, callback_data: "TQx:" + x.pubkey }]);
++  });
++  L.push("", `Wallet: <b>${$(have)} USDC</b>`, "<i>Winnings and sale proceeds arrive as USDC. Use them for the next prediction or turn them back into SOL.</i>");
++  const last = [{ text: "🔄 Refresh", callback_data: "TQm" }]; if (have >= 500000n) last.push({ text: "💵 USDC → SOL", callback_data: "TQu" });
++  kb.push(last, [{ text: "🔮 Predict", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]);
++  return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
++}
++function posTitle(x) { const ev = x.eventMetadata && x.eventMetadata.title, mt = x.marketMetadata && x.marketMetadata.title; return cut(ev && mt && ev !== mt ? ev + " · " + mt : mt || ev || x.marketId || "Market", 140); }
++async function myPosition(row, pubkey) {
++  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(String(pubkey || ""))) fail("That position was not found.");
++  const x = await getPosition(pubkey); if (!x || (x.ownerPubkey && x.ownerPubkey !== row.sol_pub)) fail("That position was not found in your wallet.");
++  return x;
++}
++async function sellAskMsg(row, pubkey) {
++  const x = await myPosition(row, pubkey), n = shares(x), val = micro(x.valueUsd), sp = px(x.sellPriceUsd);
++  if (x.claimable) fail("This prediction already won. Tap 💰 Claim instead.");
++  if (!(n > 0)) fail("There are no shares left in this position.");
++  return { text: `🔴 <b>Sell this prediction?</b>\n${esc(posTitle(x))}\n${x.isYes ? "🟢 YES" : "🔴 NO"} · <b>${sh(n)} shares</b>${sp ? " at about " + esc(cents(sp)) : ""}${val != null ? " ≈ <b>" + $(val) + "</b>" : ""}\n\nYou sell all shares at the current market price and receive USDC. CBL fee: ${T.feeBps() / 100}% of the proceeds, taken in SOL.`,
++    reply_markup: { inline_keyboard: [[{ text: "✅ Yes, sell all", callback_data: "TQz:" + pubkey }, { text: "❌ Cancel", callback_data: "TQm" }]] } };
++}
++async function sell(uid, pubkey, say) {
++  const t0 = Date.now(), end = t0 + 50000, row = await T.getRow(uid); if (!row) fail("Open /trade first to create your wallet.");
++  const x = await myPosition(row, pubkey), n = shares(x); if (!(n > 0)) fail("There are no shares left in this position.");
++  const sp = px(x.sellPriceUsd), est = micro(x.valueUsd) || (sp ? BigInt(Math.round(n * sp * 1e6)) : 0n);
++  if ((await X.solBal(row.sol_pub)) < X.toUnits("0.003", 9)) fail("You need a little SOL for network fees. Deposit some first.");
++  if (!(await X.lock(uid))) fail("Another trade is still running. Wait a few seconds.");
++  try {
++    const before = await usdcBal(row.sol_pub).catch(() => null);
++    await say("⏳ Selling…");
++    const q = await api("/positions/" + encodeURIComponent(pubkey), "DELETE", { ownerPubkey: row.sol_pub }), ord = (q && q.order) || {};
++    if (!q || !q.transaction) fail("Jupiter could not build the sell order. Try again.");
++    const sig = await sendTx(row, q.transaction);
++    const o = { op: "sell", marketId: x.marketId || "", yes: !!x.isYes, order: ord.orderPubkey || null, pos: pubkey, sig, title: posTitle(x), n, est: est.toString(), t: t0 };
++    const pend = await savePending(uid, o.marketId, o);
++    if (!(await confirm(sig, Math.min(end, Date.now() + 25000)))) return { text: `🕒 <b>Sell sent, not confirmed yet</b>\n${esc(o.title)}\nI'll message you when it fills.\n${txLink(sig)}`, reply_markup: BACK() };
++    await say("⏳ Sell order placed. Waiting for it to fill…");
++    let got = null, fs = null; // proceeds = the USDC that arrives in the wallet
++    while (Date.now() < end) {
++      fs = o.order ? await orderStatus(o.order) : null; if (fs === "failed") break;
++      const now = before == null ? null : await usdcBal(row.sol_pub).catch(() => null);
++      if (now != null && now > before) { got = now - before; break; }
++      if (fs === "filled" && before == null) break;
++      await sleep(2000);
++    }
++    if (fs === "failed") { await take(pend && pend.id); return { text: FAILED(o), reply_markup: BACK() }; }
++    if (got == null && fs !== "filled") return { text: `🕒 <b>Sell order placed, waiting to be filled</b>\n${esc(o.title)}\nI'll message you when it fills (checked every few minutes).\n${txLink(sig)}`, reply_markup: BACK() };
++    if (!(await take(pend && pend.id))) return { text: `✅ <b>Sold</b>\n${esc(o.title)}`, reply_markup: BACK() };
++    return { text: soldTxt(o, await finishSell(row, o, got)), reply_markup: BACK() };
++  } finally { await X.unlock(uid); }
++}
++/** Claim a won position: $1 per share, no fee. */
++async function claim(uid, pubkey, say) {
++  const row = await T.getRow(uid); if (!row) fail("Open /trade first to create your wallet.");
++  const x = await myPosition(row, pubkey);
++  if (x.claimed) fail("This prediction was already claimed.");
++  if ((await X.solBal(row.sol_pub)) < X.toUnits("0.002", 9)) fail("You need a little SOL for network fees. Deposit some first.");
++  if (!(await X.lock(uid))) fail("Another trade is still running. Wait a few seconds.");
++  try {
++    await say("⏳ Claiming…");
++    const q = await api("/positions/" + encodeURIComponent(pubkey) + "/claim", "POST", { ownerPubkey: row.sol_pub });
++    if (!q || !q.transaction) return { text: `ℹ️ ${esc(cut((q && (q.message || q.error)) || "Nothing to claim here: this market pays out automatically.", 200))}`, reply_markup: BACK() };
++    const sig = await sendTx(row, q.transaction), ok = await confirm(sig, Date.now() + 30000), pay = q.position && micro(q.position.payoutAmountUsd);
++    return { text: `${ok ? "✅ <b>Claimed</b>" : "🕒 <b>Claim sent</b>, waiting for Solana to confirm"}${pay != null ? " " + $(pay) + " USDC" : ""}\n${esc(posTitle(x))}\nNo fee on claims.\n${txLink(sig)}`, reply_markup: BACK() };
++  } finally { await X.unlock(uid); }
++}
++/** Turn the wallet's USDC back into SOL (plain Jupiter swap, no CBL fee). */
++async function usdcAskMsg(row) {
++  const have = await usdcBal(row.sol_pub); if (have < 500000n) fail("There is less than $0.50 USDC in your wallet.");
++  return { text: `💵 <b>Swap ${$(have)} USDC to SOL?</b>\nAll USDC in your Bartender wallet is swapped to SOL through Jupiter. No CBL fee.`, reply_markup: { inline_keyboard: [[{ text: "✅ Swap to SOL", callback_data: "TQU" }, { text: "❌ Cancel", callback_data: "TQm" }]] } };
++}
++async function usdcToSol(uid, say) {
++  const row = await T.getRow(uid); if (!row) fail("Open /trade first to create your wallet.");
++  const have = await usdcBal(row.sol_pub); if (have < 500000n) fail("There is less than $0.50 USDC in your wallet.");
++  if (!(await X.lock(uid))) fail("Another trade is still running. Wait a few seconds.");
++  try { await say("⏳ Swapping USDC to SOL…"); const r = await X.solSwap(row, USDC, X.SOL_MINT, have, T.settings(row)); return { text: `✅ Swapped ${$(have)} USDC to ${solTxt(r.out)} SOL\n${txLink(r.sig)}`, reply_markup: BACK() }; }
++  finally { await X.unlock(uid); }
++}
++
++// ---------- Telegram wiring (called from tradebot.js) ----------
++/** Callback queries starting with "TQ". ui = { d, uid, chat, mid, row, ack, edit, send, prompt, errText }. */
++async function callback(ui) {
++  const { d, uid, chat, mid, row, ack, edit, send, prompt, errText } = ui, sub = d[2], hint = hintOf(ui.text);
++  const show = async (make, wait) => {
++    await ack(wait);
++    try { const r = await edit(chat, mid, await make()); if (r && r.ok === false && !/not modified/i.test(r.description || "")) { console.error("predict edit failed", d, r.description); await send(chat, "⚠️ Couldn't show this screen. Try again in a moment."); } }
++    catch (e) { await edit(chat, mid, { text: errText(e), reply_markup: BACK() }); }
++  };
++  const run = async (first, work) => { // long actions: one progress message that is edited as it goes
++    await ack();
++    await edit(chat, mid, first);
++    const say = (t) => edit(chat, mid, t).catch(() => {});
++    try { await edit(chat, mid, await work(say)); } catch (e) { await edit(chat, mid, { text: errText(e), reply_markup: BACK() }); }
++  };
++  if (sub === "s") { await ack(); await prompt(chat, SEARCH_PROMPT, "pred", "bitcoin"); return true; }
++  if (sub === "m") return void (await show(() => positionsMsg(row), "Loading your predictions…")) || true;
++  if (sub === "u") return void (await show(() => usdcAskMsg(row))) || true;
++  if (sub === "U") return void (await run("⏳ Swapping USDC to SOL…", (say) => usdcToSol(uid, say))) || true;
++  if (sub === "e") return void (await show(() => eventMsg(d.slice(4)), "Loading market…")) || true;
++  if (sub === "x") return void (await show(() => sellAskMsg(row, d.slice(4)))) || true;
++  if (sub === "z") return void (await run("⏳ Selling…", (say) => sell(uid, d.slice(4), say))) || true;
++  if (sub === "c") return void (await run("⏳ Claiming…", (say) => claim(uid, d.slice(4), say))) || true;
++  const m = /^TQ([bipo])([yn])(\d{0,5}):(.+)$/.exec(d);
++  if (m) {
++    const [, act, s, amt, marketId] = m, yes = s === "y";
++    if (act === "b") return void (await show(() => amountMsg(marketId, yes, hint))) || true;
++    if (act === "i") { await ack(); await prompt(chat, `✏️ How many dollars on <b>${sideName(yes)}</b>? Reply with a whole number from ${minUsd()} to ${maxUsd()}, e.g. <code>20</code>\nMarket: <code>${esc(marketId)}</code>\nSide: ${sideName(yes)}${hint ? "\nEvent: " + esc(hint) : ""}`, "pred:buy", "20"); return true; }
++    if (act === "p") return void (await show(() => previewMsg(row, marketId, yes, amt, hint))) || true;
++    if (act === "o") return void (await run(`⏳ Preparing your $${esc(amt)} ${sideName(yes)} order…`, (say) => buy(uid, marketId, yes, amt, say, hint))) || true;
++  }
++  return void (await show(() => listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a"), "Loading markets…")) || true;
++}
++/** Replies to #pred prompts: search words, or a custom amount (#pred:buy). */
++async function reply(ui) {
++  const { a1, uid, chat, txt, promptText, send, errText } = ui;
++  try {
++    if (a1 === "buy") {
++      const mk = /Market:\s*(\S+)/.exec(promptText || ""), sd = /Side:\s*(YES|NO)/.exec(promptText || ""), row = await T.getRow(uid);
++      if (!mk || !sd || !row) fail("That prompt expired. Open the market again and tap an outcome.");
++      return void (await send(chat, await previewMsg(row, mk[1], sd[1] === "YES", txt, (/Event:\s*(.+)/.exec(promptText || "") || [])[1])));
++    }
++    await send(chat, await searchMsg(txt));
++  } catch (e) { await send(chat, errText(e)); }
++}
++
++/** Cron ("orders" job): finish orders that were still waiting when the user's request ended, and tell the user. */
++async function job(deadline) {
++  const out = { pred: 0, predDone: 0 };
++  if (!on() || !db.on()) return out;
++  const list = (await db.select("bot_orders", "active=eq.true&kind=eq.pred&select=*&order=created_at.asc&limit=60").catch(() => [])) || [];
++  const tell = (uid, text) => fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, { method: "POST", headers: { "content-type": "application/json" },
++    body: JSON.stringify({ chat_id: uid, text, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: BACK() }) }).catch(() => {});
++  for (const r of list) {
++    if (Date.now() > deadline) break;
++    out.pred++;
++    try {
++      const o = r.params || {}, age = Date.now() - (Number(o.t) || Date.parse(r.created_at) || 0);
++      if (age < 60000) continue; // the user's own request may still be working on it
++      let st = o.order ? await orderStatus(o.order) : null;
++      if (!o.order && o.op === "sell") { const x = await getPosition(o.pos); if (!x || !(shares(x) > 0)) st = "filled"; } // no order id: the position is gone once sold
++      if (st !== "filled" && st !== "failed") { if (age > 864e5 && (await take(r.id))) out.predDone++; continue; } // give up after a day, no fee
++      if (!(await take(r.id))) continue;
++      out.predDone++;
++      if (st === "failed") { await tell(r.tg_id, FAILED(o)); continue; }
++      const row = await T.getRow(r.tg_id); if (!row) continue;
++      await tell(r.tg_id, o.op === "sell" ? soldTxt(o, await finishSell(row, o, null)) : boughtTxt(o, await finishBuy(row, o)));
++    } catch (e) { console.error("pred job", r.id, e && e.message); }
++  }
++  return out;
++}
++
++module.exports = { on, listMsg, searchMsg, eventMsg, callback, reply, job, SEARCH_PROMPT, FILTER, CAT, _: { px, cents, pct, when, lead, evLine, rows, micro, shares, usdToLamports } };
+diff --git a/api/_lib/trade.js b/api/_lib/trade.js
+index 422baf8..fa954c9 100644
+--- a/api/_lib/trade.js
++++ b/api/_lib/trade.js
+@@ -355,6 +355,7 @@ async function positions(uid) {
+   const trades = (await db.select("bot_trades", `tg_id=eq.${uid}&select=chain,token,side,native_raw,token_raw,decimals,created_at&order=created_at.asc&limit=2000`)) || [];
+   const agg = new Map();
+   for (const t of trades) {
++    if (String(t.token).startsWith("pred:")) continue; // prediction-market trades (./predict.js) are not tokens
+     const k = t.chain + "|" + t.token, a = agg.get(k) || { chain: t.chain, token: t.token, spent: 0n, got: 0n, dec: t.decimals };
+     if (t.side === "buy") a.spent += BigInt(t.native_raw); else a.got += BigInt(t.native_raw);
+     agg.set(k, a);
+@@ -392,5 +393,5 @@ async function tokenView(uid, c, ca) {
+ }
+ 
+ // internals shared with bundle.js
+-module.exports._ = { evmTokenBal, prov, waitTx, srpc, solTokens, solBal, solDecimals, jfetch, lock, unlock, record, feeTo, fail, toUnits, SOL_MINT, clean };
++module.exports._ = { evmTokenBal, prov, waitTx, srpc, solTokens, solBal, solDecimals, jfetch, lock, unlock, record, feeTo, fail, toUnits, SOL_MINT, clean, solSwap, solSend, dsPrices, jup };
+ Object.assign(module.exports, { DEFAULTS, on, CH, CODE, getRow, ensure, settings, saveSettings, buy, sell, withdraw, balances, positions, tokenView, nativeBal, fromUnits, toUnits, feeBps, UserErr, curveOf, ponsInfo });
+diff --git a/api/_lib/tradebot.js b/api/_lib/tradebot.js
+index 1390b91..21d83d7 100644
+--- a/api/_lib/tradebot.js
++++ b/api/_lib/tradebot.js
+@@ -100,7 +100,7 @@ const HELP = `<b>❓ How the CBL Bartender works</b>
+ <b>Bundles:</b> 👛 Wallet → ➕ add up to 5 Solana wallets, 💸 spread SOL to them, turn 📦 Bundles on. Every Solana buy/sell then runs from all wallets in one Jito bundle (same block, all or nothing).
+ <b>Keys:</b> 👛 Wallet → 🔑 Export. Keep them private — anyone with them controls your funds.
+ 
+-<b>Predict:</b> 🔮 Predict (or /predict) lists prediction markets from Polymarket and Kalshi: trending, by category, or search. Browsing only for now.
++<b>Predict:</b> 🔮 Predict (or /predict) opens prediction markets from Polymarket and Kalshi. Pick a market, tap Yes or No and an amount (from $5). Each share pays $1 if you're right. Paid in USDC, swapped from your SOL automatically; sell any time or claim when you win in 📊 My predictions. Same ${"{fee}"}% fee, taken in SOL after the order fills.
+ 
+ Commands: /trade · /positions · /predict · /buy &lt;token&gt; &lt;amount&gt; · /sell &lt;token&gt; &lt;%&gt; · /withdraw · /export · /settings`;
+ 
+@@ -433,17 +433,7 @@ function make(tg) {
+       } catch (e) { await ack(); await send(chat, errText(e)); }
+       return true;
+     }
+-    if (k === "Q") { // Predict: TQ home · TQl<filter><category> list · TQe:<eventId> event · TQs search prompt
+-      const P = require("./predict"), sub = d[2];
+-      if (sub === "s") { await ack(); await prompt(chat, P.SEARCH_PROMPT, "pred", "bitcoin"); return true; }
+-      await ack("Loading markets…");
+-      try {
+-        const r = await edit(chat, mid, sub === "e" ? await P.eventMsg(d.slice(4)) : await P.listMsg(sub === "l" ? d[3] : "t", sub === "l" ? d[4] : "a"));
+-        if (r && r.ok === false && !/not modified/i.test(r.description || "")) { console.error("predict edit failed", d, r.description); await send(chat, "⚠️ Couldn't show this market. Try again in a moment."); }
+-      }
+-      catch (e) { await edit(chat, mid, { text: errText(e), reply_markup: { inline_keyboard: [[{ text: "🔮 Predict", callback_data: "TQ" }, { text: "⬅️ Menu", callback_data: "Tm" }]] } }); }
+-      return true;
+-    }
++    if (k === "Q") return require("./predict").callback({ d, uid, chat, mid, row, ack, edit, send, prompt, errText, text: q.message.text || "" }); // Predict (prediction markets): see ./predict.js
+     if (k === "X") { // xStocks list → tap opens the normal token screen (buy / sell / TP-SL)
+       await ack();
+       const ST = require("./stocks"), [l, mk] = [await ST.list().catch(() => []), ST.market()];
+@@ -474,7 +464,7 @@ function make(tg) {
+       }
+       await ack(); await edit(chat, mid, await refMsg(uid)); return true;
+     }
+-    if (k === "H") { await ack(); await send(chat, { text: HELP.replace("{fee}", T.feeBps() / 100), reply_markup: { inline_keyboard: [[{ text: "⬅️ Menu", callback_data: "Tm" }]] } }); return true; }
++    if (k === "H") { await ack(); await send(chat, { text: HELP.replace(/\{fee\}/g, T.feeBps() / 100), reply_markup: { inline_keyboard: [[{ text: "⬅️ Menu", callback_data: "Tm" }]] } }); return true; }
+     if (k === "B") { await ack(); await prompt(chat, "🟢 <b>Buy a token</b>\nReply with a token address, a ticker (e.g. <code>$PEPE</code>) or a pump.fun / DEX Screener / Birdeye link.", "find", "token address, $TICKER or link"); return true; }
+     if (k === "s") { await ack(); await edit(chat, mid, settingsMsg(row)); return true; }
+     if (k === "S") {
+@@ -558,10 +548,7 @@ function make(tg) {
+       const ca = (txt.match(CA_RE) || [])[0]; if (ca) return { ca, chain: null };
+       const handled = await textInput({ chat: msg.chat, text: txt.startsWith("$") ? txt : "$" + txt }); return handled || true;
+     }
+-    if (kind === "pred") {
+-      try { await send(chat, await require("./predict").searchMsg(txt)); } catch (e) { await send(chat, errText(e)); }
+-      return true;
+-    }
++    if (kind === "pred") { await require("./predict").reply({ a1, uid, chat, txt, promptText: r.text || "", send, errText }); return true; } // search words or a custom amount
+     if (kind === "spread") {
+       if (!/^\d*\.?\d+$/.test(txt)) { await send(chat, "Reply with an amount, e.g. <code>0.2</code>"); return true; }
+       try { const r = await B.spread(uid, txt); await send(chat, { text: `💸 Sent ${fmt(r.amt, "s")} SOL from W1 to ${r.n} wallet(s).`, reply_markup: { inline_keyboard: [[{ text: "👛 Wallet", callback_data: "TA" }]] } }); } catch (e) { await send(chat, errText(e)); }
+diff --git a/api/cron.js b/api/cron.js
+index 3347f9f..cb21ba2 100644
+--- a/api/cron.js
++++ b/api/cron.js
+@@ -88,8 +88,9 @@ module.exports = async (req, res) => {
+     const notify = tgNotify, O = require("./_lib/orders");
+     const a = await O.alertJob(t0 + 15000, notify).catch((e) => ({ alertError: String(e.message).slice(0, 100) })); // price alerts: everyone, trading on or off
+     const r = await O.job(t0 + 35000, notify).catch((e) => ({ error: String(e.message).slice(0, 100) }));
++    const pj = require("./_lib/vault").on() ? await require("./_lib/predict").job(t0 + 44000).catch((e) => ({ predError: String(e.message).slice(0, 100) })) : {}; // prediction orders that filled after the user's request ended
+     const cp = require("./_lib/vault").on() ? await require("./_lib/copy").pollJob(t0 + 52000, notify).catch((e) => ({ copyError: String(e.message).slice(0, 100) })) : {}; // copy trading backup check + EVM chains
+-    return res.status(200).json({ ok: true, job: "orders", ...a, ...r, ...cp });
++    return res.status(200).json({ ok: true, job: "orders", ...a, ...r, ...pj, ...cp });
+   }
+   if (job === "devs") { const r = await require("./_lib/devstats").devJob(t0 + 50000).catch((e) => ({ error: String(e.message).slice(0, 100) })); return res.status(200).json({ ok: true, job: "devs", ...r }); }
+   if (job === "curves") { const r = await require("./_lib/curves").build(23000).catch((e) => ({ stats: { error: String(e.message).slice(0, 100) } })); return res.status(200).json({ ok: true, job: "curves", ...r.stats }); }

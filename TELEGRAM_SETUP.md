@@ -188,11 +188,20 @@ They are labelled ⬆️ higher.fun by their `…high` address ending and by hig
 
 ## Predict (prediction markets in the Bartender)
 
-🔮 Predict in the Bartender menu, or `/predict` (trending) and `/predict <words>` (search), lists prediction markets from
+🔮 Predict in the Bartender menu, or `/predict` (trending) and `/predict <words>` (search), opens prediction markets from
 Polymarket and Kalshi through Jupiter's Prediction API (`api/_lib/predict.js`).
 
 - Uses the same `JUP_API_KEY` as Solana swaps. Without it the screen says Predict is not switched on.
-- Step 1 is read-only: trending / new / live lists, categories, search and the event view with Yes / No prices and the
-  resolution rule. Buying, selling, claiming and the CBL fee come in the next step.
+- Buy: open a market, tap Yes or No, pick $5 / $10 / $25 / $50 or another amount, confirm. Orders are paid in USDC; if
+  the wallet is short, the bot first swaps the missing USDC from the user's SOL. Minimum $5 (Jupiter's minimum),
+  maximum `PREDICT_MAX_USD` (default 1000).
+- 📊 My predictions: positions with value and profit, 🔴 Sell (all shares, at market), 💰 Claim for a won market,
+  and 💵 USDC → SOL to turn proceeds back into SOL (plain swap, no CBL fee).
+- Fee: `BOT_FEE_BPS` (1%) of the order value on buys and of the proceeds on sells, sent in SOL to `BOT_SOL_FEE_ACCOUNT`
+  only after the order is filled. No fee on failed orders or claims. The fee is written to `bot_trades`
+  (token `pred:<marketId>`), so referral earnings count it like any other Solana trade.
+- An order that has not filled when the request ends is kept in `bot_orders` (kind `pred`). The existing cron
+  `orders` job finishes it, charges the fee and messages the user. No new table and no new cron entry are needed.
 - The API is in beta, and Jupiter blocks requests from US and South Korea IPs. If Predict answers "not available from
   this server's region", move the Vercel function region away from the US (Project → Settings → Functions → Region).
+  The confirm screen has the user state they are not a US or South Korea resident.
