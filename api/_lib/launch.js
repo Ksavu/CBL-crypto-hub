@@ -124,7 +124,7 @@ const ALLOWED = new Set([
   "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
   "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", "pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ", "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr", "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo",
 ]);
-/** Throws unless the transaction only calls known programs, approves no token spending, and its plain SOL transfers stay under `capLamports`. */
+/** Throws on token approvals or too much plain SOL sent away. Returns the programs we don't know (checked by simulation instead). */
 function check(raw, capLamports) {
   const b = Buffer.from(raw), [nSig, l] = V.cu16(b, 0); let o = l + 64 * nSig;
   const v0 = (b[o] & 0x80) !== 0; if (v0) o++;
@@ -132,10 +132,11 @@ function check(raw, capLamports) {
   const [nKeys, l2] = V.cu16(b, o); o += l2;
   const keys = []; for (let i = 0; i < nKeys; i++) keys.push(B58(b.subarray(o + 32 * i, o + 32 * i + 32))); o += 32 * nKeys + 32; // + blockhash
   const signers = new Set(keys.slice(0, nReq));
-  const [nIx, l3] = V.cu16(b, o); o += l3; let sent = 0n;
+  const [nIx, l3] = V.cu16(b, o); o += l3; let sent = 0n; const unknown = new Set();
   for (let i = 0; i < nIx; i++) {
     const pid = b[o++]; const [na, la] = V.cu16(b, o); o += la; const acc = [...b.subarray(o, o + na)]; o += na; const [nd, ld] = V.cu16(b, o); o += ld; const data = b.subarray(o, o + nd); o += nd;
-    const prog = keys[pid]; if (!prog || !ALLOWED.has(prog)) throw new Error("Launch blocked: the transaction calls an unknown program (" + String(prog).slice(0, 8) + "…).");
+    const prog = keys[pid]; if (!prog) throw new Error("Launch blocked: unreadable transaction.");
+    if (!ALLOWED.has(prog)) unknown.add(prog);
     if (prog === "11111111111111111111111111111111" && data.length >= 12) {
       const kind = data.readUInt32LE(0);
       if (kind === 2) { const to = keys[acc[1]]; if (!to || !signers.has(to)) sent += data.readBigUInt64LE(4); } // transfer to someone else
@@ -144,7 +145,18 @@ function check(raw, capLamports) {
     if ((prog.startsWith("Tokenkeg") || prog.startsWith("TokenzQ")) && (data[0] === 4 || data[0] === 13)) throw new Error("Launch blocked: the transaction tries to approve token spending.");
   }
   if (sent > BigInt(capLamports)) throw new Error("Launch blocked: the transaction sends more SOL to other addresses than expected.");
-  return true;
+  return [...unknown];
+}
+/** Builders (PumpPortal) may route through their own program. Then we SIMULATE the transaction and allow it only if the
+ *  wallet loses no more SOL than expected and the simulation succeeds. */
+async function simulateSpend(b64, pub, maxLamports) {
+  const [pre, sim] = await Promise.all([X.solBal(pub), X.srpc("simulateTransaction", [b64, { encoding: "base64", sigVerify: false, replaceRecentBlockhash: true, commitment: "processed", accounts: { encoding: "base64", addresses: [pub] } }])]);
+  const v = sim && sim.value; if (!v) throw new Error("Launch blocked: couldn't simulate the transaction.");
+  if (v.err) throw new Error("Launch blocked: the transaction fails in simulation (" + JSON.stringify(v.err).slice(0, 80) + "). " + ((v.logs || []).slice(-2).join(" ").slice(0, 120)));
+  const post = v.accounts && v.accounts[0] ? BigInt(v.accounts[0].lamports) : null;
+  if (post == null) throw new Error("Launch blocked: simulation returned no balance.");
+  const spent = pre - post; if (spent > BigInt(maxLamports)) throw new Error(`Launch blocked: it would spend ${T.fromUnits(spent, 9)} SOL, more than expected (${T.fromUnits(BigInt(maxLamports), 9)}).`);
+  return spent;
 }
 
 // ---------- launch ----------
@@ -182,7 +194,8 @@ async function launch(uid, d) {
     if (!extra.length) {
       const r = await fetch(PP(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ publicKey: list[0].pub, action: "create", tokenMetadata: meta, mint: mint.pub, denominatedInSol: "true", amount: dev, slippage: slip, priorityFee: 0.0005, pool: "pump" }) });
       if (!r.ok) X.fail("PumpPortal couldn't build the launch: " + (await r.text().catch(() => "")).slice(0, 120));
-      const raw = Buffer.from(await r.arrayBuffer()); check(raw, cap(dev));
+      const raw = Buffer.from(await r.arrayBuffer()), unk = check(raw, cap(dev));
+      if (unk.length) await simulateSpend(toB64(raw), list[0].pub, lam(dev * 1.02 + 0.05) + lam(dev * slip / 100));
       const signed = V.solSignTx(V.solSignTx(toB64(raw), mint.seed), list[0].seed());
       const sig = await X.srpc("sendTransaction", [signed, { encoding: "base64", preflightCommitment: "confirmed", maxRetries: 3 }]);
       for (let i = 0; i < 20; i++) { await new Promise((ok) => setTimeout(ok, 2000)); const s = await X.srpc("getSignatureStatuses", [[sig]]).catch(() => null), v = s && s.value && s.value[0]; if (v && v.err) X.fail("The launch failed on-chain. Nothing was created (only network fees)."); if (v && (v.confirmationStatus === "confirmed" || v.confirmationStatus === "finalized")) break; if (i === 19) X.fail("The launch didn't confirm in time. Check your wallet on Solscan before retrying."); }
@@ -193,7 +206,11 @@ async function launch(uid, d) {
       const r = await fetch(PP(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const arr = r.ok ? await r.json().catch(() => null) : null;
       if (!Array.isArray(arr) || arr.length !== body.length) X.fail("PumpPortal couldn't build the bundle. Try again.");
-      const signed = arr.map((s, i) => { const raw = D.b58dec(s); check(raw, cap(i === 0 ? dev : each)); let t = toB64(raw); if (i === 0) t = V.solSignTx(t, mint.seed); return V.solSignTx(t, (i === 0 ? list[0] : extra[i - 1]).seed()); });
+      const raws = arr.map((s) => D.b58dec(s)), unks = raws.map((raw, i) => check(raw, cap(i === 0 ? dev : each)));
+      // the create tx can be simulated; the buys can't (the token doesn't exist yet), so they may only use programs the create tx used
+      if (unks[0].length) await simulateSpend(toB64(raws[0]), list[0].pub, lam(dev * 1.02 + 0.05 + tip) + lam(dev * slip / 100));
+      unks.slice(1).forEach((u) => { const bad = u.filter((p) => !unks[0].includes(p)); if (bad.length) throw new Error("Launch blocked: a bundle transaction calls an unknown program (" + bad[0] + ")."); });
+      const signed = raws.map((raw, i) => { let t = toB64(raw); if (i === 0) t = V.solSignTx(t, mint.seed); return V.solSignTx(t, (i === 0 ? list[0] : extra[i - 1]).seed()); });
       sigs = (await B.sendBundle(signed)).sigs;
     }
     if (fee > 0n) await B.solSendSeed(list[0].seed(), feeTo, fee).catch((e) => console.error("launch fee", e.message));
