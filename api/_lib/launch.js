@@ -46,19 +46,46 @@ async function tgFile(fileId) {
   if (!f.ok) X.fail("Couldn't download the image from Telegram. Send it again.");
   return { buf: Buffer.from(await f.arrayBuffer()), mime: /\.png$/i.test(r.d.result.file_path) ? "image/png" : "image/jpeg" };
 }
-async function uploadMeta(d, img) {
+async function tfetch(url, opt, ms) { const c = new AbortController(), t = setTimeout(() => c.abort(), ms || 20000); try { return await fetch(url, Object.assign({}, opt, { signal: c.signal })); } finally { clearTimeout(t); } }
+
+/** 1) pump.fun's own IPFS endpoint (often blocks server/datacenter requests). */
+async function viaPump(d, img) {
   const fd = new FormData();
   fd.append("file", new Blob([img.buf], { type: img.mime }), img.mime === "image/png" ? "logo.png" : "logo.jpg");
   fd.append("name", d.name); fd.append("symbol", d.symbol); fd.append("description", d.description || "");
   if (d.twitter) fd.append("twitter", d.twitter); if (d.telegram) fd.append("telegram", d.telegram); if (d.website) fd.append("website", d.website);
   fd.append("showName", "true");
-  const c = new AbortController(), t = setTimeout(() => c.abort(), 20000);
-  try {
-    const r = await fetch("https://pump.fun/api/ipfs", { method: "POST", body: fd, signal: c.signal });
-    const j = r.ok ? await r.json().catch(() => null) : null;
-    if (!j || !j.metadataUri) X.fail("pump.fun didn't accept the image / metadata. Try a smaller JPG or PNG.");
-    return j.metadataUri;
-  } finally { clearTimeout(t); }
+  const r = await tfetch("https://pump.fun/api/ipfs", { method: "POST", body: fd, headers: { origin: "https://pump.fun", referer: "https://pump.fun/create", "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36" } });
+  const j = r.ok ? await r.json().catch(() => null) : null;
+  if (!j || !j.metadataUri) throw new Error("pump.fun ipfs " + r.status);
+  return j.metadataUri;
+}
+/** 2) Pinata (free account, set PINATA_JWT): image → IPFS, then the same metadata JSON pump.fun would write. */
+// Accepts the usual Vercel names: a JWT (PINATA_JWT …) or the older API key + secret pair.
+function pinataAuth() {
+  const jwt = env("PINATA_JWT") || env("PINATA_JWT_TOKEN") || env("PINATA_API_JWT") || env("NEXT_PUBLIC_PINATA_JWT");
+  if (jwt) return { authorization: "Bearer " + jwt.replace(/^Bearer\s+/i, "") };
+  const k = env("PINATA_API_KEY") || env("NEXT_PUBLIC_PINATA_API_KEY"), sec = env("PINATA_SECRET_API_KEY") || env("PINATA_API_SECRET") || env("PINATA_SECRET") || env("NEXT_PUBLIC_PINATA_SECRET_API_KEY");
+  return k && sec ? { pinata_api_key: k, pinata_secret_api_key: sec } : null;
+}
+async function viaPinata(d, img) {
+  const h = pinataAuth(); if (!h) throw new Error("no Pinata key");
+  const fd = new FormData();
+  fd.append("file", new Blob([img.buf], { type: img.mime }), img.mime === "image/png" ? "logo.png" : "logo.jpg");
+  const a = await tfetch("https://api.pinata.cloud/pinning/pinFileToIPFS", { method: "POST", headers: h, body: fd });
+  const ja = a.ok ? await a.json().catch(() => null) : null; if (!ja || !ja.IpfsHash) throw new Error("pinata image " + a.status);
+  const meta = { name: d.name, symbol: d.symbol, description: d.description || "", image: "https://ipfs.io/ipfs/" + ja.IpfsHash, showName: true, createdOn: "https://pump.fun" };
+  if (d.twitter) meta.twitter = d.twitter; if (d.telegram) meta.telegram = d.telegram; if (d.website) meta.website = d.website;
+  const b = await tfetch("https://api.pinata.cloud/pinning/pinJSONToIPFS", { method: "POST", headers: Object.assign({ "content-type": "application/json" }, h), body: JSON.stringify({ pinataContent: meta, pinataMetadata: { name: d.symbol + " metadata" } }) });
+  const jb = b.ok ? await b.json().catch(() => null) : null; if (!jb || !jb.IpfsHash) throw new Error("pinata json " + b.status);
+  return "https://ipfs.io/ipfs/" + jb.IpfsHash;
+}
+async function uploadMeta(d, img) {
+  const errs = [];
+  for (const f of [viaPump, viaPinata]) { try { return await f(d, img); } catch (e) { errs.push(e.message); } }
+  console.error("launch metadata", errs.join(" | "));
+  X.fail(pinataAuth() ? "Couldn't upload the image / metadata right now (" + errs.join(", ") + "). Try again in a minute."
+    : "pump.fun blocks image uploads from our server. Admin: add a free Pinata key as PINATA_JWT in Vercel to fix this.");
 }
 
 // ---------- transaction safety check (we sign with custodial keys) ----------
