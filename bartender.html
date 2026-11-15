@@ -76,7 +76,7 @@ nav.tabs .in{width:min(560px,100%);margin:auto;display:grid;grid-template-column
 nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 0;font-size:10.5px;color:var(--muted);border-radius:12px}
 nav.tabs button span{font-size:19px}nav.tabs button[aria-current="page"]{color:#fff;background:#ffffff0f}
 .field{display:flex;flex-direction:column;gap:6px;margin:12px 0}.field label{font-size:13px;color:var(--muted)}
-.field input,.field select{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 12px;outline:0}
+.field input,.field select,.field textarea{color:inherit;font:inherit;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 12px;outline:0}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.two>*{min-width:0}.field input,.field select{width:100%;min-width:0}
 .stx{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:10px 0}
 .stk{display:flex;flex-direction:column;gap:2px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 12px;color:inherit;min-width:0;cursor:pointer}
@@ -327,10 +327,50 @@ async function find(q) {
 function tradeView() {
   view.innerHTML = `<h2>Trade</h2><form class="search" id="sf"><input id="q" placeholder="Token address, $ticker or link" autocomplete="off" spellcheck="false" aria-label="Find a token"><button class="btn main">Find</button></form>
     <p class="small muted">Works with pump.fun, DEX Screener, Birdeye and GMGN links, and with bonding-curve tokens on pump.fun, Four.meme and Pons.</p>
+    <button class="btn ghost" id="golaunch" style="width:100%;margin:6px 0 2px">🚀 Launch a token on pump.fun</button>
     <div id="stx"></div>`;
+  $("#golaunch").onclick = launchView;
   bindCommon(); stocksBox();
 }
 /* ---------- xStocks (tokenized stocks on Solana) ---------- */
+/* ---------- launch on pump.fun ---------- */
+async function launchView() {
+  let info = { wallets: 1, launchFee: 0.05, feePct: 1 }; try { info = await api("launchInfo"); } catch (e) {}
+  view.innerHTML = `<h2>🚀 Launch on pump.fun</h2>
+    <p class="small muted">Create your token from your CBL wallet with an optional dev buy in the same transaction. Fees: ${info.launchFee} SOL + ${info.feePct}% of buys.</p>
+    <form id="lf">
+      <div class="two"><div class="field"><label for="ln">Name</label><input id="ln" maxlength="32" required></div><div class="field"><label for="ls">Ticker</label><input id="ls" maxlength="10" required placeholder="CBL"></div></div>
+      <div class="field"><label for="ld">Description</label><textarea id="ld" rows="3" maxlength="600"></textarea></div>
+      <div class="field"><label for="li">Image (square PNG / JPG)</label><input id="li" type="file" accept="image/png,image/jpeg,image/webp" required></div>
+      <div class="two"><div class="field"><label for="lx">X link</label><input id="lx" placeholder="https://x.com/…"></div><div class="field"><label for="lt">Telegram</label><input id="lt" placeholder="https://t.me/…"></div></div>
+      <div class="field"><label for="lw">Website</label><input id="lw" placeholder="https://…"></div>
+      <div class="two"><div class="field"><label for="lv">Dev buy (SOL)</label><input id="lv" inputmode="decimal" value="0"></div>
+      <div class="field"><label for="le">Bundle SOL / wallet</label><input id="le" inputmode="decimal" value="0" ${info.wallets < 2 ? "disabled" : ""}></div></div>
+      <p class="small muted">${info.wallets < 2 ? "Bundle needs extra wallets (W2–W5): add them in Wallet." : `Bundle buys with W2–W${info.wallets} in the same block. Scanners (CBL too) will show them as bundlers.`}</p>
+      <button class="btn main" style="width:100%">🚀 Launch</button>
+    </form>`;
+  $("#lf").onsubmit = (ev) => { ev.preventDefault();
+    const f = $("#li").files[0]; if (!f) return toast("Add an image", true);
+    const each = Number($("#le").value) || 0;
+    if (!confirm(`Launch $${$("#ls").value.trim().toUpperCase()} on pump.fun? This can't be undone.`)) return;
+    busy(ev.submitter, async () => {
+      const img = await shrink(f);
+      const r = await api("launch", { name: $("#ln").value.trim(), symbol: $("#ls").value.trim(), description: $("#ld").value.trim(), twitter: $("#lx").value.trim(), telegram: $("#lt").value.trim(), website: $("#lw").value.trim(), dev: Number($("#lv").value) || 0, bundle: each > 0, each, image: img });
+      view.innerHTML = `<h2>🎉 Launched!</h2><div class="addr"><code>${E(r.mint)}</code><button data-copy="${E(r.mint)}">Copy</button></div>
+        <p><a class="btn main" target="_blank" rel="noopener" href="https://pump.fun/coin/${E(r.mint)}">Open on pump.fun</a> <a class="btn ghost" target="_blank" rel="noopener" href="https://solscan.io/tx/${E(r.tx)}">Transaction</a></p>
+        <button class="btn ghost" id="lt2">Trade it</button>`;
+      view.querySelectorAll("[data-copy]").forEach((b) => b.onclick = () => copy(b.dataset.copy));
+      $("#lt2").onclick = () => tokenView(r.mint, "s");
+    });
+  };
+}
+/** Resize an image to max 512px JPEG/PNG and return { b64, mime }. */
+function shrink(file) {
+  return new Promise((ok, bad) => { const im = new Image(), u = URL.createObjectURL(file);
+    im.onload = () => { const s = Math.min(1, 512 / Math.max(im.width, im.height)), c = document.createElement("canvas"); c.width = Math.round(im.width * s); c.height = Math.round(im.height * s);
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height); const png = file.type === "image/png", d = c.toDataURL(png ? "image/png" : "image/jpeg", 0.9); URL.revokeObjectURL(u); ok({ b64: d.split(",")[1], mime: png ? "image/png" : "image/jpeg" }); };
+    im.onerror = () => bad(new Error("Couldn't read the image")); im.src = u; });
+}
 async function stocksBox() {
   const box = $("#stx"); if (!box) return;
   box.innerHTML = '<p class="small muted"><span class="spin"></span> Loading stocks…</p>';

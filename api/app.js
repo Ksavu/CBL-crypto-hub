@@ -128,6 +128,13 @@ module.exports = async (req, res) => {
       else if (a === "spread") { const r = await B.spread(uid, String(p.each)); out = { sent: fmt(r.amt, "s"), n: r.n }; }
       else if (a === "collect") { const r = await B.collect(uid); out = { total: fmt(r.total, "s") }; }
       else if (a === "predict") out = await require("./_lib/predict").web(uid, row, p || {}); // prediction markets: list / search / event / preview / buy / positions / sell / claim / usdc
+      else if (a === "launchInfo") { const LN = require("./_lib/launch"), { list } = await require("./_lib/bundle").wallets(uid); out = { wallets: list.length, launchFee: LN.launchFee(), feePct: T.feeBps() / 100 }; }
+      else if (a === "launch") { // pump.fun launch from the web app (image as base64)
+        const LN = require("./_lib/launch"), det = LN.parseDetails([p.name, p.symbol, p.description, p.twitter, p.telegram, p.website].filter(Boolean).join("\n"));
+        if (!p.image || !p.image.b64) throw new T.UserErr("Add an image.");
+        const r = await LN.launch(uid, Object.assign(det, { image: { b64: p.image.b64, mime: p.image.mime === "image/png" ? "image/png" : "image/jpeg" }, dev: Number(p.dev) || 0, bundle: { on: !!p.bundle, each: Number(p.each) || 0 } }));
+        out = { mint: r.mint, tx: r.sigs[0], bundled: r.bundled };
+      }
       else if (a === "stocks") { const ST = require("./_lib/stocks"); out = { list: (await ST.list()).slice(0, 30), market: ST.market() }; }
       else if (a === "refs") { // referrals: link + earnings per coin
         const R = require("./_lib/refs"), st2 = await R.stats(uid), bot = String(process.env.TELEGRAM_BOT_USERNAME || "CBLScannerBot").replace(/^@/, "");

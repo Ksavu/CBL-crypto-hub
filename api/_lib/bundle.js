@@ -121,4 +121,4 @@ async function collect(uid) {
 }
 async function exportKeys(uid) { const { list } = await wallets(uid); return list.slice(1).map((w) => ({ idx: w.idx, pub: w.pub, key: V.solExport(w.seed()) })); }
 
-module.exports = { MAX, wallets, addWallet, balances, buy, sell, spread, collect, exportKeys, sigOf };
+module.exports = { MAX, wallets, addWallet, balances, buy, sell, spread, collect, exportKeys, sigOf, sendBundle, solSendSeed };

@@ -207,3 +207,10 @@ Polymarket and Kalshi through Jupiter's Prediction API (`api/_lib/predict.js`).
 - The API is in beta, and Jupiter blocks requests from US and South Korea IPs. If Predict answers "not available from
   this server's region", move the Vercel function region away from the US (Project → Settings → Functions → Region).
   The confirm screen has the user state they are not a US or South Korea resident.
+
+## Launch on pump.fun
+- Run `launch.sql` in Supabase once.
+- Bartender → 🚀 Launch on pump.fun (Telegram) or Trade → 🚀 Launch a token (web app).
+- Transactions are built by PumpPortal (local-transaction API) and checked before signing (known programs only, no token approvals, capped SOL transfers).
+- Fees: `LAUNCH_FEE_SOL` (default 0.05) + `BOT_FEE_BPS` of all buys. Optional `PUMPPORTAL_URL` to point at another compatible builder.
+- Bundle = the user's own W2–W5 buy in the same Jito bundle. Bundled launches are not hidden: scanners show them.

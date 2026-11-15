@@ -54,6 +54,7 @@ function sortList(list, st) {
 
 const HOME_KB = [
   [{ text: "🟢 Buy", callback_data: "TB" }, { text: "📈 Stocks", callback_data: "TX" }, { text: "🔮 Predict", callback_data: "TQ" }],
+  [{ text: "🚀 Launch on pump.fun", callback_data: "TN" }],
   [{ text: "📥 Fund", callback_data: "Td" }, { text: "👛 Wallet", callback_data: "TA" }, { text: "⚙️ Settings", callback_data: "Ts" }],
   [{ text: "📊 Positions", callback_data: "Tp" }, { text: "🎯 Orders (TP/SL/limit)", callback_data: "To" }],
   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
@@ -329,6 +330,22 @@ function make(tg) {
     L.push("", `<i>Min claim: ${coins.map((c) => R.MIN[c] + " " + (c === "e" ? "ETH(Base)" : c === "r" ? "ETH(RH)" : T.CH[c].nat)).join(" · ")}</i>`);
     return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
   }
+  async function launchMsg(uid) {
+    const LN = require("./launch"), d = await LN.draft(uid), { list } = await require("./bundle").wallets(uid), c = LN.cost(d, list.length - 1);
+    const L = ["🚀 <b>Launch on pump.fun</b>", "", "Create your token from your CBL wallet, with an optional dev buy in the same transaction (no sniper gets in first).", ""];
+    L.push(`<b>Name:</b> ${d.name ? esc(d.name) : "—"}   <b>Ticker:</b> ${d.symbol ? "$" + esc(d.symbol) : "—"}`);
+    if (d.description) L.push(`<b>About:</b> ${esc(d.description.slice(0, 160))}${d.description.length > 160 ? "…" : ""}`);
+    L.push(`<b>Links:</b> ${[d.twitter && "𝕏", d.telegram && "TG", d.website && "Web"].filter(Boolean).join(" · ") || "—"}`, `<b>Image:</b> ${d.image ? "✅" : "—"}`, "",
+      `💰 Dev buy (W1): <b>${c.dev} SOL</b>`,
+      `📦 Bundle: ${d.bundle && d.bundle.on ? `<b>on</b> · ${c.each} SOL × ${c.n} wallet(s) (W2–W${list.length}) in the same block` : "off"}`, "",
+      `<b>Cost:</b> launch fee ${c.launchFee} SOL${c.buys ? ` + ${(T.feeBps() / 100)}% of buys (${c.tradeFee.toFixed(4)} SOL)` : ""} · W1 needs ≈ ${c.w1.toFixed(3)} SOL`);
+    if (d.bundle && d.bundle.on) L.push("", "⚠️ Bundled wallets are visible on-chain: scanners (CBL too) will show them as bundlers, and many buyers avoid bundled launches.");
+    const ready = d.name && d.symbol && d.image;
+    const kb = [[{ text: "✏️ Name, ticker, about, links", callback_data: "TNe" }], [{ text: "🖼 Image", callback_data: "TNi" }, { text: "💰 Dev buy", callback_data: "TNd" }],
+      [{ text: d.bundle && d.bundle.on ? "📦 Bundle: on" : "📦 Bundle: off", callback_data: "TNb" }, { text: "📦 SOL per wallet", callback_data: "TNa" }],
+      [{ text: ready ? "🚀 Launch now" : "🚀 Launch (fill name, ticker, image)", callback_data: ready ? "TNg" : "TN" }], [{ text: "🗑 Clear", callback_data: "TNx" }, { text: "⬅️ Menu", callback_data: "Tm" }]];
+    return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
+  }
   async function copyMsg(uid) {
     const C = require("./copy"), rows = await C.list(uid);
     const L = ["👥 <b>Copy trading</b>", "", "Follow a wallet. When it buys, you buy the same token with your fixed amount. When it sells, you sell the same share. Solana copies are instant, BNB / Base / Robinhood within 5 minutes.", ""];
@@ -417,6 +434,33 @@ function make(tg) {
     if (k === "p") { await ack("Loading positions…"); await edit(chat, mid, await positionsMsg(uid)); return true; }
     if (k === "d") { await ack(); await send(chat, depositMsg(row)); return true; }
     if (k === "A") { await ack(); await edit(chat, mid, await walletMsg(row)); return true; }
+    if (k === "N") { // 🚀 launch on pump.fun
+      const LN = require("./launch"), sub = d[2];
+      try {
+        if (sub === "e") { await ack(); await prompt(chat, "✏️ <b>Token details</b>, one per line:\n<code>Name\nTICKER\nDescription (optional)\nhttps://x.com/… (optional)\nhttps://t.me/… (optional)\nhttps://website (optional)</code>", "lndet", "Name"); return true; }
+        if (sub === "i") { await ack(); await prompt(chat, "🖼 Reply with the token <b>image</b> (send it as a photo, square works best).", "lnimg", "Send a photo"); return true; }
+        if (sub === "d") { await ack(); await prompt(chat, "💰 Dev buy in SOL at launch (0 for none), e.g. <code>1</code>", "lndev", "1"); return true; }
+        if (sub === "a") { await ack(); await prompt(chat, "📦 SOL each bundle wallet (W2–W5) buys in the launch block, e.g. <code>0.5</code>", "lnbun", "0.5"); return true; }
+        if (sub === "b") { const dr = await LN.draft(uid); await LN.patchDraft(uid, { bundle: { on: !(dr.bundle && dr.bundle.on), each: (dr.bundle && dr.bundle.each) || 0.5 } }); }
+        if (sub === "x") await LN.saveDraft(uid, {});
+        if (sub === "g") { // confirm screen
+          await ack(); const dr = await LN.draft(uid), { list } = await require("./bundle").wallets(uid), c = LN.cost(dr, list.length - 1);
+          await edit(chat, mid, { text: `🚀 <b>Launch $${esc(dr.symbol || "")} on pump.fun?</b>\n\n${esc(dr.name || "")} · dev buy ${c.dev} SOL${c.n ? ` · bundle ${c.each} SOL × ${c.n}` : ""}\nFees: ${c.launchFee} SOL launch + ${(T.feeBps() / 100)}% of buys.\n\nThis can't be undone.`,
+            reply_markup: { inline_keyboard: [[{ text: "✅ Yes, launch", callback_data: "TNy" }], [{ text: "⬅️ Back", callback_data: "TN" }]] } });
+          return true;
+        }
+        if (sub === "y") {
+          await ack("Launching…"); await edit(chat, mid, { text: "🚀 Launching on pump.fun… (up to a minute)" }).catch(() => {});
+          const r = await LN.launch(uid, await LN.draft(uid));
+          const site = (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
+          await send(chat, { text: `🎉 <b>Launched!</b>\n<code>${r.mint}</code>\n${r.dev ? `Dev buy ${r.dev} SOL` : "No dev buy"}${r.bundled ? ` · bundle ${r.each} SOL × ${r.bundled}` : ""}\n<a href="https://solscan.io/tx/${r.sigs[0]}">Transaction</a>`,
+            reply_markup: { inline_keyboard: [[{ text: "💊 pump.fun", url: `https://pump.fun/coin/${r.mint}` }, { text: "📊 Token", callback_data: `Tvs:${r.mint}` }], [{ text: "🔍 Scan", url: `${site}/?ca=${r.mint}#scanner` }, { text: "⬅️ Menu", callback_data: "Tm" }]] } });
+          return true;
+        }
+        await ack(); await edit(chat, mid, await launchMsg(uid));
+      } catch (e) { await ack(); await send(chat, errText(e)); if (sub === "y") await send(chat, await launchMsg(uid)); }
+      return true;
+    }
     if (k === "C") {
       const C = require("./copy"), sub = d[2], id = d.slice(3);
       try {
@@ -540,7 +584,7 @@ function make(tg) {
   /** Replies to the bot's ✏️ prompts. Returns true when handled. Find-token replies return { ca, chain } to scan. */
   async function replyPrompt(msg) {
     const r = msg.reply_to_message; if (!r || !r.from || !r.from.is_bot || msg.chat.type !== "private") return false;
-    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread|pred)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
+    const tag = /#(buy|sell|withdraw|set|find|tp|sl|lb|copyamt|copy|spread|pred|lndet|lnimg|lndev|lnbun)(?::([a-z]+))?(?::([sber]))?\s*$/.exec(r.text || ""); if (!tag) return false;
     const nr = notReady(); if (nr) { await send(msg.chat.id, nr); return true; }
     const [, kind, a1, a2] = tag, uid = msg.from.id, chat = msg.chat.id, txt = (msg.text || "").trim();
     if (kind === "find") {
@@ -574,6 +618,16 @@ function make(tg) {
       await send(chat, "That doesn't look right. Open ⚙️ Settings and try again."); return true;
     }
     const c = a1;
+    if (kind === "lndet" || kind === "lnimg" || kind === "lndev" || kind === "lnbun") {
+      const LN = require("./launch");
+      try {
+        if (kind === "lndet") await LN.patchDraft(uid, LN.parseDetails(msg.text || ""));
+        if (kind === "lnimg") { const ph = msg.photo && msg.photo.length ? msg.photo[msg.photo.length - 1] : msg.document && /^image\//.test(msg.document.mime_type || "") ? msg.document : null; if (!ph) { await send(chat, "Send the image as a photo."); return true; } await LN.patchDraft(uid, { image: { fileId: ph.file_id } }); }
+        if (kind === "lndev" || kind === "lnbun") { const v = Number(String(txt).replace(",", ".")); if (!(v >= 0) || v > (kind === "lndev" ? 50 : 20)) { await send(chat, "Send a number, e.g. <code>1</code>"); return true; } const dr = await LN.draft(uid); await LN.patchDraft(uid, kind === "lndev" ? { dev: v } : { bundle: { on: v > 0, each: v } }); }
+        await send(chat, await launchMsg(uid));
+      } catch (e) { await send(chat, errText(e)); }
+      return true;
+    }
     if (kind === "copy") {
       const [w, amt, a3, a4] = txt.split(/\s+/), evm = /^0x/i.test(w || "");
       try {
