@@ -68,17 +68,27 @@ function pinataAuth() {
   const k = env("PINATA_API_KEY") || env("NEXT_PUBLIC_PINATA_API_KEY"), sec = env("PINATA_SECRET_API_KEY") || env("PINATA_API_SECRET") || env("PINATA_SECRET") || env("NEXT_PUBLIC_PINATA_SECRET_API_KEY");
   return k && sec ? { pinata_api_key: k, pinata_secret_api_key: sec } : null;
 }
+/** Pin one file (Blob) to public IPFS. New Pinata keys only allow the v3 Files API; older/admin keys also allow the legacy pinning API. Returns the CID. */
+async function pin(h, blob, name) {
+  const errs = [];
+  if (h.authorization) { // v3 Files API (JWT keys); network=public, otherwise files are private and pump.fun can't read them
+    const fd = new FormData(); fd.append("file", blob, name); fd.append("network", "public"); fd.append("name", name);
+    const r = await tfetch("https://uploads.pinata.cloud/v3/files", { method: "POST", headers: h, body: fd });
+    const j = r.ok ? await r.json().catch(() => null) : null; if (j && j.data && j.data.cid) return j.data.cid; errs.push("v3 " + r.status);
+  }
+  const fd = new FormData(); fd.append("file", blob, name);
+  const r = await tfetch("https://api.pinata.cloud/pinning/pinFileToIPFS", { method: "POST", headers: h, body: fd });
+  const j = r.ok ? await r.json().catch(() => null) : null; if (j && j.IpfsHash) return j.IpfsHash; errs.push("legacy " + r.status);
+  throw new Error("pinata " + errs.join("/"));
+}
+/** 2) Pinata (free account, set PINATA_JWT): image → IPFS, then the same metadata JSON pump.fun would write. */
 async function viaPinata(d, img) {
   const h = pinataAuth(); if (!h) throw new Error("no Pinata key");
-  const fd = new FormData();
-  fd.append("file", new Blob([img.buf], { type: img.mime }), img.mime === "image/png" ? "logo.png" : "logo.jpg");
-  const a = await tfetch("https://api.pinata.cloud/pinning/pinFileToIPFS", { method: "POST", headers: h, body: fd });
-  const ja = a.ok ? await a.json().catch(() => null) : null; if (!ja || !ja.IpfsHash) throw new Error("pinata image " + a.status);
-  const meta = { name: d.name, symbol: d.symbol, description: d.description || "", image: "https://ipfs.io/ipfs/" + ja.IpfsHash, showName: true, createdOn: "https://pump.fun" };
+  const imgCid = await pin(h, new Blob([img.buf], { type: img.mime }), (d.symbol || "logo") + (img.mime === "image/png" ? ".png" : ".jpg"));
+  const meta = { name: d.name, symbol: d.symbol, description: d.description || "", image: "https://ipfs.io/ipfs/" + imgCid, showName: true, createdOn: "https://pump.fun" };
   if (d.twitter) meta.twitter = d.twitter; if (d.telegram) meta.telegram = d.telegram; if (d.website) meta.website = d.website;
-  const b = await tfetch("https://api.pinata.cloud/pinning/pinJSONToIPFS", { method: "POST", headers: Object.assign({ "content-type": "application/json" }, h), body: JSON.stringify({ pinataContent: meta, pinataMetadata: { name: d.symbol + " metadata" } }) });
-  const jb = b.ok ? await b.json().catch(() => null) : null; if (!jb || !jb.IpfsHash) throw new Error("pinata json " + b.status);
-  return "https://ipfs.io/ipfs/" + jb.IpfsHash;
+  const metaCid = await pin(h, new Blob([JSON.stringify(meta)], { type: "application/json" }), (d.symbol || "token") + "-metadata.json");
+  return "https://ipfs.io/ipfs/" + metaCid;
 }
 async function uploadMeta(d, img) {
   const errs = [];
