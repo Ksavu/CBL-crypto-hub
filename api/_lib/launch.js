@@ -94,12 +94,27 @@ async function viaPinata(d, img) {
   const metaCid = await pin(h, new Blob([JSON.stringify(meta)], { type: "application/json" }), (d.symbol || "token") + "-metadata.json");
   return "https://ipfs.io/ipfs/" + metaCid;
 }
+/** 3) Filebase (free 5 GB): IPFS RPC "add" with the bucket's IPFS RPC API key (FILEBASE_IPFS_KEY). */
+async function fbAdd(blob, name) {
+  const key = env("FILEBASE_IPFS_KEY") || env("FILEBASE_KEY"); if (!key) throw new Error("no FILEBASE_IPFS_KEY");
+  const fd = new FormData(); fd.append("file", blob, name);
+  const r = await tfetch("https://rpc.filebase.io/api/v0/add?cid-version=1&pin=true", { method: "POST", headers: { authorization: "Bearer " + key.replace(/^Bearer\s+/i, "") }, body: fd });
+  const t = await r.text().catch(() => ""), j = (() => { try { return JSON.parse(t.trim().split("\n").pop()); } catch (e) { return null; } })();
+  if (!r.ok || !j || !j.Hash) throw new Error("filebase " + r.status + " " + t.replace(/\s+/g, " ").slice(0, 80));
+  return j.Hash;
+}
+async function viaFilebase(d, img) {
+  const imgCid = await fbAdd(new Blob([img.buf], { type: img.mime }), (d.symbol || "logo") + (img.mime === "image/png" ? ".png" : ".jpg"));
+  const meta = { name: d.name, symbol: d.symbol, description: d.description || "", image: "https://ipfs.io/ipfs/" + imgCid, showName: true, createdOn: "https://pump.fun" };
+  if (d.twitter) meta.twitter = d.twitter; if (d.telegram) meta.telegram = d.telegram; if (d.website) meta.website = d.website;
+  return "https://ipfs.io/ipfs/" + await fbAdd(new Blob([JSON.stringify(meta)], { type: "application/json" }), (d.symbol || "token") + "-metadata.json");
+}
 async function uploadMeta(d, img) {
   const errs = [];
-  for (const f of [viaPump, viaPinata]) { try { return await f(d, img); } catch (e) { errs.push(e.message); } }
+  for (const f of [viaPump, viaFilebase, viaPinata]) { try { return await f(d, img); } catch (e) { errs.push(e.message); } }
   console.error("launch metadata", errs.join(" | "));
-  X.fail(pinataAuth() ? "Couldn't upload the image / metadata (" + errs.join(", ") + "). Pinata key in use: " + pinataKeyId() + "…"
-    : "pump.fun blocks image uploads from our server. Admin: add a free Pinata key as PINATA_JWT in Vercel to fix this.");
+  X.fail(pinataAuth() || env("FILEBASE_IPFS_KEY") ? "Couldn't upload the image / metadata (" + errs.join(", ") + "). Pinata key in use: " + pinataKeyId() + "…"
+    : "pump.fun blocks image uploads from our server. Admin: add a free Filebase IPFS key as FILEBASE_IPFS_KEY (or Pinata PINATA_JWT) in Vercel.");
 }
 
 // ---------- transaction safety check (we sign with custodial keys) ----------
