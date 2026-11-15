@@ -280,8 +280,13 @@ function make(tg) {
     return mid ? edit(chat, mid, m) : send(chat, m);
   }
   async function sendKeys(chat, row, first) {
-    const V = require("./vault");
-    await send(chat, `🔑 <b>${first ? "Save your private keys now" : "Your private keys"}</b>\nTap to reveal. Store them somewhere safe (password manager or offline), then <b>delete this message</b>. Anyone with these keys controls your funds.\n\n◎ Solana (import into Phantom/Solflare):\n<tg-spoiler><code>${V.solExport(V.solSeed(row))}</code></tg-spoiler>\n\n⬡ EVM (MetaMask/Rabby, same on BNB/Base/Robinhood):\n<tg-spoiler><code>${V.evmPk(row)}</code></tg-spoiler>${await B.exportKeys(row.tg_id).then((l) => l.map((w) => `\n\n◎ Solana W${w.idx} <code>${w.pub}</code>:\n<tg-spoiler><code>${w.key}</code></tg-spoiler>`).join("")).catch(() => "")}${first ? "\n\nYou can show them again any time: 👛 Wallet → 🔑 Export." : ""}`, { protect_content: true });
+    const V = require("./vault"), sol = V.solExport(V.solSeed(row)), evm = V.evmPk(row);
+    const subs = await B.exportKeys(row.tg_id).catch(() => []);
+    // Copy buttons put the exact key on the clipboard (tapping text in Telegram can copy the wrong thing).
+    // No protect_content: it blocks copying, which made the keys unusable.
+    const kb = [[{ text: "📋 Copy Solana W1 key", copy_text: { text: sol } }], [{ text: "📋 Copy EVM key (BNB/Base/Robinhood)", copy_text: { text: evm } }],
+      ...subs.map((w) => [{ text: `📋 Copy Solana W${w.idx} key`, copy_text: { text: w.key } }]), [{ text: "🗑 Delete this message", callback_data: "Tkd" }]];
+    await send(chat, { text: `🔑 <b>${first ? "Save your private keys now" : "Your private keys"}</b>\nTap a 📋 button to copy a key, paste it into your wallet's <b>Import private key</b>, then press 🗑 to delete this message. Anyone with these keys controls your funds.\n\n◎ <b>Solana W1</b> (Phantom / Solflare → Import private key):\n<code>${row.sol_pub}</code>\n<tg-spoiler><code>${sol}</code></tg-spoiler>\n\n⬡ <b>EVM</b> (MetaMask / Rabby → Import account; same key on BNB, Base, Robinhood):\n<code>${row.evm_addr}</code>\n<tg-spoiler><code>${evm}</code></tg-spoiler>${subs.map((w) => `\n\n◎ <b>Solana W${w.idx}</b> (bundle wallet, Solana only):\n<code>${w.pub}</code>\n<tg-spoiler><code>${w.key}</code></tg-spoiler>`).join("")}${first ? "\n\nYou can show them again any time: 👛 Wallet → 🔑 Export." : ""}`, reply_markup: { inline_keyboard: kb } });
   }
   const depositMsg = (row) => `<b>📥 Fund your wallet</b>\n\nSend <b>SOL</b> (Solana network) to:\n<code>${row.sol_pub}</code>\n\nSend <b>BNB</b> (BNB Chain) or <b>ETH</b> (Base / Robinhood Chain) to:\n<code>${row.evm_addr}</code>\n\nTap an address to copy it. Buy crypto on any exchange (Binance, Bybit, OKX…) and withdraw to these addresses on the matching network. Then tap 🔄 Refresh.`;
   const exportAsk = () => ({ text: "🔑 <b>Export private keys</b>\n\nAnyone with these keys controls your funds. Never share them, and delete the message after saving them.\n\nShow keys now?", reply_markup: { inline_keyboard: [[{ text: "Yes, show my keys", callback_data: "Tkk" }, { text: "Cancel", callback_data: "TA" }]] } });
@@ -535,6 +540,7 @@ function make(tg) {
     }
     if (d === "Tk") { await ack(); await edit(chat, mid, exportAsk()); return true; }
     if (d === "Tkk") { await ack(); await sendKeys(chat, row); return true; }
+    if (d === "Tkd") { await ack("Deleted"); await tg("deleteMessage", { chat_id: chat, message_id: mid }).catch(() => {}); return true; }
     if (d === "TW") { await ack(); await edit(chat, mid, withdrawPick()); return true; }
     if (k === "w" && T.CH[d[2]]) { await ack(); await prompt(chat, `📤 <b>Withdraw ${nat(d[2])} on ${T.CH[d[2]].name}</b>\nReply with the amount (or <code>all</code>) and the destination address:\n<code>0.5 ADDRESS</code>`, "withdraw:" + d[2], "amount address"); return true; }
     if (k === "y") {
