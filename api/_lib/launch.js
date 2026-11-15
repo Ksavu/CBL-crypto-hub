@@ -62,6 +62,8 @@ async function viaPump(d, img) {
 }
 /** 2) Pinata (free account, set PINATA_JWT): image → IPFS, then the same metadata JSON pump.fun would write. */
 // Accepts the usual Vercel names: a JWT (PINATA_JWT …) or the older API key + secret pair.
+/** Non-secret id of the Pinata key in use (to check Vercel has the new one). */
+function pinataKeyId() { try { const h = pinataAuth(); if (!h) return "none"; if (h.pinata_api_key) return h.pinata_api_key.slice(0, 6); const p = JSON.parse(Buffer.from(h.authorization.split(".")[1], "base64url").toString()); return String(p.scopedKeyKey || "?").slice(0, 6); } catch (e) { return "unreadable"; } }
 function pinataAuth() {
   const jwt = env("PINATA_JWT") || env("PINATA_JWT_TOKEN") || env("PINATA_API_JWT") || env("NEXT_PUBLIC_PINATA_JWT");
   if (jwt) return { authorization: "Bearer " + jwt.replace(/^Bearer\s+/i, "") };
@@ -74,11 +76,13 @@ async function pin(h, blob, name) {
   if (h.authorization) { // v3 Files API (JWT keys); network=public, otherwise files are private and pump.fun can't read them
     const fd = new FormData(); fd.append("file", blob, name); fd.append("network", "public"); fd.append("name", name);
     const r = await tfetch("https://uploads.pinata.cloud/v3/files", { method: "POST", headers: h, body: fd });
-    const j = r.ok ? await r.json().catch(() => null) : null; if (j && j.data && j.data.cid) return j.data.cid; errs.push("v3 " + r.status);
+    const j = r.ok ? await r.json().catch(() => null) : null; if (j && j.data && j.data.cid) return j.data.cid;
+    errs.push("v3 " + r.status + (r.ok ? "" : " " + (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 90))); // Pinata says why (scopes, plan, key)
   }
   const fd = new FormData(); fd.append("file", blob, name);
   const r = await tfetch("https://api.pinata.cloud/pinning/pinFileToIPFS", { method: "POST", headers: h, body: fd });
-  const j = r.ok ? await r.json().catch(() => null) : null; if (j && j.IpfsHash) return j.IpfsHash; errs.push("legacy " + r.status);
+  const j = r.ok ? await r.json().catch(() => null) : null; if (j && j.IpfsHash) return j.IpfsHash;
+  errs.push("legacy " + r.status + (r.ok ? "" : " " + (await r.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 90)));
   throw new Error("pinata " + errs.join("/"));
 }
 /** 2) Pinata (free account, set PINATA_JWT): image → IPFS, then the same metadata JSON pump.fun would write. */
@@ -94,7 +98,7 @@ async function uploadMeta(d, img) {
   const errs = [];
   for (const f of [viaPump, viaPinata]) { try { return await f(d, img); } catch (e) { errs.push(e.message); } }
   console.error("launch metadata", errs.join(" | "));
-  X.fail(pinataAuth() ? "Couldn't upload the image / metadata right now (" + errs.join(", ") + "). Try again in a minute."
+  X.fail(pinataAuth() ? "Couldn't upload the image / metadata (" + errs.join(", ") + "). Pinata key in use: " + pinataKeyId() + "…"
     : "pump.fun blocks image uploads from our server. Admin: add a free Pinata key as PINATA_JWT in Vercel to fix this.");
 }
 
