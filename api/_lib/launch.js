@@ -162,7 +162,42 @@ async function simulateSpend(b64, pub, maxLamports) {
 // ---------- launch ----------
 const lam = (sol) => X.toUnits(Number(sol).toFixed(9), 9);
 const toB64 = (x) => Buffer.from(x).toString("base64");
-function newMint() { const k = crypto.generateKeyPairSync("ed25519"); const seed = Buffer.from(k.privateKey.export({ format: "jwk" }).d, "base64url"); return { seed, pub: B58(V.solPubOf(seed)) }; }
+function randomMint() { const k = crypto.generateKeyPairSync("ed25519"); const seed = Buffer.from(k.privateKey.export({ format: "jwk" }).d, "base64url"); return { seed, pub: B58(V.solPubOf(seed)) }; }
+/** A pre-ground mint ending in "pump" (pool filled by scripts/grind.js via GitHub Actions); random mint if the pool is empty. */
+async function newMint() {
+  for (let i = 0; i < 3; i++) {
+    const one = ((await db.select("bot_mint_pool", "select=id&order=id.asc&limit=1").catch(() => [])) || [])[0]; if (!one) break;
+    const got = ((await db.take("bot_mint_pool", "id=eq." + one.id).catch(() => [])) || [])[0]; if (!got) continue; // someone else took it
+    try { const seed = V.open(got.enc, "mint"); const pub = B58(V.solPubOf(seed)); if (pub === got.pub) return { seed, pub, vanity: true }; } catch (e) {}
+  }
+  return Object.assign(randomMint(), { vanity: false });
+}
+/** Store ground mints (from the cron endpoint). Checks each seed really gives its "…pump" address. */
+async function addMints(keys) {
+  const rows = [];
+  for (const k of (Array.isArray(keys) ? keys : []).slice(0, 50)) {
+    try { const seed = Buffer.from(String(k.seed || ""), "hex"); if (seed.length !== 32) continue; const pub = B58(V.solPubOf(seed)); if (pub !== k.pub || !/pump$/.test(pub)) continue; rows.push({ pub, enc: V.seal(seed, "mint") }); } catch (e) {}
+  }
+  if (rows.length) await db.insert("bot_mint_pool", rows);
+  return rows.length;
+}
+async function poolCount() { const r = await db.select("bot_mint_pool", "select=id&limit=1000").catch(() => []); return (r || []).length; }
+
+// pump.fun create_v2 has an is_mayhem_mode flag (Mayhem mode: pump.fun's AI agent trades the coin for 24h).
+// The user chooses on/off; if the builder set it differently we flip the flag, and the simulation below confirms it still works.
+const CREATE_V2 = crypto.createHash("sha256").update("global:create_v2").digest().subarray(0, 8);
+function noMayhem(raw, want) {
+  const b = Buffer.from(raw), [nSig, l] = V.cu16(b, 0); let o = l + 64 * nSig; if (b[o] & 0x80) o++;
+  o += 3; const [nKeys, l2] = V.cu16(b, o); o += l2; const keys = []; for (let i = 0; i < nKeys; i++) keys.push(B58(b.subarray(o + 32 * i, o + 32 * i + 32))); o += 32 * nKeys + 32;
+  const [nIx, l3] = V.cu16(b, o); o += l3; let flipped = false;
+  for (let i = 0; i < nIx; i++) {
+    const pid = b[o++]; const [na, la] = V.cu16(b, o); o += la + na; const [nd, ld] = V.cu16(b, o); o += ld; const ds = o; o += nd;
+    if (keys[pid] !== "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P" || nd < 8 || !b.subarray(ds, ds + 8).equals(CREATE_V2)) continue;
+    let p = ds + 8; for (let s = 0; s < 3; s++) p += 4 + b.readUInt32LE(p); p += 32; // name, symbol, uri, creator
+    const target = want ? 1 : 0; if (p < ds + nd && b[p] !== target) { b[p] = target; flipped = true; }
+  }
+  return { raw: b, flipped };
+}
 
 /**
  * d = { name, symbol, description, twitter, telegram, website, image: {fileId} | {b64, mime}, dev (SOL), bundle: { on, each (SOL) } }
@@ -188,27 +223,27 @@ async function launch(uid, d) {
   try {
     const img = d.image.fileId ? await tgFile(d.image.fileId) : { buf: Buffer.from(String(d.image.b64 || ""), "base64"), mime: d.image.mime || "image/png" };
     if (!img.buf.length || img.buf.length > 4.5e6) X.fail("Image is empty or too big (max ~4 MB).");
-    const uri = await uploadMeta(d, img), mint = newMint(), meta = { name: d.name, symbol: d.symbol, uri };
+    const uri = await uploadMeta(d, img), mint = await newMint(), meta = { name: d.name, symbol: d.symbol, uri };
     const slip = Math.max(10, Number(st.slipBuy) || 10), cap = (sol) => lam(0.02 + sol * 0.02 + tip); // PumpPortal fee + tip
     let sigs;
     if (!extra.length) {
-      const r = await fetch(PP(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ publicKey: list[0].pub, action: "create", tokenMetadata: meta, mint: mint.pub, denominatedInSol: "true", amount: dev, slippage: slip, priorityFee: 0.0005, pool: "pump" }) });
+      const r = await fetch(PP(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ publicKey: list[0].pub, action: "create", tokenMetadata: meta, mint: mint.pub, denominatedInSol: "true", amount: dev, slippage: slip, priorityFee: 0.0005, pool: "pump", isMayhemMode: !!d.mayhem }) });
       if (!r.ok) X.fail("PumpPortal couldn't build the launch: " + (await r.text().catch(() => "")).slice(0, 120));
-      const raw = Buffer.from(await r.arrayBuffer()), unk = check(raw, cap(dev));
-      if (unk.length) await simulateSpend(toB64(raw), list[0].pub, lam(dev * 1.02 + 0.05) + lam(dev * slip / 100));
+      const nm = noMayhem(Buffer.from(await r.arrayBuffer()), !!d.mayhem), raw = nm.raw, unk = check(raw, cap(dev));
+      if (unk.length || nm.flipped) await simulateSpend(toB64(raw), list[0].pub, lam(dev * 1.02 + 0.05) + lam(dev * slip / 100));
       const signed = V.solSignTx(V.solSignTx(toB64(raw), mint.seed), list[0].seed());
       const sig = await X.srpc("sendTransaction", [signed, { encoding: "base64", preflightCommitment: "confirmed", maxRetries: 3 }]);
       for (let i = 0; i < 20; i++) { await new Promise((ok) => setTimeout(ok, 2000)); const s = await X.srpc("getSignatureStatuses", [[sig]]).catch(() => null), v = s && s.value && s.value[0]; if (v && v.err) X.fail("The launch failed on-chain. Nothing was created (only network fees)."); if (v && (v.confirmationStatus === "confirmed" || v.confirmationStatus === "finalized")) break; if (i === 19) X.fail("The launch didn't confirm in time. Check your wallet on Solscan before retrying."); }
       sigs = [sig];
     } else {
-      const body = [{ publicKey: list[0].pub, action: "create", tokenMetadata: meta, mint: mint.pub, denominatedInSol: "true", amount: dev, slippage: slip, priorityFee: tip, pool: "pump" },
+      const body = [{ publicKey: list[0].pub, action: "create", tokenMetadata: meta, mint: mint.pub, denominatedInSol: "true", amount: dev, slippage: slip, priorityFee: tip, pool: "pump", isMayhemMode: !!d.mayhem },
         ...extra.map((w) => ({ publicKey: w.pub, action: "buy", mint: mint.pub, denominatedInSol: "true", amount: each, slippage: Math.max(slip, 30), priorityFee: 0.00005, pool: "pump" }))];
       const r = await fetch(PP(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const arr = r.ok ? await r.json().catch(() => null) : null;
       if (!Array.isArray(arr) || arr.length !== body.length) X.fail("PumpPortal couldn't build the bundle. Try again.");
-      const raws = arr.map((s) => D.b58dec(s)), unks = raws.map((raw, i) => check(raw, cap(i === 0 ? dev : each)));
+      const nm0 = noMayhem(D.b58dec(arr[0]), !!d.mayhem), raws = [nm0.raw, ...arr.slice(1).map((s) => D.b58dec(s))], unks = raws.map((raw, i) => check(raw, cap(i === 0 ? dev : each)));
       // the create tx can be simulated; the buys can't (the token doesn't exist yet), so they may only use programs the create tx used
-      if (unks[0].length) await simulateSpend(toB64(raws[0]), list[0].pub, lam(dev * 1.02 + 0.05 + tip) + lam(dev * slip / 100));
+      if (unks[0].length || nm0.flipped) await simulateSpend(toB64(raws[0]), list[0].pub, lam(dev * 1.02 + 0.05 + tip) + lam(dev * slip / 100));
       unks.slice(1).forEach((u) => { const bad = u.filter((p) => !unks[0].includes(p)); if (bad.length) throw new Error("Launch blocked: a bundle transaction calls an unknown program (" + bad[0] + ")."); });
       const signed = raws.map((raw, i) => { let t = toB64(raw); if (i === 0) t = V.solSignTx(t, mint.seed); return V.solSignTx(t, (i === 0 ? list[0] : extra[i - 1]).seed()); });
       sigs = (await B.sendBundle(signed)).sigs;
@@ -219,7 +254,7 @@ async function launch(uid, d) {
     for (const x of buyers) { const t = (await X.solTokens(x.w.pub, mint.pub).catch(() => []))[0]; await X.record({ tg_id: uid, chain: "solana", token: mint.pub, side: "buy", native_raw: lam(x.sol).toString(), token_raw: t ? t.raw.toString() : "0", decimals: 6, tx: x.sig, fee_raw: "0", wallet: x.w.idx }); }
     await db.insert("bot_launches", [{ tg_id: uid, mint: mint.pub, name: d.name, symbol: d.symbol, dev_sol: dev, bundle_wallets: extra.length, bundle_each: each, tx: sigs[0] }]).catch(() => {});
     await saveDraft(uid, {}).catch(() => {});
-    return { mint: mint.pub, sigs, bundled: extra.length, dev, each, fee };
+    return { mint: mint.pub, sigs, bundled: extra.length, dev, each, fee, vanity: mint.vanity, mayhem: !!d.mayhem };
   } finally { await X.unlock(uid); }
 }
 
@@ -229,4 +264,4 @@ function cost(d, nExtra) {
   return { dev, each, n, buys, launchFee: launchFee(), tradeFee: buys * T.feeBps() / 10000, w1: dev + 0.03 + launchFee() + buys * T.feeBps() / 10000 + (n ? 0.001 : 0) };
 }
 
-module.exports = { draft, saveDraft, patchDraft, parseDetails, launch, cost, check, launchFee };
+module.exports = { addMints, poolCount, noMayhem, draft, saveDraft, patchDraft, parseDetails, launch, cost, check, launchFee };

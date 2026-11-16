@@ -346,6 +346,7 @@ async function launchView() {
       <div class="field"><label for="lw">Website</label><input id="lw" placeholder="https://…"></div>
       <div class="two"><div class="field"><label for="lv">Dev buy (SOL)</label><input id="lv" inputmode="decimal" value="0"></div>
       <div class="field"><label for="le">Bundle SOL / wallet</label><input id="le" inputmode="decimal" value="0" ${info.wallets < 2 ? "disabled" : ""}></div></div>
+      <label class="small" style="display:flex;gap:8px;align-items:center;margin:8px 0"><input type="checkbox" id="lm"> 🌀 Mayhem mode: pump.fun's AI agent trades your coin for the first 24h</label>
       <p class="small muted">${info.wallets < 2 ? "Bundle needs extra wallets (W2–W5): add them in Wallet." : `Bundle buys with W2–W${info.wallets} in the same block. Scanners (CBL too) will show them as bundlers.`}</p>
       <button class="btn main" style="width:100%">🚀 Launch</button>
     </form>`;
@@ -355,7 +356,7 @@ async function launchView() {
     if (!confirm(`Launch $${$("#ls").value.trim().toUpperCase()} on pump.fun? This can't be undone.`)) return;
     busy(ev.submitter, async () => {
       const img = await shrink(f);
-      const r = await api("launch", { name: $("#ln").value.trim(), symbol: $("#ls").value.trim(), description: $("#ld").value.trim(), twitter: $("#lx").value.trim(), telegram: $("#lt").value.trim(), website: $("#lw").value.trim(), dev: Number($("#lv").value) || 0, bundle: each > 0, each, image: img });
+      const r = await api("launch", { name: $("#ln").value.trim(), symbol: $("#ls").value.trim(), description: $("#ld").value.trim(), twitter: $("#lx").value.trim(), telegram: $("#lt").value.trim(), website: $("#lw").value.trim(), dev: Number($("#lv").value) || 0, bundle: each > 0, each, mayhem: $("#lm").checked, image: img });
       view.innerHTML = `<h2>🎉 Launched!</h2><div class="addr"><code>${E(r.mint)}</code><button data-copy="${E(r.mint)}">Copy</button></div>
         <p><a class="btn main" target="_blank" rel="noopener" href="https://pump.fun/coin/${E(r.mint)}">Open on pump.fun</a> <a class="btn ghost" target="_blank" rel="noopener" href="https://solscan.io/tx/${E(r.tx)}">Transaction</a></p>
         <button class="btn ghost" id="lt2">Trade it</button>`;

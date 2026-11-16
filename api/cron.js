@@ -62,6 +62,11 @@ module.exports = async (req, res) => {
     body: JSON.stringify({ chat_id: uid, text: html, parse_mode: "HTML", disable_web_page_preview: true, reply_markup: { inline_keyboard: [c
       ? [{ text: "📊 Token", callback_data: `Tv${c}:${ca}` }, { text: "🎯 Orders", callback_data: "To" }]
       : [{ text: "📈 Chart", url: url || `https://dexscreener.com/search?q=${ca}` }]] } }) }).catch(() => {});
+  if (job === "mintpool") { // "…pump" mint addresses ground by GitHub Actions (scripts/grind.js)
+    const LN = require("./_lib/launch");
+    if (req.method === "POST") { const n = await LN.addMints(req.body && req.body.keys).catch((e) => ({ error: e.message })); return res.status(200).json({ ok: true, added: n, count: await LN.poolCount() }); }
+    return res.status(200).json({ ok: true, count: await LN.poolCount() });
+  }
   if (job === "copyhook") { // Helius webhook → copy trading (Solana, instant)
     const r = await require("./_lib/copy").onHook(req.body, tgNotify, t0 + 50000, tg).catch((e) => ({ error: String(e.message).slice(0, 100) }));
     return res.status(200).json({ ok: true, job: "copyhook", ...r });

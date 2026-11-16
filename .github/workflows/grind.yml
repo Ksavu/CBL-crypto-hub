@@ -1,0 +1,22 @@
+# Keeps a pool of "…pump" mint addresses ready for 🚀 Launch on pump.fun (CBL Bartender).
+# Grinding takes ~2–4 min per address, so it runs here instead of on Vercel.
+name: Grind pump mints
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # every 6 hours
+  workflow_dispatch: {}
+jobs:
+  grind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Grind
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          GRIND_MINUTES: "45"
+          POOL_TARGET: "20"
+        run: node scripts/grind.js

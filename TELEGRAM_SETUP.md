@@ -214,3 +214,4 @@ Polymarket and Kalshi through Jupiter's Prediction API (`api/_lib/predict.js`).
 - Transactions are built by PumpPortal (local-transaction API) and checked before signing (known programs only, no token approvals, capped SOL transfers).
 - Fees: `LAUNCH_FEE_SOL` (default 0.05) + `BOT_FEE_BPS` of all buys. Optional `PUMPPORTAL_URL` to point at another compatible builder.
 - Bundle = the user's own W2–W5 buy in the same Jito bundle. Bundled launches are not hidden: scanners show them.
+- "…pump" addresses: run `mintpool.sql`, then GitHub → Actions → **Grind pump mints** → Run workflow (it also runs every 6 h). Uses the existing `CRON_SECRET` secret. Launches always use normal mode (Mayhem mode is switched off).

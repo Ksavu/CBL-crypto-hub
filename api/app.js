@@ -132,7 +132,7 @@ module.exports = async (req, res) => {
       else if (a === "launch") { // pump.fun launch from the web app (image as base64)
         const LN = require("./_lib/launch"), det = LN.parseDetails([p.name, p.symbol, p.description, p.twitter, p.telegram, p.website].filter(Boolean).join("\n"));
         if (!p.image || !p.image.b64) throw new T.UserErr("Add an image.");
-        const r = await LN.launch(uid, Object.assign(det, { image: { b64: p.image.b64, mime: p.image.mime === "image/png" ? "image/png" : "image/jpeg" }, dev: Number(p.dev) || 0, bundle: { on: !!p.bundle, each: Number(p.each) || 0 } }));
+        const r = await LN.launch(uid, Object.assign(det, { image: { b64: p.image.b64, mime: p.image.mime === "image/png" ? "image/png" : "image/jpeg" }, dev: Number(p.dev) || 0, bundle: { on: !!p.bundle, each: Number(p.each) || 0 }, mayhem: !!p.mayhem }));
         out = { mint: r.mint, tx: r.sigs[0], bundled: r.bundled };
       }
       else if (a === "stocks") { const ST = require("./_lib/stocks"); out = { list: (await ST.list()).slice(0, 30), market: ST.market() }; }

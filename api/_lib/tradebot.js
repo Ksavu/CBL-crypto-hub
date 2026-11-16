@@ -342,12 +342,14 @@ function make(tg) {
     if (d.description) L.push(`<b>About:</b> ${esc(d.description.slice(0, 160))}${d.description.length > 160 ? "…" : ""}`);
     L.push(`<b>Links:</b> ${[d.twitter && "𝕏", d.telegram && "TG", d.website && "Web"].filter(Boolean).join(" · ") || "—"}`, `<b>Image:</b> ${d.image ? "✅" : "—"}`, "",
       `💰 Dev buy (W1): <b>${c.dev} SOL</b>`,
+      `🌀 Mayhem mode: ${d.mayhem ? "<b>on</b> (pump.fun's AI agent trades your coin for the first 24h)" : "off"}`,
       `📦 Bundle: ${d.bundle && d.bundle.on ? `<b>on</b> · ${c.each} SOL × ${c.n} wallet(s) (W2–W${list.length}) in the same block` : "off"}`, "",
       `<b>Cost:</b> launch fee ${c.launchFee} SOL${c.buys ? ` + ${(T.feeBps() / 100)}% of buys (${c.tradeFee.toFixed(4)} SOL)` : ""} · W1 needs ≈ ${c.w1.toFixed(3)} SOL`);
     if (d.bundle && d.bundle.on) L.push("", "⚠️ Bundled wallets are visible on-chain: scanners (CBL too) will show them as bundlers, and many buyers avoid bundled launches.");
     const ready = d.name && d.symbol && d.image;
     const kb = [[{ text: "✏️ Name, ticker, about, links", callback_data: "TNe" }], [{ text: "🖼 Image", callback_data: "TNi" }, { text: "💰 Dev buy", callback_data: "TNd" }],
       [{ text: d.bundle && d.bundle.on ? "📦 Bundle: on" : "📦 Bundle: off", callback_data: "TNb" }, { text: "📦 SOL per wallet", callback_data: "TNa" }],
+      [{ text: d.mayhem ? "🌀 Mayhem mode: on" : "🌀 Mayhem mode: off", callback_data: "TNm" }],
       [{ text: ready ? "🚀 Launch now" : "🚀 Launch (fill name, ticker, image)", callback_data: ready ? "TNg" : "TN" }], [{ text: "🗑 Clear", callback_data: "TNx" }, { text: "⬅️ Menu", callback_data: "Tm" }]];
     return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
   }
@@ -448,9 +450,10 @@ function make(tg) {
         if (sub === "a") { await ack(); await prompt(chat, "📦 SOL each bundle wallet (W2–W5) buys in the launch block, e.g. <code>0.5</code>", "lnbun", "0.5"); return true; }
         if (sub === "b") { const dr = await LN.draft(uid); await LN.patchDraft(uid, { bundle: { on: !(dr.bundle && dr.bundle.on), each: (dr.bundle && dr.bundle.each) || 0.5 } }); }
         if (sub === "x") await LN.saveDraft(uid, {});
+        if (sub === "m") { const dr = await LN.draft(uid); await LN.patchDraft(uid, { mayhem: !dr.mayhem }); }
         if (sub === "g") { // confirm screen
           await ack(); const dr = await LN.draft(uid), { list } = await require("./bundle").wallets(uid), c = LN.cost(dr, list.length - 1);
-          await edit(chat, mid, { text: `🚀 <b>Launch $${esc(dr.symbol || "")} on pump.fun?</b>\n\n${esc(dr.name || "")} · dev buy ${c.dev} SOL${c.n ? ` · bundle ${c.each} SOL × ${c.n}` : ""}\nFees: ${c.launchFee} SOL launch + ${(T.feeBps() / 100)}% of buys.\n\nThis can't be undone.`,
+          await edit(chat, mid, { text: `🚀 <b>Launch $${esc(dr.symbol || "")} on pump.fun?</b>\n\n${esc(dr.name || "")} · dev buy ${c.dev} SOL${c.n ? ` · bundle ${c.each} SOL × ${c.n}` : ""}${dr.mayhem ? " · 🌀 Mayhem mode" : ""}\nFees: ${c.launchFee} SOL launch + ${(T.feeBps() / 100)}% of buys.\n\nThis can't be undone.`,
             reply_markup: { inline_keyboard: [[{ text: "✅ Yes, launch", callback_data: "TNy" }], [{ text: "⬅️ Back", callback_data: "TN" }]] } });
           return true;
         }
@@ -458,7 +461,7 @@ function make(tg) {
           await ack("Launching…"); await edit(chat, mid, { text: "🚀 Launching on pump.fun… (up to a minute)" }).catch(() => {});
           const r = await LN.launch(uid, await LN.draft(uid));
           const site = (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
-          await send(chat, { text: `🎉 <b>Launched!</b>\n<code>${r.mint}</code>\n${r.dev ? `Dev buy ${r.dev} SOL` : "No dev buy"}${r.bundled ? ` · bundle ${r.each} SOL × ${r.bundled}` : ""}\n<a href="https://solscan.io/tx/${r.sigs[0]}">Transaction</a>`,
+          await send(chat, { text: `🎉 <b>Launched!</b>\n<code>${r.mint}</code>${r.vanity ? "" : "\n<i>(address pool was empty, so it doesn't end in “pump”)</i>"}\n${r.dev ? `Dev buy ${r.dev} SOL` : "No dev buy"}${r.bundled ? ` · bundle ${r.each} SOL × ${r.bundled}` : ""}\n<a href="https://solscan.io/tx/${r.sigs[0]}">Transaction</a>`,
             reply_markup: { inline_keyboard: [[{ text: "💊 pump.fun", url: `https://pump.fun/coin/${r.mint}` }, { text: "📊 Token", callback_data: `Tvs:${r.mint}` }], [{ text: "🔍 Scan", url: `${site}/?ca=${r.mint}#scanner` }, { text: "⬅️ Menu", callback_data: "Tm" }]] } });
           return true;
         }
