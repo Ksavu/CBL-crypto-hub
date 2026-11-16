@@ -24,6 +24,18 @@ if (!isMainThread) {
   process.exit(0);
 }
 
+// Mode 2: `node scripts/grind.js upload <dir>` sends keypair files made by `solana-keygen grind` (much faster, native code).
+async function uploadDir(dir) {
+  const fs = require("fs"), path = require("path"), site = (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "");
+  const keys = fs.readdirSync(dir).filter((f) => /pump\.json$/.test(f)).map((f) => { const a = JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); return { seed: Buffer.from(a.slice(0, 32)).toString("hex"), pub: f.replace(/\.json$/, "") }; });
+  console.log(`uploading ${keys.length} keys`);
+  for (let i = 0; i < keys.length; i += 10) {
+    const r = await fetch(site + "/api/cron?job=mintpool", { method: "POST", headers: { authorization: "Bearer " + process.env.CRON_SECRET, "content-type": "application/json" }, body: JSON.stringify({ keys: keys.slice(i, i + 10) }) }).then((x) => x.json()).catch((e) => ({ error: e.message }));
+    console.log("stored:", JSON.stringify(r));
+  }
+}
+if (process.argv[2] === "upload") { uploadDir(process.argv[3] || ".").then(() => process.exit(0)); return; }
+
 (async () => {
   const site = (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, ""), secret = process.env.CRON_SECRET;
   const minutes = Number(process.env.GRIND_MINUTES || 40), want = Number(process.env.POOL_TARGET || 20);
@@ -33,6 +45,7 @@ if (!isMainThread) {
   console.log(`pool has ${have}, target ${want}, grinding up to ${need} for ${minutes} min on ${os.cpus().length} cores`);
   if (!need) return;
   const until = Date.now() + minutes * 60e3, found = []; let tries = 0, t0 = Date.now();
+  setInterval(() => console.log(`… ${tries} tries, ${Math.round(tries / ((Date.now() - t0) / 1000))}/s, ${found.length} found`), 60e3).unref();
   await new Promise((done) => {
     let alive = os.cpus().length;
     for (let w = 0; w < os.cpus().length; w++) {

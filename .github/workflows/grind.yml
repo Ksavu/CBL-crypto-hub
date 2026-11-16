@@ -1,5 +1,5 @@
 # Keeps a pool of "…pump" mint addresses ready for 🚀 Launch on pump.fun (CBL Bartender).
-# Grinding takes ~2–4 min per address, so it runs here instead of on Vercel.
+# Uses Solana's own `solana-keygen grind` (fast native code); falls back to the Node grinder if the install fails.
 name: Grind pump mints
 on:
   schedule:
@@ -9,14 +9,39 @@ jobs:
   grind:
     runs-on: ubuntu-latest
     timeout-minutes: 55
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      POOL_TARGET: "20"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Grind
+      - name: How many are needed
+        id: need
+        run: |
+          have=$(curl -sS -m 20 -H "Authorization: Bearer $CRON_SECRET" "https://cryptobarlounge.space/api/cron?job=mintpool" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).count||0)}catch(e){console.log(0)}})')
+          need=$(( POOL_TARGET - have )); [ $need -lt 0 ] && need=0
+          echo "pool has $have, need $need"; echo "n=$need" >> "$GITHUB_OUTPUT"
+      - name: Install Solana CLI
+        if: steps.need.outputs.n != '0'
+        id: sol
+        continue-on-error: true
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+      - name: Grind (solana-keygen)
+        if: steps.need.outputs.n != '0' && steps.sol.outcome == 'success'
+        continue-on-error: true
+        run: |
+          mkdir -p keys && cd keys
+          timeout 40m solana-keygen grind --ends-with pump:${{ steps.need.outputs.n }} --num-threads $(nproc) || true
+          ls | wc -l
+      - name: Upload
+        if: steps.need.outputs.n != '0' && steps.sol.outcome == 'success'
+        run: node scripts/grind.js upload keys
+      - name: Grind (Node fallback)
+        if: steps.need.outputs.n != '0' && steps.sol.outcome != 'success'
         env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           GRIND_MINUTES: "45"
-          POOL_TARGET: "20"
         run: node scripts/grind.js
