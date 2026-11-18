@@ -60,6 +60,7 @@ const HOME_KB = [
   [{ text: "🍸 Open CBL Bartender App", url: (process.env.SITE_URL || "https://cryptobarlounge.space").replace(/\/$/, "") + "/bartender" }],
   [{ text: "👥 Copy trade", callback_data: "TC" }, { text: "🔔 Alerts", callback_data: "TL" }, { text: "⭐ Points", callback_data: "TP" }],
   [{ text: "🤝 Referrals", callback_data: "TR" }, { text: "❓ Help", callback_data: "TH" }, { text: "🔄 Refresh", callback_data: "Tm" }],
+  ...[require("./promo").row()].filter(Boolean), // partner promo (PROMO_* env)
 ];
 async function menuMsg(row) {
   const st = T.settings(row);
