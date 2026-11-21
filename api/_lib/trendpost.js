@@ -61,7 +61,7 @@ async function build(site) {
   top.forEach((r, i) => L.push(line(r, i, site, false)));
   if (!top.length) L.push("Loading the trending list… back in a few minutes.");
   L.push("", "<i>Ranked by volume, buys and momentum. Scores = CBL safety checks, not advice. DYOR.</i>");
-  const kb = [[{ text: "🍸 Trade with CBL Bartender", url: bot() ? `https://t.me/${bot()}?start=trade` : site + "/bartender" }], ...[require("./promo").row()].filter(Boolean),
+  const kb = [[{ text: "🍸 Trade with CBL Bartender", url: bot() ? `https://t.me/${bot()}?start=trade` : site + "/bartender" }], ...require("./promo").rows(),
     [{ text: "📡 Token Radar", url: site + "/radar" }, { text: "🔥 Get trending", url: env("TRENDING_CONTACT") ? "https://t.me/" + env("TRENDING_CONTACT").replace(/^@/, "") : site }]];
   return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
 }

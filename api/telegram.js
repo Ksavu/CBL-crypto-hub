@@ -167,6 +167,7 @@ async function onMessage(msg) {
     // Deep links from the website: t.me/<bot>?start=track_<wallet>[_<chain>] or ?start=w_<wallet>
     const sp = name === "start" && args[0] ? args[0].match(/^(track|w)_([A-Za-z0-9]{25,64})(?:_([a-z]+))?$/) : null;
     require("./_lib/points").seen(msg.from).catch(() => {});
+    if (name === "mintmelt" || name === "bnb" || (name === "start" && args[0] === "mintmelt")) { const m = require("./_lib/promo").msg("mintmelt"); return void (await reply(msg, m.text, { reply_markup: m.reply_markup })); }
     if (name === "game" || name === "galaxy" || (name === "start" && args[0] === "game")) { const m = require("./_lib/promo").msg(); return void (await reply(msg, m.text, { reply_markup: m.reply_markup })); }
     if (name === "points" || (name === "start" && args[0] === "points")) { const m = await require("./_lib/points").pointsMsg(msg.from.id); return void (await reply(msg, m.text, { reply_markup: m.reply_markup })); }
     if (name === "rank") { const m = await require("./_lib/points").rankMsg(msg.chat.type === "private" ? null : msg.chat.id, tg); return void (await reply(msg, m.text)); }

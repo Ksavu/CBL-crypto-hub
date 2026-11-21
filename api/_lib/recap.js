@@ -36,7 +36,7 @@ async function build(site) {
     rugs.forEach((r) => L.push(`• ${link(r)} · ${CH[r.chain] || r.chain} · score <b>${r.s.score}/100</b> → <b>${Math.round(r.ch24)}%</b>`));
   }
   L.push("", "<i>Scan before you ape: paste any contract in the bot. Not financial advice.</i>");
-  const kb = [[{ text: "🔍 Scan a token", url: bot() ? `https://t.me/${bot()}` : site }, { text: "🍸 Trade", url: bot() ? `https://t.me/${bot()}?start=trade` : site + "/bartender" }], ...[require("./promo").row()].filter(Boolean)];
+  const kb = [[{ text: "🔍 Scan a token", url: bot() ? `https://t.me/${bot()}` : site }, { text: "🍸 Trade", url: bot() ? `https://t.me/${bot()}?start=trade` : site + "/bartender" }], ...require("./promo").rows()];
   return { text: L.join("\n"), reply_markup: { inline_keyboard: kb } };
 }
 

@@ -166,6 +166,7 @@ const HELP = [
   "/alert &lt;address&gt; 2x | +50% | -30% | mc 1m | $0.01 – price alert in DM · /alerts · /unalert &lt;id&gt;",
   "/boost &lt;address&gt; [hours] – put a token on top of CBL Trending (admins)",
   "/game – 🪐 play Degen Galaxy, win SOL",
+  "/mintmelt – 🫠 launch a BNB Chain token on MintMelt",
   "/help",
   "",
   "In groups I also scan any contract address posted in chat.",
